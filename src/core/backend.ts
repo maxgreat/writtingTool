@@ -1,6 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { Change } from "./binder";
 import type { ProjectSnapshot } from "./project";
+import type { NewProject, ProjectEntry } from "./projects";
 
 /** An earlier version of a chapter, kept on this device. */
 export interface Version {
@@ -17,13 +18,22 @@ export interface Version {
  */
 export interface Backend {
   readonly kind: "app" | "browser";
-  /** Whether `pickProjectFolder` can show a folder picker. */
+  /** Whether `pickProjectFolder` can show a folder picker (desktops; on phones projects live in the app's folder). */
   readonly canOpenFolders: boolean;
+  /** Whether `createProject` can create projects (not in the browser preview). */
+  readonly canCreateProjects: boolean;
   openSampleProject(): Promise<ProjectSnapshot>;
   /** Opens a project folder by path (the one used last time, or one picked). */
   openProject(path: string): Promise<ProjectSnapshot>;
   /** Shows a folder picker; the chosen folder's path, or null if cancelled. Opens nothing. */
   pickProjectFolder(): Promise<string | null>;
+  /**
+   * The projects on this device: those in the app's own folder, then the
+   * `recent` folders opened from elsewhere that still open.
+   */
+  listProjects(recent: string[]): Promise<ProjectEntry[]>;
+  /** Creates a project in the app's own folder and opens it. */
+  createProject(project: NewProject): Promise<ProjectSnapshot>;
   /**
    * Makes a change to the binder (create folders, move chapters and parts,
    * write files) as a whole or not at all, and resolves to the project as it
@@ -65,9 +75,9 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   }
 }
 
-const appBackend: Backend = {
+const appBackend: Omit<Backend, "canOpenFolders"> = {
   kind: "app",
-  canOpenFolders: true,
+  canCreateProjects: true,
   openSampleProject: () => call<ProjectSnapshot>("open_sample_project"),
   openProject: (path) => call<ProjectSnapshot>("open_project", { path }),
   async pickProjectFolder() {
@@ -75,6 +85,8 @@ const appBackend: Backend = {
     const path = await open({ directory: true, multiple: false, title: "Open a project folder" });
     return typeof path === "string" ? path : null;
   },
+  listProjects: (recent) => call<ProjectEntry[]>("list_projects", { recent }),
+  createProject: ({ name, folders, files }) => call<ProjectSnapshot>("create_project", { name, folders, files }),
   applyChanges: (root, change) => call<ProjectSnapshot>("apply_changes", { root, change }),
   writeFile: (root, path, text) => call<string | null>("write_project_file", { root, path, text }),
   listVersions: (root, chapter) => call<Version[]>("list_versions", { root, chapter }),
@@ -88,7 +100,10 @@ const appBackend: Backend = {
 };
 
 export async function loadBackend(): Promise<Backend> {
-  if (isTauri()) return appBackend;
+  if (isTauri()) {
+    const info = await call<{ canOpenFolders: boolean }>("app_info");
+    return { ...appBackend, canOpenFolders: info.canOpenFolders };
+  }
   const { browserBackend } = await import("./browserBackend");
   return browserBackend;
 }

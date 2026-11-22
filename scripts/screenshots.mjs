@@ -51,6 +51,15 @@ const SCENES = [
       await page.getByRole("button", { name: "Restore Upstream" }).waitFor();
     },
   },
+  {
+    name: "desktop-projects",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      await page.locator(".binder-title-button").click();
+      await page.getByRole("dialog", { name: "Projects" }).locator(".project-row.is-open").waitFor();
+    },
+  },
   { name: "phone", ...PHONE, colorScheme: "light" },
   {
     name: "phone-binder",
@@ -63,6 +72,17 @@ const SCENES = [
     ...PHONE,
     colorScheme: "light",
     setup: (page) => page.locator('button[aria-controls="inspector"]').click(),
+  },
+  {
+    name: "phone-projects",
+    ...PHONE,
+    colorScheme: "light",
+    setup: async (page) => {
+      // The Projects view opens from the project title, at the top of the binder.
+      await page.locator('button[aria-controls="binder"]').click();
+      await page.locator(".binder-title-button").click();
+      await page.locator(".bottom-sheet.is-open .project-row.is-open").waitFor();
+    },
   },
 ];
 

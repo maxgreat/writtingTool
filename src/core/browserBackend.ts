@@ -1,6 +1,6 @@
 import type { Backend, Version } from "./backend";
 import { applyChange, type MemoryTree } from "./memoryFiles";
-import type { ProjectSnapshot } from "./project";
+import { buildProject, type ProjectSnapshot } from "./project";
 
 /**
  * Stand-in for the Rust core when the interface runs in a plain browser. It
@@ -72,11 +72,19 @@ function snapshot(): ProjectSnapshot {
 export const browserBackend: Backend = {
   kind: "browser",
   canOpenFolders: false,
+  canCreateProjects: false,
   openSampleProject: async () => snapshot(),
   openProject: async () => {
     throw new Error("The browser preview can only open the sample project.");
   },
   pickProjectFolder: async () => null,
+  async listProjects() {
+    const { title } = buildProject(snapshot());
+    return [{ path: ROOT, title, inAppFolder: true }];
+  },
+  createProject: async () => {
+    throw new Error("The browser preview can only open the sample project.");
+  },
   async writeFile(root, path, text) {
     checkRoot(root);
     const current = tree.files.get(path);

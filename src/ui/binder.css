@@ -1,4 +1,4 @@
-/* The binder: project title, manuscript tree, sheet types, Trash, Open folder. */
+/* The binder: project title, manuscript tree, sheet types, Trash; and the Projects view the title opens. */
 
 .binder {
   display: flex;
@@ -14,13 +14,41 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  padding-inline-start: var(--space-2);
 }
 
 .binder-title {
   min-width: 0;
   font-size: var(--text-lg);
   overflow-wrap: anywhere;
+}
+
+/*
+ * The title opens the Projects view. It keeps the heading's type, and its
+ * padding lines the text up with the rows'. The chevron runs inline after
+ * the last word, so a title on two lines keeps it at its end, and the
+ * balanced wrap doesn't leave it alone on a line.
+ */
+.binder-title-button {
+  max-width: 100%;
+  min-height: var(--size-control);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  text-align: start;
+  text-wrap: balance;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.binder-title-button:hover,
+.binder-title-button[aria-expanded="true"] {
+  background: var(--color-hover);
+}
+
+.binder-title-button .chevron {
+  margin-inline-start: var(--space-1);
+  color: var(--color-text-muted);
+  vertical-align: middle;
 }
 
 .binder-add {
@@ -293,11 +321,170 @@
   flex: none;
 }
 
-.binder-footer {
+/* The Projects view: a dialog under the title on desktop, a sheet on phones. -- */
+
+.projects-popover {
+  width: min(var(--size-dialog), calc(100vw - 2 * var(--space-2)));
+  max-width: none;
+}
+
+/* Titles, folders and messages break anywhere rather than overflow: paths have no spaces to break at. */
+.projects {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  overflow-wrap: anywhere;
+}
+
+/* Focus rests on the view itself until it moves to a project. */
+.projects:focus {
+  outline: none;
+}
+
+.projects--sheet {
+  gap: var(--space-4);
+}
+
+/* Phones: the heading and the sheet's close button, the heading in line with the rows. */
+.projects-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-inline-start: var(--space-2);
+}
+
+.projects-heading {
+  font-size: var(--text-xl);
+}
+
+/* Pulled out a little, so the cross sits as far from the edge as the heading. */
+.projects-head .btn--icon {
+  margin-inline-end: calc(var(--space-1) * -1);
+}
+
+/* The list, then Open folder… as one more way to choose what to open. */
+.projects-choices,
+.projects-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+/* A row: the check column (as in menus), then the title and its folder. */
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--size-control);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  /* Popover radius minus its padding. */
+  border-radius: var(--radius-md);
+  background: transparent;
+  text-align: start;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+button.project-row:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+button.project-row:disabled {
+  color: var(--color-text-muted);
+}
+
+.project-row .check-slot {
+  display: inline-flex;
+  flex: none;
+  width: var(--size-icon);
+}
+
+.project-row .check {
+  color: var(--color-accent);
+}
+
+.project-row.is-open .project-title {
+  font-weight: var(--weight-medium);
+}
+
+.project-row--action {
+  color: var(--color-text-muted);
+}
+
+button.project-row--action:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.project-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.project-detail {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.project-state {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+/* Notes and errors line up with the heading; a row's error with its title. */
+.projects-error,
+.projects-note,
+.projects .empty-note,
+.new-project {
+  padding-inline: var(--space-2);
+}
+
+.project-error {
+  padding-block: var(--space-1);
+  padding-inline: calc(2 * var(--space-2) + var(--size-icon)) var(--space-2);
+}
+
+.projects-error {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-1);
-  margin-top: auto;
-  padding-top: var(--space-2);
+}
+
+/* Pulled out by its padding, so the label lines up with the text. */
+.projects-error .btn {
+  margin-inline-start: calc(var(--space-2) * -1);
+}
+
+.new-project {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-block-end: var(--space-2);
+}
+
+/* Each label beside its control, as in the inspector's chapter details. */
+.new-project-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-1-5) var(--space-3);
+}
+
+.new-project-fields label {
+  color: var(--color-text-muted);
+}
+
+.new-project-fields .input {
+  width: 100%;
+  min-width: 0;
+}
+
+.new-project-actions {
+  display: flex;
+  padding-top: var(--space-1);
 }

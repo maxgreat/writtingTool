@@ -136,7 +136,7 @@ fn without_md(relative: &str, is_file: bool) -> &str {
 
 /// Checks a relative path's segments, as written by the interface: plain
 /// names only, none hidden, no `.` or `..`.
-fn plain_segments(relative: &str) -> io::Result<Vec<&str>> {
+pub(crate) fn plain_segments(relative: &str) -> io::Result<Vec<&str>> {
     // Checked on the raw `/`-separated segments: Path::components would
     // quietly drop a `.` and accept `\` or drive prefixes on Windows.
     let parts: Vec<&str> = relative.split('/').collect();
@@ -198,7 +198,7 @@ fn version_files(dir: &Path) -> io::Result<Vec<(u64, PathBuf)>> {
     Ok(versions)
 }
 
-fn is_hidden(name: &std::ffi::OsStr) -> bool {
+pub(crate) fn is_hidden(name: &std::ffi::OsStr) -> bool {
     name.to_string_lossy().starts_with('.')
 }
 
@@ -219,6 +219,11 @@ impl ProjectRoot {
             return Err(invalid("not a project folder: it needs a project.json or a manuscript folder"));
         }
         Ok(Self { root })
+    }
+
+    /// The project's folder, as its snapshot reports it.
+    pub fn path(&self) -> &Path {
+        &self.root
     }
 
     /// Whether `root` names this project, as its snapshot reported it.

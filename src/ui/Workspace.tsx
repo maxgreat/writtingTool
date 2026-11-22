@@ -6,16 +6,19 @@ import type { Project } from "../core/project";
 import type { EditorMode, ViewSettings } from "../core/settings";
 import type { useProject } from "../core/useProject";
 import { Binder } from "./Binder";
-import { BottomSheet } from "./BottomSheet";
+import { SheetPreview } from "./BottomSheet";
 import { cx, hasMod, shortcut } from "./dom";
 import { EditorPane } from "./EditorPane";
 import { FormatBar } from "./FormatBar";
 import { HOVER_QUERY, useMediaQuery } from "./hooks";
 import { Inspector, type InspectorView } from "./Inspector";
 import { panelStyle } from "./layoutStyle";
+import type { ProjectsSource } from "./Projects";
 import { ResizeHandle } from "./ResizeHandle";
 import { StatusBar } from "./StatusBar";
-import { useOpenFolder } from "./useOpenFolder";
+import type { SwipeIntent } from "./swipe";
+import { useEdgeSwipe } from "./useEdgeSwipe";
+import { useOnScreenKeyboard } from "./useOnScreenKeyboard";
 
 type ProjectApi = ReturnType<typeof useProject>;
 
@@ -29,6 +32,9 @@ export interface WorkspaceProps {
 }
 
 const NO_FORMAT: FormatState = { bold: false, italic: false, block: "body" };
+
+/** Where focus must be for the on-screen keyboard to dock the formatting bar: the chapter text. */
+const KEYBOARD_SCOPE = ".editor-pane";
 
 /**
  * The main window: formatting bar on top, binder, chapter and inspector,
@@ -83,6 +89,34 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
 
   const binderVisible = !focusMode && (isPhone ? phonePanel === "binder" : settings.binderOpen);
   const inspectorVisible = !focusMode && (isPhone ? phonePanel === "inspector" : settings.inspectorOpen);
+
+  /* Phones: edge swipes and the on-screen keyboard -------------------------- */
+
+  const mainRef = useRef<HTMLDivElement>(null);
+
+  /** A swipe from an edge slides its panel in; one towards an open panel's edge sends it back. */
+  const onSwipe = useCallback((intent: SwipeIntent) => {
+    if (intent.action === "close") {
+      setPhonePanel(null);
+      return;
+    }
+    // The panel covers the text: the on-screen keyboard goes away with the caret, as when its button is pressed.
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.closest(KEYBOARD_SCOPE)) active.blur();
+    setPhonePanel(intent.panel);
+  }, []);
+
+  useEdgeSwipe({ area: mainRef, enabled: isPhone && !focusMode, open: phonePanel, onSwipe });
+
+  /**
+   * While the on-screen keyboard is up for the chapter, the formatting bar
+   * docks just above it and the status bar makes room, unless it has a save
+   * error to show. Only the app's shell can say the keyboard is up (see the
+   * hook): where nothing says so, as on desktop or in the browser preview,
+   * the bars stay where they are, however the window is resized.
+   */
+  const keyboardUp = useOnScreenKeyboard(isPhone && !focusMode, KEYBOARD_SCOPE);
+  const statusShown = !focusMode && (!keyboardUp || api.save.status === "error");
 
   // Leaving phone layout closes the overlays.
   useEffect(() => {
@@ -271,7 +305,17 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     if (editorRef.current) command(editorRef.current);
   };
 
-  const { busy: opening, error: openError, run: openFolder } = useOpenFolder(api.openFolder);
+  const projects: ProjectsSource = {
+    current: project.root,
+    loads: api.loads,
+    list: api.listProjects,
+    open: api.openProjectAt,
+    create: api.createProject,
+    openFolder: backend.canOpenFolders ? api.openFolder : undefined,
+    canCreate: backend.canCreateProjects,
+    busy: api.switching,
+    phone: isPhone,
+  };
 
   const empty = (
     <div className="editor-empty">
@@ -284,17 +328,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
         <button type="button" className="btn btn--primary" onClick={startFirstChapter} disabled={api.switching}>
           New chapter
         </button>
-        {backend.canOpenFolders && (
-          <button type="button" className="btn btn--quiet" onClick={openFolder} disabled={opening || api.switching}>
-            {opening ? "Opening…" : "Open folder…"}
-          </button>
-        )}
       </div>
-      {openError && (
-        <p className="inline-error" role="alert">
-          {openError}
-        </p>
-      )}
     </div>
   );
 
@@ -304,6 +338,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
         "workspace",
         isPhone ? "is-phone" : "is-desktop",
         focusMode && "is-focus",
+        keyboardUp && "is-keyboard",
         (drag.binder !== undefined || drag.inspector !== undefined) && "is-resizing",
       )}
       style={panelStyle(settings, drag)}
@@ -346,7 +381,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
         />
       </header>
 
-      <div className="workspace-main">
+      <div ref={mainRef} className="workspace-main">
         <div id="binder" className={cx("panel panel--binder", binderVisible && "is-open")} inert={!binderVisible}>
           <div className="panel-inner">
             <Binder
@@ -354,7 +389,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
               openChapterId={openChapterId}
               onOpenChapter={openChapter}
               onOpenSheet={openSheet}
-              onOpenFolder={backend.canOpenFolders ? api.openFolder : undefined}
+              projects={projects}
               onChange={api.changeBinder}
               onChapterDetails={api.updateChapterDetails}
               busy={api.switching}
@@ -445,7 +480,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
         )}
       </div>
 
-      {!focusMode && (
+      {statusShown && (
         <StatusBar
           chapterWords={chapter?.wordCount ?? null}
           bookWords={api.bookWords}
@@ -460,7 +495,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
       )}
 
       {isPhone && (
-        <BottomSheet
+        <SheetPreview
           sheet={preview.id ? (sheetsById.get(preview.id) ?? null) : null}
           open={preview.open}
           onClose={closePreview}

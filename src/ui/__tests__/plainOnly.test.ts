@@ -32,6 +32,11 @@ const initialProject = buildProject({
 const backend: Backend = {
   kind: "browser",
   canOpenFolders: false,
+  canCreateProjects: false,
+  listProjects: async () => [],
+  createProject: async () => {
+    throw new Error("unused");
+  },
   openSampleProject: async () => {
     throw new Error("unused");
   },

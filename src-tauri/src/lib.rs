@@ -2,11 +2,14 @@
 //! commands, and the core owns the project folder.
 
 mod project;
+mod projects;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use project::{Change, ProjectRoot, ProjectSnapshot, Version};
+use project::{Change, FileWrite, ProjectRoot, ProjectSnapshot, Version};
+use projects::ProjectEntry;
+use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
 /// The open project. The lock is held for a whole command, so two writes or
@@ -25,16 +28,59 @@ fn open_into(state: &mut Option<ProjectRoot>, dir: PathBuf) -> Result<ProjectSna
     Ok(snapshot)
 }
 
+/// The app's own projects folder, in its data folder.
+fn projects_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Cannot find the app data folder: {e}"))?
+        .join("projects"))
+}
+
+/// What this device can do that others can't.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppInfo {
+    /// Desktops can show a folder picker and open a project from any folder.
+    /// On phones, projects live in the app's own folder.
+    can_open_folders: bool,
+}
+
+#[tauri::command]
+fn app_info() -> AppInfo {
+    AppInfo { can_open_folders: cfg!(desktop) }
+}
+
+/// The projects in the app's own folder, then the `recent` folders opened
+/// from elsewhere that still open.
+#[tauri::command]
+async fn list_projects(app: AppHandle, recent: Vec<String>) -> Result<Vec<ProjectEntry>, String> {
+    let dir = projects_dir(&app)?;
+    projects::list(&dir, &recent).map_err(|e| format!("Cannot list the projects in {}: {e}", dir.display()))
+}
+
+/// Creates a project in the app's own folder and opens it.
+#[tauri::command]
+async fn create_project(
+    app: AppHandle,
+    name: String,
+    folders: Vec<String>,
+    files: Vec<FileWrite>,
+    state: State<'_, AppState>,
+) -> Result<ProjectSnapshot, String> {
+    let mut guard = state.project.lock().map_err(|_| "The project state is unavailable.")?;
+    let dir = projects_dir(&app)?;
+    let created = projects::create(&dir, &name, &folders, &files)
+        .map_err(|e| format!("Cannot create the project in {}: {e}", dir.display()))?;
+    open_into(&mut guard, created)
+}
+
 /// Opens the sample project kept in the app's data folder, installing it on
 /// first run.
 #[tauri::command]
 async fn open_sample_project(app: AppHandle, state: State<'_, AppState>) -> Result<ProjectSnapshot, String> {
     let mut guard = state.project.lock().map_err(|_| "The project state is unavailable.")?;
-    let projects = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Cannot find the app data folder: {e}"))?
-        .join("projects");
+    let projects = projects_dir(&app)?;
     let dir = project::install_sample(&projects)
         .map_err(|e| format!("Cannot install the sample project in {}: {e}", projects.display()))?;
     open_into(&mut guard, dir)
@@ -139,6 +185,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_sample_project,
             open_project,
+            app_info,
+            list_projects,
+            create_project,
             write_project_file,
             list_versions,
             restore_version,

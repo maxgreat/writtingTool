@@ -202,6 +202,16 @@
   height: 100%;
 }
 
+/*
+ * Edge swipes (useEdgeSwipe.ts): up and down stay with the browser, which
+ * scrolls; sideways moves are left to the page, which slides the panels.
+ * Set on every element, as each scrolling box starts its own touch-action.
+ */
+.is-phone .workspace-main,
+.is-phone .workspace-main * {
+  touch-action: pan-y pinch-zoom;
+}
+
 .scrim {
   position: fixed;
   inset: 0;
@@ -223,7 +233,7 @@
   transition: opacity var(--duration-base) var(--ease-standard);
 }
 
-/* A tapped name on a phone: half-height preview of the sheet. */
+/* A modal sheet from the bottom on phones; a tapped name's preview is half the height. */
 .bottom-sheet {
   position: fixed;
   right: 0;
@@ -248,4 +258,44 @@
   translate: 0 0;
   visibility: visible;
   transition: translate var(--duration-slow) var(--ease-standard);
+}
+
+/* A sheet as tall as what it holds, such as the Projects view. */
+.bottom-sheet--fit {
+  height: auto;
+  max-height: var(--sheet-max-height);
+}
+
+/* Opened from a side panel, so above it. */
+.scrim.is-over-panels {
+  z-index: var(--z-dialog-scrim);
+}
+
+.bottom-sheet.is-over-panels {
+  z-index: var(--z-dialog);
+}
+
+/*
+ * Phones, while the on-screen keyboard is up for the chapter
+ * (useOnScreenKeyboard.ts): the page ends just above the keyboard, the
+ * formatting bar docks at its bottom, by the thumbs, and the status bar
+ * makes room (Workspace keeps it for a save error). The workspace takes over
+ * the safe-area padding the bars had at the top and the bottom.
+ */
+.is-keyboard {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.is-keyboard .bar-slot {
+  order: 1;
+}
+
+.is-keyboard .format-bar {
+  padding-top: var(--space-2);
+}
+
+.is-keyboard .status-bar {
+  order: 2;
+  padding-bottom: 0;
 }

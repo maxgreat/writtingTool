@@ -47,6 +47,16 @@ beforeEach(() => {
     openChapterId: ONE,
     onOpenChapter: vi.fn(),
     onOpenSheet: vi.fn(),
+    projects: {
+      current: "/test",
+      loads: 1,
+      list: async () => [],
+      open: async () => undefined,
+      create: async () => undefined,
+      canCreate: true,
+      busy: false,
+      phone: false,
+    },
     onChange: vi.fn(async (makePlan: (p: Project) => Plan | null) => {
       plans.push(makePlan(props.project));
     }),

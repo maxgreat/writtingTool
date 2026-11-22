@@ -39,9 +39,9 @@ import {
 } from "./binderModel";
 import { cx, errorMessage, formatCount, plural } from "./dom";
 import { MenuButton, MenuItem, Popover } from "./Popover";
+import { ProjectsButton, type ProjectsSource } from "./Projects";
 import { SheetTypeIcon } from "./SheetTypeIcon";
 import { useBinderDrag } from "./useBinderDrag";
-import { useOpenFolder } from "./useOpenFolder";
 
 type Part = Extract<BinderItem, { type: "part" }>;
 
@@ -50,8 +50,8 @@ export interface BinderProps {
   openChapterId: string | null;
   onOpenChapter(id: string): void;
   onOpenSheet(id: string): void;
-  /** Present only when this device can show a folder picker. */
-  onOpenFolder?: () => Promise<void>;
+  /** The projects on this device, opened from the project title (see Projects.tsx). */
+  projects: ProjectsSource;
   /**
    * Makes a change to the binder: useProject's changeBinder. Rejects with a
    * message for the writer; the binder shows it and keeps what was typed.
@@ -97,17 +97,18 @@ interface Failure {
 const TRASH_GROUP = "trash";
 
 /**
- * The left panel: the project title, parts as folders with their chapters,
- * each sheet type with its sheets, then the Trash. Chapters and parts have a
- * menu (right-click, long-press, or the More button) to rename, set a
- * status, move, add and trash; a mouse or pen can also drag them.
+ * The left panel: the project title (which opens the Projects view), parts
+ * as folders with their chapters, each sheet type with its sheets, then the
+ * Trash. Chapters and parts have a menu (right-click, long-press, or the
+ * More button) to rename, set a status, move, add and trash; a mouse or pen
+ * can also drag them.
  */
 export function Binder({
   project,
   openChapterId,
   onOpenChapter,
   onOpenSheet,
-  onOpenFolder,
+  projects,
   onChange,
   onChapterDetails,
   busy: projectBusy,
@@ -686,7 +687,9 @@ export function Binder({
       aria-busy={busy}
     >
       <div className="binder-head">
-        <h1 className="binder-title">{project.title}</h1>
+        <h1 className="binder-title">
+          <ProjectsButton title={project.title} source={projects} />
+        </h1>
         <div ref={addRef} className="binder-add">
           <MenuButton
             open={addOpen}
@@ -820,8 +823,6 @@ export function Binder({
           )}
         </Group>
       </section>
-
-      {onOpenFolder && <OpenFolder onOpenFolder={onOpenFolder} />}
 
       {menu && menuItemExists && (
         <Popover
@@ -973,22 +974,5 @@ function Group({
         {children}
       </div>
     </>
-  );
-}
-
-function OpenFolder({ onOpenFolder }: { onOpenFolder(): Promise<void> }) {
-  const { busy, error, run } = useOpenFolder(onOpenFolder);
-  return (
-    <div className="binder-footer">
-      <button type="button" className="btn btn--quiet" onClick={run} disabled={busy}>
-        <FolderOpen aria-hidden />
-        {busy ? "Opening…" : "Open folder…"}
-      </button>
-      {error && (
-        <p className="inline-error" role="alert">
-          {error}
-        </p>
-      )}
-    </div>
   );
 }

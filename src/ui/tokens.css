@@ -83,7 +83,15 @@
   /* A press becomes a drag in the binder once the pointer has moved this far. */
   --size-drag-threshold: 4px;
   --size-reveal-zone: 8px;
+  /* Phones: a touch this close to a screen edge can slide that side's panel in. */
+  --size-swipe-edge: 24px;
+  /* A touch that has moved this far is judged: a swipe, or a scroll left to the browser. */
+  --size-swipe-slop: 8px;
+  /* A swipe opens or closes a panel once it has travelled this far. */
+  --size-swipe-distance: 32px;
   --size-card: 18rem;
+  /* The Projects view on desktop. */
+  --size-dialog: 24rem;
   --size-popover-min: 11rem;
   --size-popover-max: 20rem;
   --size-error: 32rem;
@@ -97,6 +105,8 @@
   --panel-max-share: 34vw;
   --phone-panel-width: min(86vw, 22rem);
   --sheet-preview-height: 50dvh;
+  /* A sheet as tall as its content, up to this (the Projects view on phones). */
+  --sheet-max-height: 90dvh;
   --editor-gutter: var(--space-6);
   --editor-top: var(--space-12);
   --editor-overscroll: 40vh;
@@ -110,6 +120,8 @@
   --duration-slow: 250ms;
   --duration-hover-delay: 350ms;
   --duration-pulse: 1.6s;
+  /* A finger that rests this long before moving is a long-press (a selection, a menu), not a swipe. */
+  --duration-swipe-hold: 300ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
   /* Stacking. */
@@ -117,6 +129,9 @@
   --z-bar: 10;
   --z-scrim: 20;
   --z-overlay: 21;
+  /* A sheet opened from a side panel on phones, with its scrim, above the panel. */
+  --z-dialog-scrim: 30;
+  --z-dialog: 31;
   --z-popover: 40;
 
   /* Colour, light theme. One accent: active states, the primary action, key data. */

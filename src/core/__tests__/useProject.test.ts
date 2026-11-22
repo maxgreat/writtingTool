@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Backend, Version } from "../backend";
 import type { Change, Plan } from "../binder";
+import type { NewProject, ProjectEntry } from "../projects";
 import type { ProjectSnapshot } from "../project";
 import { AUTOSAVE_DELAY_MS, useProject } from "../useProject";
 
@@ -22,6 +23,8 @@ const snapshot: ProjectSnapshot = {
 };
 
 const writeFile = vi.fn<(root: string, path: string, text: string) => Promise<string | null>>();
+const listProjects = vi.fn<(recent: string[]) => Promise<ProjectEntry[]>>();
+const createProject = vi.fn<(project: NewProject) => Promise<ProjectSnapshot>>();
 const applyChanges = vi.fn<(root: string, change: Change) => Promise<ProjectSnapshot>>();
 const listVersions = vi.fn<(root: string, chapter: string) => Promise<Version[]>>();
 const restoreVersion = vi.fn<(root: string, chapter: string, savedAt: number) => Promise<string>>();
@@ -32,6 +35,9 @@ const openProject = vi.fn<(path: string) => Promise<ProjectSnapshot>>();
 const fake: { -readonly [K in keyof Backend]: Backend[K] } = {
   kind: "browser",
   canOpenFolders: true,
+  canCreateProjects: true,
+  listProjects,
+  createProject,
   openSampleProject: async () => snapshot,
   openProject,
   pickProjectFolder,
@@ -66,6 +72,8 @@ beforeEach(async () => {
   writeFile.mockReset().mockResolvedValue(null);
   listVersions.mockReset().mockResolvedValue([]);
   applyChanges.mockReset().mockResolvedValue(snapshot);
+  listProjects.mockReset().mockResolvedValue([]);
+  createProject.mockReset().mockResolvedValue(snapshot);
   restoreVersion.mockReset().mockResolvedValue("# One\n\nAn older text.\n");
   pickProjectFolder.mockReset().mockResolvedValue(null);
   openProject.mockReset().mockResolvedValue(snapshot);
@@ -360,6 +368,51 @@ describe("chapter details and the binder", () => {
     });
     expect(String(error)).toContain("could not be saved");
     expect(applyChanges).not.toHaveBeenCalled();
+  });
+});
+
+describe("projects", () => {
+  const other: ProjectSnapshot = { ...snapshot, root: "/projects/Other", folderName: "Other" };
+
+  it("creates a project in the app's folder and opens it", async () => {
+    createProject.mockResolvedValue(other);
+    act(() => api.updateChapter(CHAPTER, "Typed."));
+    await act(() => api.createProject("Night Ferry", "fr-FR"));
+    expect(writeFile).toHaveBeenCalledWith("/projects/Test", CHAPTER, "Typed.\n");
+    const [created] = createProject.mock.calls[0];
+    expect(created.name).toBe("Night Ferry");
+    expect(JSON.parse(created.files[0].text)).toMatchObject({ title: "Night Ferry", language: "fr-FR" });
+    expect(api.project?.root).toBe("/projects/Other");
+    expect(api.switching).toBe(false);
+  });
+
+  it("opens a project from the list and remembers it among the recent ones", async () => {
+    const original = fake.kind;
+    fake.kind = "app";
+    try {
+      openProject.mockResolvedValue(other);
+      await act(() => api.openProjectAt("/projects/Other"));
+      expect(openProject).toHaveBeenCalledWith("/projects/Other");
+      expect(api.project?.root).toBe("/projects/Other");
+      listProjects.mockResolvedValue([{ path: "/projects/Other", title: "Other", inAppFolder: false }]);
+      await expect(api.listProjects()).resolves.toHaveLength(1);
+      expect(listProjects).toHaveBeenCalledWith(["/projects/Other"]);
+    } finally {
+      fake.kind = original;
+    }
+  });
+
+  it("stays on the open project when another can't be opened", async () => {
+    openProject.mockRejectedValue(new Error("Cannot open /gone: No such file or directory"));
+    let error: unknown = null;
+    await act(async () => {
+      await api.openProjectAt("/gone").catch((reason: unknown) => {
+        error = reason;
+      });
+    });
+    expect(String(error)).toContain("No such file");
+    expect(api.project?.root).toBe("/projects/Test");
+    expect(api.switching).toBe(false);
   });
 });
 

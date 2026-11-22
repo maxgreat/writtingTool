@@ -3,6 +3,7 @@ import { loadBackend, type Backend, type Version } from "./backend";
 import { withChapterDetails, type ChapterDetails, type Plan } from "./binder";
 import { withFinalNewline } from "./markdown";
 import { buildNameMatcher, buildProject, withChapterText, type Project, type ProjectSnapshot } from "./project";
+import { newProject, readRecentProjects, rememberRecentProject, type ProjectEntry } from "./projects";
 
 export type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
 
@@ -142,7 +143,10 @@ export function useProject() {
       showChapter(next.root, remembered && next.chapters[remembered] ? remembered : (next.chapterOrder[0] ?? null));
       setSave({ status: "saved" });
       setLoad({ status: "ready" });
-      if (target.kind === "app" && !fallbackFor) writeStorage(LAST_PROJECT_KEY, next.root);
+      if (target.kind === "app" && !fallbackFor) {
+        writeStorage(LAST_PROJECT_KEY, next.root);
+        rememberRecentProject(next.root);
+      }
     },
     [showChapter],
   );
@@ -290,15 +294,13 @@ export function useProject() {
   }, [flush, applySnapshot]);
 
   /**
-   * Shows a folder picker, then opens the chosen folder. Rejects with the
-   * reason if it can't be opened. Edits are saved to the current project
-   * before the core switches, and refused while it switches (`switching`).
+   * Opens another project: saves pending edits to the current one first, and
+   * refuses edits while the core switches (`switching`). Rejects with the
+   * reason if the project can't be opened, or if edits can't be saved.
    */
-  const openFolder = useCallback(async (): Promise<void> => {
+  const switchProject = useCallback(async (open: (target: Backend) => Promise<ProjectSnapshot>): Promise<void> => {
     const target = backendRef.current;
-    if (!target?.canOpenFolders || switchingRef.current) return;
-    const path = await target.pickProjectFolder();
-    if (!path) return;
+    if (!target || switchingRef.current) return;
     switchingRef.current = true;
     setSwitching(true);
     try {
@@ -306,12 +308,39 @@ export function useProject() {
       if (pending.current.size > 0) {
         throw new Error("Some changes in this project could not be saved. Save them (Retry) before opening another project.");
       }
-      applySnapshot(await target.openProject(path), target);
+      applySnapshot(await open(target), target);
     } finally {
       switchingRef.current = false;
       setSwitching(false);
     }
   }, [flush, applySnapshot]);
+
+  /** Shows a folder picker, then opens the chosen folder (see `switchProject`). */
+  const openFolder = useCallback(async (): Promise<void> => {
+    const target = backendRef.current;
+    if (!target?.canOpenFolders || switchingRef.current) return;
+    const path = await target.pickProjectFolder();
+    if (!path) return;
+    await switchProject((t) => t.openProject(path));
+  }, [switchProject]);
+
+  /** Opens a project from the projects list (see `switchProject`). */
+  const openProjectAt = useCallback(
+    (path: string): Promise<void> => switchProject((t) => t.openProject(path)),
+    [switchProject],
+  );
+
+  /** Creates a project in the app's own folder and opens it (see `switchProject`). */
+  const createProject = useCallback(
+    (title: string, language: string): Promise<void> => switchProject((t) => t.createProject(newProject(title, language))),
+    [switchProject],
+  );
+
+  /** The projects on this device, with the folders opened recently from elsewhere. */
+  const listProjects = useCallback(async (): Promise<ProjectEntry[]> => {
+    const target = backendRef.current;
+    return target ? target.listProjects(readRecentProjects()) : [];
+  }, []);
 
   /** The kept versions of a chapter of the open project, newest first. */
   const listVersions = useCallback(async (id: string): Promise<Version[]> => {
@@ -374,6 +403,9 @@ export function useProject() {
     /** Writes pending changes now; also the retry after a failed save. */
     saveNow: flush,
     openFolder,
+    openProjectAt,
+    createProject,
+    listProjects,
     updateChapterDetails,
     changeBinder,
     listVersions,
