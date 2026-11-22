@@ -1,0 +1,23 @@
+#!/bin/sh
+# Adds "Critic-Review: pass <fingerprint>" to the commit message when the
+# staged changes are the ones the critic approved. pre-push recomputes each
+# outgoing commit's fingerprint and checks that it matches, so an approval
+# copied from another commit, or one left over after an amend or rebase, does
+# not get through.
+
+# Leave an empty message alone so git still aborts the commit. Ignore comment
+# lines and anything below the "git commit -v" scissors line.
+[ -n "$(sed -E '/^. -+ >8 -+$/,$d' "$1" | git stripspace --strip-comments)" ] || exit 0
+
+root=$(git rev-parse --show-toplevel) || exit 1
+staged=$("$root/.githooks/staged-hash") || exit 1
+# Nothing staged (e.g. a message-only amend): leave the message as it is. An
+# amend that keeps the old message keeps its approval line, which pre-push
+# still checks against the commit's content.
+[ -n "$staged" ] || exit 0
+# A mismatch is reached only by paths that skip pre-commit, such as a merge.
+[ "$staged" = "$(cat "$(git rev-parse --git-path critic-approved)" 2>/dev/null)" ] || exit 0
+
+# --no-divider: a "---" line in the message must not be taken as its end, or
+# the trailer lands mid-message where pre-push can't find it.
+git interpret-trailers --in-place --no-divider --if-exists replace --trailer "Critic-Review: pass $staged" "$1"

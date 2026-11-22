@@ -1,0 +1,18 @@
+#!/bin/sh
+# Blocks the commit unless the critic agent approved exactly the staged changes.
+root=$(git rev-parse --show-toplevel) || exit 1
+staged=$("$root/.githooks/staged-hash") || exit 1
+[ -z "$staged" ] && exit 0   # nothing new to review (e.g. amending only the message)
+
+marker=$(git rev-parse --git-path critic-approved)
+approved=$(cat "$marker" 2>/dev/null)
+[ "$staged" = "$approved" ] && exit 0
+
+cat >&2 <<MSG
+Commit blocked: the critic has not approved these staged changes.
+
+Ask Claude to run the critic agent on the staged changes, fix anything it marks
+FAIL, then commit again. Approval covers exactly what is staged: staging more
+changes, or committing with -a or with file paths, needs a new review.
+MSG
+exit 1

@@ -1,0 +1,34 @@
+#!/bin/sh
+# Blocks the push if any outgoing commit lacks a critic approval whose
+# fingerprint matches what the commit actually changes. Merge commits count
+# too, measured against their first parent, as when the merge is committed.
+set -f
+remote="$1"
+root=$(git rev-parse --show-toplevel) || exit 1
+missing=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_sha" in *[!0]*) ;; *) continue ;; esac   # branch deletion
+  if case "$remote_sha" in *[!0]*) true ;; *) false ;; esac \
+     && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    range="$remote_sha..$local_sha"
+  else
+    range="$local_sha --not --remotes=$remote"
+  fi
+  commits=$(git rev-list $range) || { echo "pre-push: cannot list commits for $local_ref" >&2; exit 1; }
+  for c in $commits; do
+    expected=$("$root/.githooks/staged-hash" "$c") || { echo "pre-push: cannot fingerprint $c" >&2; exit 1; }
+    [ -z "$expected" ] && continue   # empty commit: nothing to review
+    approval=$(git log -1 --format='%(trailers:key=Critic-Review,valueonly)' "$c" | awk 'NF { v = $0 } END { print v }')
+    [ "$approval" = "pass $expected" ] || missing="$missing
+  $(git log -1 --format='%h %s' "$c")"
+  done
+done
+[ -z "$missing" ] && exit 0
+cat >&2 <<MSG
+Push blocked: the critic did not approve these commits, or they changed after
+approval (amend, rebase):$missing
+
+To fix: undo them with git reset --soft <last pushed commit>, keep the changes
+staged, have the critic review them, and commit again.
+MSG
+exit 1

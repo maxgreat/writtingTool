@@ -1,0 +1,3 @@
+#!/bin/sh
+# One approval per commit: the next commit needs a new review.
+rm -f "$(git rev-parse --git-path critic-approved)"

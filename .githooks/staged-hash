@@ -1,0 +1,27 @@
+#!/bin/sh
+# Prints a fingerprint of a set of changes, or nothing if there are none.
+#   staged-hash           the staged changes (what the next commit will contain)
+#   staged-hash <commit>  what <commit> changed compared with its first parent
+# The critic reports the first form and pre-push checks the second. The
+# fingerprint hashes git's raw change list (paths, modes and the exact before
+# and after file hashes), which plumbing commands print the same way whatever
+# the user's diff settings or git version. So a commit made from approved
+# staged changes has the same fingerprint as the one the critic reviewed.
+empty_tree=$(git hash-object -t tree /dev/null)
+if [ $# -eq 0 ]; then
+  base=$(git rev-parse -q --verify HEAD) || base=$empty_tree
+  # Files marked with "git add -N" are not committed, so leave them out.
+  set -- diff-index --cached --ita-invisible-in-index "$base"
+else
+  parent=$(git rev-parse -q --verify "$1^1") || parent=$empty_tree
+  set -- diff-tree -r "$parent" "$1"
+fi
+# Count submodule pointer changes even if a submodule is set to be ignored.
+set -- "$@" --no-renames --ignore-submodules=none
+git "$@" --quiet
+case $? in
+  0) exit 0 ;;   # no changes
+  1) ;;          # there are changes
+  *) exit 1 ;;   # git error
+esac
+git "$@" --raw -z --no-abbrev | git hash-object --stdin
