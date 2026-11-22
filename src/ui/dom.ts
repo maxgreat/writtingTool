@@ -17,17 +17,65 @@ export function tokenMs(name: string): number {
 }
 
 /**
- * Puts a fixed-position element just below a rectangle, or above it when
- * there is no room below, and keeps it inside the window.
+ * Puts a fixed-position element next to a rectangle and keeps all of it
+ * inside the window: below the rectangle when it fits, else above when it
+ * fits, else on the side with more room, its max-height capped to that room
+ * so it scrolls inside. When neither side has room for one control (the
+ * rectangle fills the window), it covers the rectangle instead.
+ *
+ * Safe to call again on resize or scroll: it drops the previous cap before
+ * measuring, and keeps the element's own scroll position.
  */
 export function placeNear(el: HTMLElement, rect: DOMRect): void {
   const gap = tokenPx("--space-1");
   const edge = tokenPx("--space-2");
+  const view = window.innerHeight;
+  const scrolled = el.scrollTop;
+  el.style.maxHeight = "";
   const { width, height } = el.getBoundingClientRect();
-  let top = rect.bottom + gap;
-  if (top + height > window.innerHeight - edge && rect.top - gap - height >= edge) top = rect.top - gap - height;
-  el.style.top = `${Math.max(edge, top)}px`;
+
+  const below = view - edge - (rect.bottom + gap);
+  const above = rect.top - gap - edge;
+  let top: number;
+  let room: number;
+  if (height <= below) {
+    top = rect.bottom + gap;
+    room = below;
+  } else if (height <= above) {
+    top = rect.top - gap - height;
+    room = above;
+  } else if (Math.max(below, above) < tokenPx("--size-control")) {
+    top = edge;
+    room = view - 2 * edge;
+  } else if (below >= above) {
+    top = rect.bottom + gap;
+    room = below;
+  } else {
+    top = edge;
+    room = above;
+  }
+
+  // An anchor scrolled partly out of the window can leave more room than the window has.
+  room = Math.max(0, Math.min(room, view - 2 * edge));
+  top = Math.max(edge, Math.min(top, view - edge - Math.min(height, room)));
+  el.style.top = `${top}px`;
   el.style.left = `${Math.max(edge, Math.min(rect.left, window.innerWidth - width - edge))}px`;
+  el.style.maxHeight = `${Math.max(0, Math.min(room, view - edge - top))}px`;
+  if (scrolled > 0) el.scrollTop = scrolled;
+}
+
+/**
+ * Scrolls a scrolling box just enough to show one of its items, padding
+ * included, without scrolling anything around the box.
+ */
+export function revealIn(box: HTMLElement, item: HTMLElement): void {
+  const outer = box.getBoundingClientRect();
+  const inner = item.getBoundingClientRect();
+  const style = getComputedStyle(box);
+  const top = outer.top + box.clientTop + (Number.parseFloat(style.paddingTop) || 0);
+  const bottom = outer.top + box.clientTop + box.clientHeight - (Number.parseFloat(style.paddingBottom) || 0);
+  if (inner.top < top) box.scrollTop -= top - inner.top;
+  else if (inner.bottom > bottom) box.scrollTop += inner.bottom - bottom;
 }
 
 export const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/u.test(navigator.platform || navigator.userAgent);

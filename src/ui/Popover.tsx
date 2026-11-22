@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import { cx, placeNear } from "./dom";
+import { cx, placeNear, revealIn } from "./dom";
 
 export type CloseReason = "outside" | "escape" | "select";
 
@@ -36,7 +36,8 @@ const FOCUSABLE = `${ITEMS}, input:not(:disabled), button:not(:disabled)`;
 /**
  * A floating panel in a portal, so a scrolling toolbar can't clip it. It sits
  * below its anchor (above when there is no room), stays inside the window,
- * and closes on Escape or a press outside.
+ * scrolls when it is taller than the room it has, and closes on Escape or a
+ * press outside.
  */
 export function Popover({ anchor, onClose, children, role, label, id, className, autoFocus, ignore }: PopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -55,8 +56,13 @@ export function Popover({ anchor, onClose, children, role, label, id, className,
   useLayoutEffect(place);
 
   useEffect(() => {
+    // Scrolling the popover itself doesn't move its anchor.
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Node && ref.current?.contains(event.target)) return;
+      place();
+    };
     window.addEventListener("resize", place);
-    window.addEventListener("scroll", place, true);
+    window.addEventListener("scroll", onScroll, true);
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (ref.current?.contains(target) || ignore?.current?.contains(target)) return;
@@ -72,7 +78,7 @@ export function Popover({ anchor, onClose, children, role, label, id, className,
     document.addEventListener("keydown", onKeyDown, true);
     return () => {
       window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("scroll", onScroll, true);
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
     };
@@ -81,8 +87,10 @@ export function Popover({ anchor, onClose, children, role, label, id, className,
   useEffect(() => {
     if (!autoFocus) return;
     const el = ref.current;
-    const first = el?.querySelector<HTMLElement>(`[aria-checked="true"]:not(:disabled), ${FOCUSABLE}`);
-    (first ?? el)?.focus({ preventScroll: true });
+    if (!el) return;
+    const first = el.querySelector<HTMLElement>(`[aria-checked="true"]:not(:disabled), ${FOCUSABLE}`);
+    (first ?? el).focus({ preventScroll: true });
+    if (first) revealIn(el, first);
   }, [autoFocus]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -101,7 +109,9 @@ export function Popover({ anchor, onClose, children, role, label, id, className,
     else if (event.key === "End") next = items.length - 1;
     if (next === -1) return;
     event.preventDefault();
-    items[next].focus();
+    // Scroll only the menu, when it is taller than its room, never the page.
+    items[next].focus({ preventScroll: true });
+    revealIn(ref.current, items[next]);
   };
 
   // Focus moving to something outside (Tab out of a dialog) closes it too.

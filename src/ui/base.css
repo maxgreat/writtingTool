@@ -188,8 +188,11 @@ button:disabled {
   z-index: var(--z-popover);
   min-width: var(--size-popover-min);
   max-width: min(var(--size-popover-max), calc(100vw - 2 * var(--space-2)));
+  /* placeNear() narrows this to the room beside the anchor. */
   max-height: calc(100dvh - 2 * var(--space-2));
   overflow-y: auto;
+  /* Scrolling past the end of a menu doesn't scroll the page beneath it. */
+  overscroll-behavior: contain;
   padding: var(--space-1);
   border-radius: var(--radius-lg);
   background: var(--color-surface-raised);

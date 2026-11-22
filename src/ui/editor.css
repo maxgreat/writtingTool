@@ -214,6 +214,8 @@
   z-index: var(--z-popover);
   width: max-content;
   max-width: var(--size-card);
+  /* placeNear() caps the height to stay in the window; a tooltip can't scroll. */
+  overflow: hidden;
   padding: var(--space-3);
   border-radius: var(--radius-lg);
   background: var(--color-surface-raised);
