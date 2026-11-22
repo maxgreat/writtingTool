@@ -50,6 +50,8 @@ export function useProject() {
   const [project, setProject] = useState<Project | null>(null);
   const [openChapterId, setOpenChapterId] = useState<string | null>(null);
   const [save, setSave] = useState<SaveState>({ status: "saved" });
+  /** Counts project loads, so the interface can tell a fresh read, even of the same folder, from an edit. */
+  const [loads, setLoads] = useState(0);
 
   const backendRef = useRef<Backend | null>(null);
   const projectRef = useRef<Project | null>(null);
@@ -119,6 +121,7 @@ export function useProject() {
     pending.current.clear();
     projectRef.current = next;
     setProject(next);
+    setLoads((count) => count + 1);
     const remembered = readStorage(lastChapterKey(next.root));
     setOpenChapterId(remembered && next.chapters[remembered] ? remembered : (next.chapterOrder[0] ?? null));
     setSave({ status: "saved" });
@@ -257,6 +260,12 @@ export function useProject() {
     openFolder,
     /** Another project is being opened: show the editors read-only. */
     switching,
+    /**
+     * Goes up each time a project is read from disk, including the same folder
+     * again (its chapters may have changed outside the app): editors, which read
+     * their text on mount, must be remounted then.
+     */
+    loads,
     bookWords,
     wordsToday,
   };

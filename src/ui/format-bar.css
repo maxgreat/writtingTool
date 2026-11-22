@@ -1,0 +1,170 @@
+/* The formatting bar: panel buttons at the ends, the controls centred between them. */
+
+.format-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2);
+  padding-top: calc(var(--space-2) + env(safe-area-inset-top));
+}
+
+.format-bar-end {
+  display: flex;
+  flex: none;
+  min-width: var(--size-control);
+}
+
+.format-bar-end--right {
+  justify-content: flex-end;
+}
+
+/* Scrolls sideways when the window is too narrow for every control. */
+.format-bar-scroll {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.format-bar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Auto margins centre the controls, and drop to zero when they overflow. */
+.format-bar-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-inline: auto;
+}
+
+.format-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-0-5);
+}
+
+/* A− 16 A+ reads as one control. */
+.format-group--tight {
+  gap: 0;
+}
+
+.size-trigger {
+  padding-inline: var(--space-1-5);
+}
+
+/* All style names share one grid cell; only the active one is visible. */
+.stacked-label {
+  display: inline-grid;
+  text-align: start;
+}
+
+.stacked-label > span {
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+
+.stacked-label > span[data-active="true"] {
+  visibility: visible;
+}
+
+.font-sample--serif .menu-item-label {
+  font-family: var(--font-serif);
+}
+
+.font-sample--sans .menu-item-label {
+  font-family: var(--font-sans);
+}
+
+.font-sample--mono .menu-item-label {
+  font-family: var(--font-mono);
+}
+
+/* Segmented controls: Formatted / Plain and the margin presets. */
+.segmented {
+  display: inline-flex;
+  flex: none;
+  padding: var(--space-0-5);
+  border-radius: var(--radius-md);
+  background: var(--color-hover);
+}
+
+.segmented-option {
+  min-height: calc(var(--size-control) - 2 * var(--space-0-5));
+  padding: 0 var(--space-2);
+  border: 0;
+  /* Outer radius minus the padding between them. */
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.segmented-option:hover {
+  color: var(--color-text);
+}
+
+/* An option that can't be chosen, such as Formatted for a plain-only chapter. After :hover, so it wins. */
+.segmented-option:disabled {
+  color: var(--color-text-disabled);
+}
+
+.segmented-option[aria-checked="true"],
+.segmented-option[aria-pressed="true"] {
+  background: var(--color-surface-raised);
+  color: var(--color-accent);
+  font-weight: var(--weight-medium);
+}
+
+.segmented--full {
+  display: flex;
+}
+
+.segmented--full .segmented-option {
+  flex: 1;
+}
+
+/* Margins popover. */
+.margins-popover {
+  min-width: var(--size-card);
+}
+
+.margins {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-2);
+}
+
+.margin-slider {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.margin-slider-label {
+  display: flex;
+  justify-content: space-between;
+}
+
+.margin-slider input {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+/* Phones: tighter groups, so more controls are in view before scrolling. */
+.is-phone .format-bar-controls {
+  gap: var(--space-2);
+}
+
+/* Loading placeholder for the bar. */
+.format-bar--skeleton {
+  justify-content: center;
+  gap: var(--space-4);
+  min-height: calc(var(--size-control) + 2 * var(--space-2));
+}

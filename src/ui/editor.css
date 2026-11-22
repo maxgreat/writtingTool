@@ -1,0 +1,276 @@
+/*
+ * The chapter as a centred column. Size, font, line spacing and margins
+ * come from the view settings as unitless variables (layoutStyle.ts):
+ * --writing-size (points), --writing-leading, --writing-font,
+ * --margin-left and --margin-right (percent of the editor's width).
+ */
+
+.editor-pane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--color-bg);
+  scroll-padding-block: var(--editor-top);
+}
+
+/* Percentage padding is relative to the pane's width, as the settings define margins. */
+.editor-column {
+  min-height: 100%;
+  padding-top: var(--editor-top);
+  padding-right: calc(var(--margin-right) * 1% + var(--editor-gutter));
+  padding-bottom: var(--editor-overscroll);
+  padding-left: calc(var(--margin-left) * 1% + var(--editor-gutter));
+  cursor: text;
+}
+
+.editor-surface .chapter-text,
+.editor-surface .chapter-text-plain .cm-scroller {
+  color: var(--color-text);
+  font-family: var(--writing-font);
+  font-size: calc(var(--writing-size) * 1pt);
+  line-height: var(--writing-leading);
+}
+
+/* Phones: a smaller fixed gutter; the margins themselves are a per-device setting. */
+.is-phone .editor-pane {
+  --editor-gutter: var(--space-4);
+  --editor-top: var(--space-8);
+}
+
+/* Why the chapter is open in Plain: one quiet line in the interface type, above the text. */
+.editor-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-bottom: var(--space-6);
+  color: var(--color-text-muted);
+  /* Two or three even lines, rather than a stray last word. */
+  text-wrap: balance;
+  cursor: default;
+}
+
+/* Centres the icon on the first line, however the note wraps. */
+.editor-note .lucide {
+  margin-top: calc((var(--leading-normal) * 1em - var(--size-icon)) / 2);
+}
+
+/* Formatted mode -------------------------------------------------------- */
+
+.chapter-text {
+  outline: none;
+  caret-color: var(--color-text);
+}
+
+.chapter-text p {
+  margin: 0 0 var(--writing-paragraph-gap);
+}
+
+.chapter-text h1,
+.chapter-text h2,
+.chapter-text h3 {
+  margin: var(--writing-break-gap) 0 var(--writing-heading-gap);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  text-wrap: balance;
+}
+
+.chapter-text > :first-child {
+  margin-top: 0;
+}
+
+.chapter-text h1 {
+  font-size: calc(var(--writing-scale-h1) * 1em);
+}
+
+.chapter-text h2 {
+  font-size: calc(var(--writing-scale-h2) * 1em);
+}
+
+.chapter-text h3 {
+  font-size: calc(var(--writing-scale-h3) * 1em);
+}
+
+.chapter-text blockquote {
+  margin: 0 0 var(--writing-paragraph-gap);
+  padding-inline-start: var(--writing-quote-indent);
+  border-inline-start: var(--size-underline) solid var(--color-separator);
+}
+
+.chapter-text blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* Scene break: stored as ***, shown as a centred row of asterisks. */
+.chapter-text hr {
+  height: auto;
+  margin: var(--writing-break-gap) 0;
+  border: 0;
+  color: var(--color-text-muted);
+  text-align: center;
+  overflow: visible;
+}
+
+.chapter-text hr::after {
+  content: "*\2003*\2003*";
+}
+
+.chapter-text hr.ProseMirror-selectednode {
+  border-radius: var(--radius-sm);
+  outline: var(--size-focus-ring) solid var(--color-focus-ring);
+}
+
+/* Plain mode (CodeMirror): same column, same type, markers dimmed --------- */
+
+.editor-surface .chapter-text-plain.cm-editor,
+.editor-surface .chapter-text-plain.cm-editor.cm-focused {
+  outline: none;
+  background: transparent;
+}
+
+.editor-surface .chapter-text-plain .cm-scroller {
+  overflow: visible;
+}
+
+.editor-surface .chapter-text-plain .cm-content {
+  padding: 0;
+  caret-color: var(--color-text);
+}
+
+.editor-surface .chapter-text-plain .cm-line {
+  padding: 0;
+}
+
+.editor-surface .chapter-text-plain .cm-cursor {
+  border-left-color: var(--color-text);
+}
+
+.md-mark,
+.md-scene-break {
+  color: var(--color-text-muted);
+}
+
+.md-heading {
+  font-weight: var(--weight-semibold);
+}
+
+.md-bold {
+  font-weight: var(--weight-semibold);
+}
+
+.md-italic {
+  font-style: italic;
+}
+
+/* Highlighted names, in both modes --------------------------------------- */
+
+.name-mark {
+  border-radius: var(--radius-sm);
+  text-decoration-thickness: var(--size-underline);
+  text-underline-offset: var(--name-underline-offset);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+/* Characters: a tint. */
+.name-mark--characters {
+  background: var(--color-name-character);
+}
+
+/* Places: an underline. */
+.name-mark--places {
+  text-decoration-line: underline;
+  text-decoration-color: var(--color-name-place);
+}
+
+/* Any other sheet type: a dotted underline. */
+.name-mark:not(.name-mark--characters, .name-mark--places) {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--color-name-other);
+}
+
+/* An alias shared by several sheets: dashed, whatever the type. */
+.name-mark.name-mark--ambiguous {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: var(--color-name-place);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .name-mark {
+    cursor: pointer;
+  }
+
+  .name-mark:hover {
+    background: var(--color-name-character-hover);
+  }
+}
+
+/* Summary card on hover (desktop). */
+.name-card {
+  position: fixed;
+  z-index: var(--z-popover);
+  width: max-content;
+  max-width: var(--size-card);
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-popover);
+  outline: var(--size-hairline) solid var(--color-separator);
+  pointer-events: none;
+  animation: popover-in var(--duration-fast) var(--ease-standard);
+}
+
+.name-card-name {
+  font-weight: var(--weight-semibold);
+}
+
+.name-card-field {
+  margin-top: var(--space-0-5);
+}
+
+.name-card-notes {
+  display: -webkit-box;
+  margin-top: var(--space-1-5);
+  overflow: hidden;
+  color: var(--color-text-muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.name-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  margin-top: var(--space-1);
+}
+
+.name-card-hint {
+  margin-top: var(--space-1-5);
+  font-size: var(--text-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .name-card {
+    animation: none;
+  }
+}
+
+/* No chapters at all. */
+.editor-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  max-width: var(--size-error);
+  margin: 0 auto;
+  padding: var(--space-16) var(--space-6);
+}
+
+.editor-empty h2 {
+  font-size: var(--text-xl);
+}
+

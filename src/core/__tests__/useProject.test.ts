@@ -153,9 +153,19 @@ describe("opening another project", () => {
       return other;
     });
     act(() => api.updateChapter(CHAPTER, "Changed."));
+    const loadsBefore = api.loads;
     await act(() => api.openFolder());
     expect(openProject).toHaveBeenCalledWith("/projects/Other");
     expect(api.project?.root).toBe("/projects/Other");
+    expect(api.loads).toBe(loadsBefore + 1);
+  });
+
+  it("counts reading the same folder again as a new load", async () => {
+    pickProjectFolder.mockResolvedValue("/projects/Test");
+    const loadsBefore = api.loads;
+    await act(() => api.openFolder());
+    expect(api.project?.root).toBe("/projects/Test");
+    expect(api.loads).toBe(loadsBefore + 1);
   });
 
   it("refuses edits while the new project opens, and writes nothing for them", async () => {

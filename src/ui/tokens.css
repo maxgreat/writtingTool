@@ -1,0 +1,193 @@
+/*
+ * Design tokens: the only place raw values live. Every stylesheet in src/ui
+ * uses these custom properties; components read a few of them from script
+ * through tokenPx() (src/ui/dom.ts) instead of repeating numbers.
+ *
+ * Contrast (WCAG AA) was checked for every text colour on every surface
+ * it is used on, in both themes: the lowest pair is --color-text-muted on
+ * --color-active-bg in dark mode, at 4.85:1. --color-text-disabled is only
+ * for controls that can't be used (exempt from AA); it keeps at least 3.2:1
+ * on the bar and its segmented controls, so the label stays readable.
+ */
+:root {
+  color-scheme: light dark;
+
+  /* Font stacks: system fonts only (the app's CSP allows no network fonts). */
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Iowan Old Style", "Charter", "Bitstream Charter", "Sitka Text", Cambria, "Noto Serif",
+    "Source Serif 4", "DejaVu Serif", Georgia, serif;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", Menlo, Consolas,
+    monospace;
+
+  /* Type scale for the interface. The chapter text size is a view setting. */
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-ui: var(--text-sm);
+  /* Monospace runs a little large next to proportional text. */
+  --text-mono-adjust: 0.92em;
+  --leading-tight: 1.25;
+  --leading-normal: 1.45;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* Chapter headings, relative to the chapter text size. */
+  --writing-scale-h1: 1.6;
+  --writing-scale-h2: 1.3;
+  --writing-scale-h3: 1.12;
+  --writing-paragraph-gap: 0.8em;
+  --writing-quote-indent: 1.25em;
+  --writing-heading-gap: 0.6em;
+  --writing-break-gap: 1.6em;
+
+  /* Spacing, on a 4 px grid. */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Radius. Nested corners use the outer radius minus the padding between. */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-full: 999px;
+
+  /* Shadow: only for things that float above the page. */
+  --shadow-popover: 0 4px 16px rgb(0 0 0 / 0.12), 0 1px 3px rgb(0 0 0 / 0.08);
+  --shadow-overlay: 0 8px 32px rgb(0 0 0 / 0.18);
+
+  /* Sizes. */
+  --size-hairline: 1px;
+  --size-focus-ring: 2px;
+  --size-underline: 2px;
+  --name-underline-offset: 0.2em;
+  --size-icon: 16px;
+  --icon-stroke: 1.75;
+  --size-control: 28px;
+  --size-status: 28px;
+  --size-resize-hit: 6px;
+  --size-reveal-zone: 8px;
+  --size-card: 18rem;
+  --size-popover-min: 11rem;
+  --size-popover-max: 20rem;
+  --size-error: 32rem;
+  --size-skeleton-line: 0.7em;
+  --skeleton-short: 40%;
+  --skeleton-medium: 65%;
+  --skeleton-long: 94%;
+
+  /* Layout. The phone breakpoint (700 px) is also in src/ui/hooks.ts. */
+  --panel-max-share: 34vw;
+  --phone-panel-width: min(86vw, 22rem);
+  --sheet-preview-height: 50dvh;
+  --editor-gutter: var(--space-6);
+  --editor-top: var(--space-12);
+  --editor-overscroll: 40vh;
+
+  /* Motion. Reduced motion sets every duration to zero below. */
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 250ms;
+  --duration-hover-delay: 350ms;
+  --duration-pulse: 1.6s;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Stacking. */
+  --z-raised: 1;
+  --z-bar: 10;
+  --z-scrim: 20;
+  --z-overlay: 21;
+  --z-popover: 40;
+
+  /* Colour, light theme. One accent: active states, the primary action, key data. */
+  --color-bg: #fbfaf8;
+  --color-surface: #f1f0ec;
+  --color-surface-raised: #ffffff;
+  --color-text: #1d1c1a;
+  --color-text-muted: #5d5b56;
+  --color-text-disabled: #7d7b76;
+  --color-hover: rgb(29 28 26 / 0.06);
+  --color-pressed: rgb(29 28 26 / 0.1);
+  --color-separator: #dddbd5;
+  --color-accent: #3a50b8;
+  --color-accent-fill: #3a50b8;
+  --color-accent-fill-hover: #33479f;
+  --color-accent-fill-pressed: #2c3d8a;
+  --color-on-accent: #ffffff;
+  --color-active-bg: #e2e6f6;
+  --color-focus-ring: #3a50b8;
+  --color-danger: #b3261e;
+  --color-warning: #8a5300;
+  --color-skeleton: #e4e2dd;
+  --color-scrim: rgb(0 0 0 / 0.32);
+
+  /* Highlighted names: characters are tinted, places underlined, shared aliases dashed. */
+  --color-name-character: rgb(58 80 184 / 0.13);
+  --color-name-character-hover: rgb(58 80 184 / 0.24);
+  --color-name-place: rgb(58 80 184 / 0.7);
+  --color-name-other: rgb(93 91 86 / 0.7);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #1a1a1c;
+    --color-surface: #222225;
+    --color-surface-raised: #2b2b2f;
+    --color-text: #ebe9e5;
+    --color-text-muted: #a9a7a1;
+    --color-text-disabled: #82807b;
+    --color-hover: rgb(235 233 229 / 0.07);
+    --color-pressed: rgb(235 233 229 / 0.12);
+    --color-separator: #3a3a3f;
+    --color-accent: #a3b1ff;
+    --color-accent-fill: #a3b1ff;
+    --color-accent-fill-hover: #b6c1ff;
+    --color-accent-fill-pressed: #8f9ff5;
+    --color-on-accent: #141833;
+    --color-active-bg: #30365a;
+    --color-focus-ring: #a3b1ff;
+    --color-danger: #ffb4a9;
+    --color-warning: #f0c06a;
+    --color-skeleton: #333337;
+    --color-scrim: rgb(0 0 0 / 0.5);
+
+    --color-name-character: rgb(163 177 255 / 0.2);
+    --color-name-character-hover: rgb(163 177 255 / 0.32);
+    --color-name-place: rgb(163 177 255 / 0.75);
+    --color-name-other: rgb(169 167 161 / 0.75);
+
+    --shadow-popover: 0 4px 16px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.3);
+    --shadow-overlay: 0 8px 32px rgb(0 0 0 / 0.55);
+  }
+}
+
+/* Touch screens get larger controls and interface text. */
+@media (pointer: coarse) {
+  :root {
+    --size-control: 40px;
+    --size-status: 32px;
+    --text-ui: var(--text-md);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+  }
+}

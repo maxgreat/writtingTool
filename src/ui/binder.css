@@ -1,0 +1,121 @@
+/* The binder: project title, manuscript tree, sheet types, Open folder. */
+
+.binder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-height: 100%;
+  padding: var(--space-3) var(--space-2) var(--space-4);
+}
+
+.binder-title {
+  padding: 0 var(--space-2);
+  font-size: var(--text-lg);
+}
+
+.binder-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.binder-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  width: 100%;
+  min-height: var(--size-control);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  text-align: start;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.binder-row:hover {
+  background: var(--color-hover);
+}
+
+.binder-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Parts and sheet types. */
+.binder-row--group {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+}
+
+.binder-row--group .lucide {
+  color: var(--color-text-muted);
+}
+
+.binder-row--group:hover {
+  color: var(--color-text);
+}
+
+.disclosure {
+  transition: rotate var(--duration-fast) var(--ease-standard);
+}
+
+.binder-row--group[aria-expanded="true"] .disclosure {
+  rotate: 90deg;
+}
+
+/* Binder notes and errors line up with the rows' text. */
+.binder .empty-note,
+.binder .inline-error {
+  padding: var(--space-1) var(--space-2);
+}
+
+/* Nested rows line up with their group's label: chevron, icon, two gaps. */
+.binder-row--nested,
+.binder .empty-note--nested {
+  padding-inline-start: calc(var(--space-2) + 2 * var(--size-icon) + 2 * var(--space-1-5));
+}
+
+/* Chapters: title, then status and word count. */
+.binder-row--chapter {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding-block: var(--space-1-5);
+}
+
+.binder-row--chapter .binder-row-title {
+  flex: none;
+}
+
+.binder-row-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.binder-row[aria-current="page"] {
+  background: var(--color-active-bg);
+}
+
+.binder-row[aria-current="page"] .binder-row-title {
+  font-weight: var(--weight-medium);
+}
+
+.binder-row[aria-current="page"] .binder-row-meta .num {
+  color: var(--color-accent);
+}
+
+.binder-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin-top: auto;
+  padding-top: var(--space-2);
+}

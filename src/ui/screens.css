@@ -1,0 +1,86 @@
+/* Loading skeleton and the error screen. */
+
+.skeleton--chip {
+  width: var(--space-16);
+  height: var(--size-control);
+  border-radius: var(--radius-md);
+}
+
+.status-bar .skeleton--chip {
+  height: var(--size-skeleton-line);
+}
+
+.skeleton-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+
+.skeleton--title {
+  width: var(--skeleton-medium);
+  height: var(--text-lg);
+  margin-bottom: var(--space-2);
+}
+
+.skeleton--short {
+  width: var(--skeleton-short);
+}
+
+.skeleton--medium {
+  width: var(--skeleton-medium);
+}
+
+.skeleton--long {
+  width: var(--skeleton-long);
+}
+
+/* Placeholder text at the chapter's own size and spacing. */
+.skeleton-text {
+  font-family: var(--writing-font);
+  font-size: calc(var(--writing-size) * 1pt);
+  line-height: var(--writing-leading);
+}
+
+.skeleton--heading {
+  width: var(--skeleton-short);
+  height: calc(var(--writing-scale-h1) * 1em);
+  margin-bottom: var(--writing-heading-gap);
+}
+
+.skeleton-paragraph {
+  display: flex;
+  flex-direction: column;
+  gap: calc((var(--writing-leading) - 1) * 1em + (1em - var(--size-skeleton-line)));
+  margin-bottom: var(--writing-paragraph-gap);
+  padding-top: calc((1em - var(--size-skeleton-line)) / 2);
+}
+
+.error-screen {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: var(--space-6);
+  background: var(--color-bg);
+}
+
+.error-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  max-width: var(--size-error);
+}
+
+.error-content h1 {
+  font-size: var(--text-2xl);
+}
+
+.error-message {
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+
+.error-content .btn--primary {
+  margin-top: var(--space-2);
+}

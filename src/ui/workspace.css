@@ -1,0 +1,251 @@
+/*
+ * The window layout: bar on top, binder | editor | inspector, status bar.
+ * `.is-desktop` and `.is-phone` come from the PHONE_QUERY hook (700 px).
+ */
+
+.workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-surface);
+}
+
+.workspace-main {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.bar-slot {
+  position: relative;
+  z-index: var(--z-bar);
+  flex: none;
+  background: var(--color-surface);
+}
+
+/* Side panels ----------------------------------------------------------- */
+
+.panel {
+  position: relative;
+  flex: none;
+  width: 0;
+  max-width: var(--panel-max-share);
+  overflow: hidden;
+  background: var(--color-surface);
+  visibility: hidden;
+  /* Closing: slide, then hide from focus and screen readers. */
+  transition:
+    width var(--duration-base) var(--ease-standard),
+    visibility 0s linear var(--duration-base);
+}
+
+.panel--binder {
+  --panel-width: var(--binder-width);
+}
+
+.panel--inspector {
+  --panel-width: var(--inspector-width);
+}
+
+.panel.is-open {
+  width: var(--panel-width);
+  visibility: visible;
+  transition: width var(--duration-base) var(--ease-standard);
+}
+
+/*
+ * The content keeps its width while the panel opens or closes, pinned to the
+ * outer edge, so it slides instead of squeezing.
+ */
+.panel-inner {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: min(var(--panel-width), var(--panel-max-share));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.panel--binder .panel-inner {
+  right: 0;
+}
+
+.panel--inspector .panel-inner {
+  left: 0;
+}
+
+.is-resizing .panel,
+.is-resizing .panel.is-open {
+  transition: none;
+}
+
+.is-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* The inner edge of a panel: a thin line appears on hover, accent while dragging. */
+.resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: var(--z-raised);
+  width: var(--size-resize-hit);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.resize-handle--binder {
+  right: 0;
+}
+
+.resize-handle--inspector {
+  left: 0;
+}
+
+.resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--size-underline);
+  background: transparent;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.resize-handle--binder::after {
+  right: 0;
+}
+
+.resize-handle--inspector::after {
+  left: 0;
+}
+
+.resize-handle:hover::after {
+  background: var(--color-separator);
+}
+
+.resize-handle:focus-visible {
+  outline: none;
+}
+
+.resize-handle:focus-visible::after,
+.is-resizing .resize-handle::after {
+  background: var(--color-accent);
+}
+
+/* Focus mode ------------------------------------------------------------ */
+
+/* The bar floats above the text, out of sight until the pointer reaches the top edge. */
+.is-focus .bar-slot {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  translate: 0 -100%;
+  transition:
+    translate var(--duration-base) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard);
+}
+
+.is-focus .bar-slot.is-revealed {
+  translate: 0 0;
+  box-shadow: var(--shadow-popover);
+}
+
+.reveal-zone {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: var(--z-bar);
+  height: var(--size-reveal-zone);
+}
+
+/* Phones ---------------------------------------------------------------- */
+
+.is-phone .panel {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  z-index: var(--z-overlay);
+  width: var(--phone-panel-width);
+  max-width: none;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  transition:
+    translate var(--duration-base) var(--ease-standard),
+    visibility 0s linear var(--duration-base);
+}
+
+.is-phone .panel--binder {
+  left: 0;
+  translate: -100% 0;
+}
+
+.is-phone .panel--inspector {
+  right: 0;
+  translate: 100% 0;
+}
+
+.is-phone .panel.is-open {
+  width: var(--phone-panel-width);
+  translate: 0 0;
+  box-shadow: var(--shadow-overlay);
+  transition: translate var(--duration-base) var(--ease-standard);
+}
+
+.is-phone .panel-inner {
+  position: static;
+  width: auto;
+  height: 100%;
+}
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-scrim);
+  padding: 0;
+  border: 0;
+  background: var(--color-scrim);
+  opacity: 0;
+  visibility: hidden;
+  cursor: default;
+  transition:
+    opacity var(--duration-base) var(--ease-standard),
+    visibility 0s linear var(--duration-base);
+}
+
+.scrim.is-open {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+
+/* A tapped name on a phone: half-height preview of the sheet. */
+.bottom-sheet {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--z-overlay);
+  height: var(--sheet-preview-height);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-4) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom));
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-overlay);
+  translate: 0 100%;
+  visibility: hidden;
+  transition:
+    translate var(--duration-slow) var(--ease-standard),
+    visibility 0s linear var(--duration-slow);
+}
+
+.bottom-sheet.is-open {
+  translate: 0 0;
+  visibility: visible;
+  transition: translate var(--duration-slow) var(--ease-standard);
+}

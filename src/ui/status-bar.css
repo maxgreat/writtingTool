@@ -1,0 +1,70 @@
+/* The status bar: counts and language on the left, problems and saving on the right. */
+
+.status-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: var(--size-status);
+  padding: 0 var(--space-4);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--color-surface);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.status-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.status-group--counts {
+  flex: none;
+}
+
+.status-group--end {
+  justify-content: flex-end;
+}
+
+.status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+
+.status-item > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn--small {
+  min-height: calc(var(--size-status) - 2 * var(--space-1));
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.status-problems .lucide {
+  color: var(--color-warning);
+}
+
+.save-error {
+  color: var(--color-danger);
+}
+
+.save-error-text {
+  max-width: var(--size-card);
+}
+
+/* Phones: tighter, as StatusBar leaves out the book count and language there. */
+.is-phone .status-bar {
+  padding-inline: var(--space-3);
+}
+
+.is-phone .status-group {
+  gap: var(--space-3);
+}
