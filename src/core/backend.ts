@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import type { Change } from "./binder";
 import type { ProjectSnapshot } from "./project";
 
 /** An earlier version of a chapter, kept on this device. */
@@ -23,6 +24,12 @@ export interface Backend {
   openProject(path: string): Promise<ProjectSnapshot>;
   /** Shows a folder picker; the chosen folder's path, or null if cancelled. Opens nothing. */
   pickProjectFolder(): Promise<string | null>;
+  /**
+   * Makes a change to the binder (create folders, move chapters and parts,
+   * write files) as a whole or not at all, and resolves to the project as it
+   * is afterwards.
+   */
+  applyChanges(root: string, change: Change): Promise<ProjectSnapshot>;
   /**
    * Replaces one file of the open project. `root` is the root of the project
    * the text belongs to (from its snapshot); the save is refused if that
@@ -68,6 +75,7 @@ const appBackend: Backend = {
     const path = await open({ directory: true, multiple: false, title: "Open a project folder" });
     return typeof path === "string" ? path : null;
   },
+  applyChanges: (root, change) => call<ProjectSnapshot>("apply_changes", { root, change }),
   writeFile: (root, path, text) => call<string | null>("write_project_file", { root, path, text }),
   listVersions: (root, chapter) => call<Version[]>("list_versions", { root, chapter }),
   restoreVersion: (root, chapter, savedAt) => call<string>("restore_version", { root, chapter, savedAt }),

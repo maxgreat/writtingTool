@@ -80,6 +80,8 @@
   --size-control: 28px;
   --size-status: 28px;
   --size-resize-hit: 6px;
+  /* A press becomes a drag in the binder once the pointer has moved this far. */
+  --size-drag-threshold: 4px;
   --size-reveal-zone: 8px;
   --size-card: 18rem;
   --size-popover-min: 11rem;
@@ -98,6 +100,9 @@
   --editor-gutter: var(--space-6);
   --editor-top: var(--space-12);
   --editor-overscroll: 40vh;
+
+  /* A binder row being dragged, left in place as a ghost. */
+  --opacity-dragged: 0.45;
 
   /* Motion. Reduced motion sets every duration to zero below. */
   --duration-fast: 150ms;

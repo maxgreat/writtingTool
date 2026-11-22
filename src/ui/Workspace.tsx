@@ -49,6 +49,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   const [phonePanel, setPhonePanel] = useState<"binder" | "inspector" | null>(null);
   const [preview, setPreview] = useState<{ id: string | null; open: boolean }>({ id: null, open: false });
   const [drag, setDrag] = useState<{ binder?: number; inspector?: number }>({});
+  /** Goes up when the empty project's button asks the binder for a new chapter. */
+  const [newChapterRequest, setNewChapterRequest] = useState(0);
 
   // A chapter with Markdown the formatted editor can't keep is shown in Plain
   // until another chapter is opened. The mode setting itself doesn't change.
@@ -168,6 +170,19 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     setMountCaret((m) => (m?.key === `${id}:formatted` ? { key: `${id}:plain`, caret: m.caret } : m));
   }, []);
 
+  /** The binder created a chapter and opened it: on a phone, the panel makes way for it. */
+  const chapterCreated = useCallback(() => {
+    if (isPhone) setPhonePanel(null);
+  }, [isPhone]);
+
+  /** The empty project's button: show the binder, where the new chapter's title is typed. */
+  const startFirstChapter = () => {
+    setFocusMode(false);
+    if (isPhone) setPhonePanel("binder");
+    else if (!settings.binderOpen) update({ binderOpen: true });
+    setNewChapterRequest((n) => n + 1);
+  };
+
   /* Focus mode ------------------------------------------------------------- */
 
   const pointerInBar = useRef(false);
@@ -262,14 +277,19 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     <div className="editor-empty">
       <h2>{project.title} has no chapters yet</h2>
       <p className="muted">
-        Add a Markdown file to <code className="path">manuscript/</code> in the project folder, then open the project
-        again.
+        Each chapter is a Markdown file in the project’s <code className="path">manuscript/</code> folder. Name the
+        first one in the binder.
       </p>
-      {backend.canOpenFolders && (
-        <button type="button" className="btn btn--primary" onClick={openFolder} disabled={opening}>
-          {opening ? "Opening…" : "Open folder…"}
+      <div className="editor-empty-actions">
+        <button type="button" className="btn btn--primary" onClick={startFirstChapter} disabled={api.switching}>
+          New chapter
         </button>
-      )}
+        {backend.canOpenFolders && (
+          <button type="button" className="btn btn--quiet" onClick={openFolder} disabled={opening || api.switching}>
+            {opening ? "Opening…" : "Open folder…"}
+          </button>
+        )}
+      </div>
       {openError && (
         <p className="inline-error" role="alert">
           {openError}
@@ -335,6 +355,11 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
               onOpenChapter={openChapter}
               onOpenSheet={openSheet}
               onOpenFolder={backend.canOpenFolders ? api.openFolder : undefined}
+              onChange={api.changeBinder}
+              onChapterDetails={api.updateChapterDetails}
+              busy={api.switching}
+              onChapterCreated={chapterCreated}
+              newChapterRequest={newChapterRequest}
             />
           </div>
           {!isPhone && (
@@ -394,6 +419,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
               view={inspectorView}
               onViewChange={setInspectorView}
               onOpenSheet={openSheet}
+              onChapterDetails={api.updateChapterDetails}
+              busy={api.switching}
               versions={{
                 list: api.listVersions,
                 restore: api.restoreVersion,

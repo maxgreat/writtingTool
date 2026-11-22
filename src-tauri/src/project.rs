@@ -6,6 +6,7 @@
 //!   project.json        binder notes, sheet types, settings
 //!   manuscript/         one Markdown file per chapter, parts as folders
 //!   sheets/<type>/      one Markdown file per sheet, with a YAML header
+//!   trash/              chapters and parts moved to the Trash
 //!   snapshots/          earlier versions of each chapter, kept on this device
 //! ```
 
@@ -15,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use include_dir::{Dir, include_dir};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 static SAMPLE_PROJECT: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../sample-project/MyNovel");
 const SAMPLE_FOLDER: &str = "MyNovel";
@@ -23,6 +24,8 @@ const SAMPLE_FOLDER: &str = "MyNovel";
 const PROJECT_FILE: &str = "project.json";
 /// Folders whose Markdown files the interface reads and may write.
 const TEXT_FOLDERS: [&str; 2] = ["manuscript", "sheets"];
+/// The binder's folders: chapters and parts move inside and between these.
+const BINDER_FOLDERS: [&str; 2] = ["manuscript", "trash"];
 
 /// Earlier versions of each chapter, one file per version:
 /// `snapshots/<chapter path without .md>/<milliseconds since 1970>.md`.
@@ -57,6 +60,8 @@ pub struct ProjectSnapshot {
     pub folder_name: String,
     pub project_json: Option<String>,
     pub files: Vec<ProjectFile>,
+    /// manuscript/ and trash/ and every folder in them, so empty parts show.
+    pub folders: Vec<String>,
     /// Markdown files left out because they are not UTF-8.
     pub skipped: Vec<String>,
     /// Other things left out, as sentences for the writer.
@@ -70,6 +75,79 @@ pub struct Version {
     /// When it was kept, in milliseconds since 1970. Also names the version.
     pub saved_at: u64,
     pub text: String,
+}
+
+/// A file or folder of the binder moving to a new path.
+#[derive(Debug, Deserialize)]
+pub struct Move {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileWrite {
+    pub path: String,
+    pub text: String,
+    /// The file must not exist yet: a new chapter never replaces a file,
+    /// even one the interface was not shown (not UTF-8, or named in
+    /// another case on a disk that ignores case).
+    #[serde(default)]
+    pub must_be_new: bool,
+}
+
+/// A change to the binder, made as a whole or not at all: folders are
+/// created, then every move is made at once (so two names can be swapped),
+/// then the files are written.
+#[derive(Debug, Deserialize)]
+pub struct Change {
+    pub folders: Vec<String>,
+    pub moves: Vec<Move>,
+    pub writes: Vec<FileWrite>,
+}
+
+/// One step of a change that has been made, and how to take it back.
+enum Done {
+    CreatedFolder(PathBuf),
+    Renamed { from: PathBuf, to: PathBuf },
+    Wrote { path: PathBuf, previous: Option<Vec<u8>> },
+}
+
+impl Done {
+    fn undo(self) -> io::Result<()> {
+        match self {
+            Done::CreatedFolder(path) => fs::remove_dir(path),
+            Done::Renamed { from, to } => fs::rename(to, from),
+            Done::Wrote { path, previous: Some(bytes) } => atomic_write(&path, &bytes),
+            Done::Wrote { path, previous: None } => fs::remove_file(path),
+        }
+    }
+}
+
+/// Whether `path` is inside `folder`, comparing `/`-separated segments.
+fn inside(path: &str, folder: &str) -> bool {
+    path.starts_with(&format!("{folder}/"))
+}
+
+/// A chapter path without its `.md` (any case), or a folder path as it is.
+fn without_md(relative: &str, is_file: bool) -> &str {
+    if is_file { &relative[..relative.len() - ".md".len()] } else { relative }
+}
+
+/// Checks a relative path's segments, as written by the interface: plain
+/// names only, none hidden, no `.` or `..`.
+fn plain_segments(relative: &str) -> io::Result<Vec<&str>> {
+    // Checked on the raw `/`-separated segments: Path::components would
+    // quietly drop a `.` and accept `\` or drive prefixes on Windows.
+    let parts: Vec<&str> = relative.split('/').collect();
+    let plain = parts
+        .iter()
+        .all(|p| !p.is_empty() && !p.starts_with('.') && !p.contains(NOT_IN_NAMES));
+    if plain {
+        Ok(parts)
+    } else {
+        Err(invalid(format!("{relative} is not a plain path inside the project")))
+    }
 }
 
 #[derive(Debug)]
@@ -155,12 +233,18 @@ impl ProjectRoot {
             Err(e) => return Err(e),
         };
         let mut files = Vec::new();
+        let mut folders = Vec::new();
         let mut skipped = Vec::new();
         let mut problems = Vec::new();
-        for folder in TEXT_FOLDERS {
+        for folder in ["manuscript", "sheets", "trash"] {
             let dir = self.root.join(folder);
             if is_real_dir(&dir) {
-                self.collect_markdown(&dir, &mut files, &mut skipped, &mut problems)?;
+                if BINDER_FOLDERS.contains(&folder) {
+                    folders.push(folder.to_string());
+                    self.collect_markdown(&dir, &mut files, Some(&mut folders), &mut skipped, &mut problems)?;
+                } else {
+                    self.collect_markdown(&dir, &mut files, None, &mut skipped, &mut problems)?;
+                }
             } else if dir.is_symlink() {
                 problems.push(format!(
                     "The {folder} folder is a link to another place, so it was left out: \
@@ -169,6 +253,7 @@ impl ProjectRoot {
             }
         }
         files.sort_by(|a, b| a.path.cmp(&b.path));
+        folders.sort();
         skipped.sort();
         Ok(ProjectSnapshot {
             root: self.root.to_string_lossy().into_owned(),
@@ -179,20 +264,22 @@ impl ProjectRoot {
                 .unwrap_or_default(),
             project_json,
             files,
+            folders,
             skipped,
             problems,
         })
     }
 
-    /// Reads every Markdown file below `dir`. Hidden entries and symbolic
-    /// links are skipped, so the walk never leaves the project folder. A
-    /// folder or Markdown file whose name is not UTF-8 is left out and
-    /// reported: its path could only be passed on altered, so saves would go
-    /// to a different file.
+    /// Reads every Markdown file below `dir`, and lists its folders in
+    /// `folders` if given. Hidden entries and symbolic links are skipped, so
+    /// the walk never leaves the project folder. A folder or Markdown file
+    /// whose name is not UTF-8 is left out and reported: its path could only
+    /// be passed on altered, so saves would go to a different file.
     fn collect_markdown(
         &self,
         dir: &Path,
         files: &mut Vec<ProjectFile>,
+        mut folders: Option<&mut Vec<String>>,
         skipped: &mut Vec<String>,
         problems: &mut Vec<String>,
     ) -> io::Result<()> {
@@ -214,7 +301,10 @@ impl ProjectRoot {
                 continue;
             }
             if kind.is_dir() {
-                self.collect_markdown(&path, files, skipped, problems)?;
+                if let Some(list) = folders.as_deref_mut() {
+                    list.push(self.relative(&path));
+                }
+                self.collect_markdown(&path, files, folders.as_deref_mut(), skipped, problems)?;
             } else if kind.is_file() && is_markdown(&path) {
                 let relative = self.relative(&path);
                 match String::from_utf8(fs::read(&path)?) {
@@ -312,25 +402,218 @@ impl ProjectRoot {
         self.resolve_writable(relative)
     }
 
-    /// The folder holding a chapter's versions. Each folder on the way must
-    /// be a real folder, not a link, so versions never land outside the
-    /// project. Missing folders are created when `create` is set; otherwise
-    /// a missing folder means there are no versions yet.
+    /// The folder holding a chapter's versions.
     fn versions_dir(&self, chapter: &str, create: bool) -> io::Result<Option<PathBuf>> {
         // The caller checked that `chapter` is a plain path ending in ".md" (any case).
-        let stem = &chapter[..chapter.len() - ".md".len()];
+        self.versions_dir_at(without_md(chapter, true), create.then_some(&mut Vec::new()))
+    }
+
+    /// The folder `snapshots/<stem>`. Each folder on the way must be a real
+    /// folder, not a link, so versions never land outside the project.
+    /// Missing folders are created when `created` is given, which lists them;
+    /// otherwise a missing folder means there are no versions yet.
+    fn versions_dir_at(&self, stem: &str, mut created: Option<&mut Vec<PathBuf>>) -> io::Result<Option<PathBuf>> {
         let mut dir = self.root.clone();
         for segment in std::iter::once(VERSIONS_FOLDER).chain(stem.split('/')) {
             dir.push(segment);
             match fs::symlink_metadata(&dir) {
                 Ok(meta) if meta.is_dir() => {}
                 Ok(_) => return Err(invalid(format!("{} is not a folder", self.relative(&dir)))),
-                Err(e) if e.kind() == io::ErrorKind::NotFound && create => fs::create_dir(&dir)?,
-                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => match created.as_deref_mut() {
+                    Some(list) => {
+                        fs::create_dir(&dir)?;
+                        list.push(dir.clone());
+                    }
+                    None => return Ok(None),
+                },
                 Err(e) => return Err(e),
             }
         }
         Ok(Some(dir))
+    }
+
+    /// Makes a change to the binder (see `Change`). Every path is checked
+    /// first. If a step fails, the steps already made are taken back, newest
+    /// first, and the error is returned. A chapter's or part's versions move
+    /// with it, unless versions are already kept under the new name.
+    pub fn apply(&self, change: &Change) -> io::Result<()> {
+        let mut done = Vec::new();
+        let result = self.apply_steps(change, &mut done);
+        if result.is_err() {
+            for step in done.into_iter().rev() {
+                // Best effort: the error that stopped the change is the one
+                // to report, and each step undone is one less left behind.
+                let _ = step.undo();
+            }
+        }
+        result
+    }
+
+    fn apply_steps(&self, change: &Change, done: &mut Vec<Done>) -> io::Result<()> {
+        let mut moves = Vec::new();
+        for (i, m) in change.moves.iter().enumerate() {
+            if inside(&m.to, &m.from) {
+                return Err(invalid(format!("{} cannot move inside itself", m.from)));
+            }
+            for other in &change.moves[i + 1..] {
+                let shared = m.from == other.from || m.to == other.to;
+                let nested = [&m.from, &m.to].iter().any(|p| inside(p, &other.from) || inside(p, &other.to))
+                    || [&other.from, &other.to].iter().any(|p| inside(p, &m.from) || inside(p, &m.to));
+                if shared || nested {
+                    return Err(invalid(format!("{} and {} overlap", m.from, other.from)));
+                }
+            }
+        }
+
+        for folder in &change.folders {
+            let path = self.resolve_binder_path(folder, true)?;
+            fs::create_dir(&path)?;
+            done.push(Done::CreatedFolder(path));
+        }
+
+        for m in &change.moves {
+            let from = self.resolve_binder_path(&m.from, false)?;
+            let meta = fs::symlink_metadata(&from)?;
+            let is_file = meta.is_file() && is_markdown(&from);
+            if !is_file && !meta.is_dir() {
+                return Err(invalid(format!("{} is not a chapter or a part", m.from)));
+            }
+            if is_file && !is_markdown(Path::new(&m.to)) {
+                return Err(invalid(format!("{} is not a Markdown file name", m.to)));
+            }
+            moves.push((m, from, self.resolve_binder_path(&m.to, false)?, is_file));
+        }
+
+        // Versions follow their chapter or part. A versions folder is left
+        // where it is when versions are already kept under the new name and
+        // that folder is not moving away itself, or when two moves would share
+        // or nest versions folders. Leaving one behind can block another that
+        // was to take its place, so this repeats until nothing more changes.
+        let mut candidates = Vec::new();
+        for (m, _, _, is_file) in &moves {
+            if let Some(dir) = self.versions_dir_at(without_md(&m.from, *is_file), None)? {
+                let to_stem = without_md(&m.to, *is_file);
+                let target = self.root.join(VERSIONS_FOLDER).join(to_stem.split('/').collect::<PathBuf>());
+                candidates.push((dir, target, to_stem));
+            }
+        }
+        let overlap = |a: &Path, b: &Path| a.starts_with(b) || b.starts_with(a);
+        let nested = |a: &Path, b: &Path| a != b && overlap(a, b);
+        let mut active: Vec<bool> = (0..candidates.len())
+            .map(|i| {
+                let (dir, target, _) = &candidates[i];
+                !candidates.iter().enumerate().any(|(j, (other_dir, other_target, _))| {
+                    j != i
+                        && (overlap(dir, other_dir)
+                            || overlap(target, other_target)
+                            || nested(dir, other_target)
+                            || nested(target, other_dir))
+                })
+            })
+            .collect();
+        loop {
+            let mut changed = false;
+            for i in 0..candidates.len() {
+                if !active[i] {
+                    continue;
+                }
+                let target = &candidates[i].1;
+                let freed = (0..candidates.len()).any(|j| active[j] && candidates[j].0 == *target);
+                if fs::symlink_metadata(target).is_ok() && !freed {
+                    active[i] = false;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        let mut pairs: Vec<(PathBuf, PathBuf)> = moves.iter().map(|(_, from, to, _)| (from.clone(), to.clone())).collect();
+        for ((dir, target, to_stem), keep) in candidates.into_iter().zip(active) {
+            if !keep {
+                continue;
+            }
+            let parent = to_stem.rsplit_once('/').map_or("", |(parent, _)| parent);
+            let mut created = Vec::new();
+            let made = self.versions_dir_at(parent, Some(&mut created));
+            done.extend(created.into_iter().map(Done::CreatedFolder));
+            made?;
+            pairs.push((dir, target));
+        }
+        self.move_all(&pairs, done)?;
+
+        for write in &change.writes {
+            let target = self.resolve_writable(&write.path)?;
+            let previous = match fs::read(&target) {
+                Ok(bytes) => Some(bytes),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+                Err(e) => return Err(e),
+            };
+            if write.must_be_new && (previous.is_some() || fs::symlink_metadata(&target).is_ok()) {
+                let message = format!("{} already exists", write.path);
+                return Err(io::Error::new(io::ErrorKind::AlreadyExists, message));
+            }
+            atomic_write(&target, write.text.as_bytes())?;
+            done.push(Done::Wrote { path: target, previous });
+        }
+        Ok(())
+    }
+
+    /// Moves every pair at once: each source first goes to a short hidden
+    /// name beside it (short, so a name near the length limit can still
+    /// move), then to its target, so a name another pair frees can be taken.
+    /// A target that already exists stops the move.
+    fn move_all(&self, pairs: &[(PathBuf, PathBuf)], done: &mut Vec<Done>) -> io::Result<()> {
+        let mut temps = Vec::with_capacity(pairs.len());
+        let mut count = 0;
+        for (from, _) in pairs {
+            // A free name: never replace something left by an earlier move.
+            let temp = loop {
+                let candidate = from.with_file_name(format!(".moving-{}-{count}", std::process::id()));
+                count += 1;
+                match fs::symlink_metadata(&candidate) {
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => break candidate,
+                    Err(e) => return Err(e),
+                    Ok(_) => {}
+                }
+            };
+            fs::rename(from, &temp)?;
+            done.push(Done::Renamed { from: from.clone(), to: temp.clone() });
+            temps.push(temp);
+        }
+        for ((_, to), temp) in pairs.iter().zip(temps) {
+            match fs::symlink_metadata(to) {
+                Ok(_) => {
+                    let message = format!("{} already exists", self.relative(to));
+                    return Err(io::Error::new(io::ErrorKind::AlreadyExists, message));
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
+            fs::rename(&temp, to)?;
+            done.push(Done::Renamed { from: temp, to: to.clone() });
+        }
+        Ok(())
+    }
+
+    /// A path inside manuscript/ or trash/ (or, with `top`, one of those
+    /// folders itself), through plain segments, whose folder resolves inside
+    /// the project. Whether the path itself exists is for the caller to check.
+    fn resolve_binder_path(&self, relative: &str, top: bool) -> io::Result<PathBuf> {
+        let parts = plain_segments(relative)?;
+        let in_binder = BINDER_FOLDERS.contains(&parts[0]) && (top || parts.len() > 1);
+        if !in_binder {
+            return Err(invalid(format!("{relative} is not inside manuscript/ or trash/")));
+        }
+        let mut full = self.root.clone();
+        for part in &parts {
+            full.push(part);
+        }
+        let parent = fs::canonicalize(full.parent().ok_or_else(|| invalid("no parent folder"))?)?;
+        if !parent.starts_with(&self.root) {
+            return Err(invalid(format!("{relative} is outside the project")));
+        }
+        Ok(parent.join(parts[parts.len() - 1]))
     }
 
     /// Keeps `text` as a new version of `chapter`, then deletes the oldest
@@ -365,15 +648,7 @@ impl ProjectRoot {
     /// be written, and only through plain relative paths whose folder
     /// resolves inside the project.
     fn resolve_writable(&self, relative: &str) -> io::Result<PathBuf> {
-        // Checked on the raw `/`-separated segments: Path::components would
-        // quietly drop a `.` and accept `\` or drive prefixes on Windows.
-        let parts: Vec<&str> = relative.split('/').collect();
-        let plain = parts
-            .iter()
-            .all(|p| !p.is_empty() && !p.starts_with('.') && !p.contains(NOT_IN_NAMES));
-        if !plain {
-            return Err(invalid(format!("{relative} is not a plain path inside the project")));
-        }
+        let parts = plain_segments(relative)?;
         let path: PathBuf = parts.iter().collect();
         let allowed = match parts.as_slice() {
             [only] => *only == PROJECT_FILE,
@@ -688,6 +963,172 @@ mod tests {
         assert!(root.keep_before_write(ARRIVAL, "# New\n").is_err());
         assert!(root.versions(ARRIVAL).is_err());
         assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+    }
+
+    const FERRYMAN: &str = "manuscript/Part 1 - Arrival/02 The ferryman.md";
+
+    fn change(folders: &[&str], moves: &[(&str, &str)], writes: &[(&str, &str)]) -> Change {
+        Change {
+            folders: folders.iter().map(|f| f.to_string()).collect(),
+            moves: moves.iter().map(|(from, to)| Move { from: from.to_string(), to: to.to_string() }).collect(),
+            writes: writes
+                .iter()
+                .map(|(path, text)| FileWrite { path: path.to_string(), text: text.to_string(), must_be_new: false })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn swaps_two_chapters_and_their_versions() {
+        let (_dir, root) = sample();
+        let arrival = read(&root, ARRIVAL);
+        let ferryman = read(&root, FERRYMAN);
+        root.keep_version(ARRIVAL, b"old arrival", true).unwrap();
+        root.apply(&change(&[], &[(ARRIVAL, FERRYMAN), (FERRYMAN, ARRIVAL)], &[])).unwrap();
+        assert_eq!(read(&root, ARRIVAL), ferryman);
+        assert_eq!(read(&root, FERRYMAN), arrival);
+        assert_eq!(root.versions(FERRYMAN).unwrap()[0].text, "old arrival");
+        assert!(root.versions(ARRIVAL).unwrap().is_empty());
+        let hidden: Vec<_> = fs::read_dir(root.root.join("manuscript/Part 1 - Arrival"))
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| is_hidden(&e.file_name()))
+            .collect();
+        assert!(hidden.is_empty());
+    }
+
+    #[test]
+    fn creates_parts_and_chapters() {
+        let (_dir, root) = sample();
+        root.apply(&change(
+            &["manuscript/Part 3"],
+            &[],
+            &[("manuscript/Part 3/04 New.md", "# New\n"), ("project.json", "{}")],
+        ))
+        .unwrap();
+        assert_eq!(read(&root, "manuscript/Part 3/04 New.md"), "# New\n");
+        let snapshot = root.snapshot().unwrap();
+        assert!(snapshot.folders.contains(&"manuscript/Part 3".to_string()));
+        assert!(snapshot.folders.contains(&"manuscript".to_string()));
+    }
+
+    #[test]
+    fn trashes_a_part_with_its_versions_and_reads_the_trash() {
+        let (_dir, root) = sample();
+        root.keep_version(ARRIVAL, b"old", true).unwrap();
+        root.apply(&change(&["trash"], &[("manuscript/Part 1 - Arrival", "trash/Part 1 - Arrival")], &[]))
+            .unwrap();
+        assert!(!root.root.join("manuscript/Part 1 - Arrival").exists());
+        assert!(root.root.join("snapshots/trash/Part 1 - Arrival/01 The arrival").is_dir());
+        let snapshot = root.snapshot().unwrap();
+        assert!(snapshot.files.iter().any(|f| f.path == "trash/Part 1 - Arrival/01 The arrival.md"));
+        assert!(snapshot.folders.contains(&"trash/Part 1 - Arrival".to_string()));
+
+        root.apply(&change(&[], &[("trash/Part 1 - Arrival", "manuscript/Part 1 - Arrival")], &[]))
+            .unwrap();
+        assert_eq!(root.versions(ARRIVAL).unwrap()[0].text, "old");
+    }
+
+    #[test]
+    fn leaves_versions_behind_when_the_new_name_has_some() {
+        let (_dir, root) = sample();
+        root.keep_version(ARRIVAL, b"arrival", true).unwrap();
+        let target = "manuscript/Part 1 - Arrival/05 Gone.md";
+        root.keep_version(target, b"stale", true).unwrap();
+        root.apply(&change(&[], &[(ARRIVAL, target)], &[])).unwrap();
+        assert_eq!(root.versions(target).unwrap()[0].text, "stale");
+    }
+
+    #[test]
+    fn leaves_a_chain_of_versions_behind_when_its_end_is_taken() {
+        let (_dir, root) = sample();
+        let part = "manuscript/Part 1 - Arrival";
+        let one = format!("{part}/01.md");
+        let two = format!("{part}/02.md");
+        let three = format!("{part}/03.md");
+        fs::write(root.root.join(&one), "# One\n").unwrap();
+        fs::write(root.root.join(&two), "# Two\n").unwrap();
+        root.keep_version(&one, b"one", true).unwrap();
+        root.keep_version(&two, b"two", true).unwrap();
+        root.keep_version(&three, b"stale", true).unwrap();
+        // 01 becomes 02 and 02 becomes 03: the versions of 02 can't move onto
+        // the stale 03, so the versions of 01 can't take 02's place either.
+        root.apply(&change(&[], &[(&one, &two), (&two, &three)], &[])).unwrap();
+        assert_eq!(read(&root, &two), "# One\n");
+        assert_eq!(read(&root, &three), "# Two\n");
+        assert_eq!(root.versions(&three).unwrap()[0].text, "stale");
+        assert_eq!(root.versions(&two).unwrap()[0].text, "two");
+        assert_eq!(root.versions(&one).unwrap()[0].text, "one");
+    }
+
+    #[test]
+    fn moves_names_close_to_the_length_limit() {
+        let (_dir, root) = sample();
+        let title = "章".repeat(80);
+        let from = format!("manuscript/Part 1 - Arrival/01 {title}.md");
+        let to = format!("manuscript/Part 1 - Arrival/02 {title}.md");
+        assert!(title.len() + 6 <= 255);
+        fs::write(root.root.join(&from), "# Long\n").unwrap();
+        root.apply(&change(&[], &[(&from, &to)], &[])).unwrap();
+        assert_eq!(read(&root, &to), "# Long\n");
+    }
+
+    #[test]
+    fn never_replaces_a_file_with_a_new_one() {
+        let (_dir, root) = sample();
+        let json = read(&root, "project.json");
+        let arrival = read(&root, ARRIVAL);
+        let mut new_chapter = change(&[], &[], &[("project.json", "{}")]);
+        new_chapter.writes.insert(0, FileWrite { path: ARRIVAL.into(), text: "# New\n".into(), must_be_new: true });
+        assert!(root.apply(&new_chapter).is_err());
+        assert_eq!(read(&root, ARRIVAL), arrival);
+        assert_eq!(read(&root, "project.json"), json);
+
+        let fresh = "manuscript/Part 1 - Arrival/09 Fresh.md";
+        let mut new_chapter = change(&[], &[], &[]);
+        new_chapter.writes.push(FileWrite { path: fresh.into(), text: "# Fresh\n".into(), must_be_new: true });
+        root.apply(&new_chapter).unwrap();
+        assert_eq!(read(&root, fresh), "# Fresh\n");
+    }
+
+    #[test]
+    fn takes_every_step_back_when_one_fails() {
+        let (_dir, root) = sample();
+        let json = read(&root, "project.json");
+        let arrival = read(&root, ARRIVAL);
+        let result = root.apply(&change(
+            &["trash"],
+            &[(ARRIVAL, "trash/01 The arrival.md")],
+            &[("project.json", "{}"), ("notes.md", "x")],
+        ));
+        assert!(result.is_err());
+        assert_eq!(read(&root, "project.json"), json);
+        assert_eq!(read(&root, ARRIVAL), arrival);
+        assert!(!root.root.join("trash").exists());
+    }
+
+    #[test]
+    fn refuses_moves_that_leave_the_binder_or_overlap() {
+        let (_dir, root) = sample();
+        let part = "manuscript/Part 1 - Arrival";
+        for bad in [
+            change(&[], &[(ARRIVAL, "sheets/places/x.md")], &[]),
+            change(&[], &[("sheets/places/Varn.md", "manuscript/Varn.md")], &[]),
+            change(&[], &[(ARRIVAL, "manuscript/x.txt")], &[]),
+            change(&[], &[(ARRIVAL, "manuscript/../x.md")], &[]),
+            change(&[], &[(part, "manuscript/Part 1 - Arrival/Inner")], &[]),
+            change(&[], &[(part, "manuscript/P"), (ARRIVAL, "manuscript/x.md")], &[]),
+            change(&[], &[(ARRIVAL, "manuscript/x.md"), (FERRYMAN, "manuscript/x.md")], &[]),
+            change(&[], &[(ARRIVAL, FERRYMAN)], &[]),
+            change(&[], &[("manuscript/missing.md", "manuscript/x.md")], &[]),
+            change(&["sheets/new"], &[], &[]),
+            change(&["manuscript"], &[], &[]),
+            change(&["manuscript/.hidden"], &[], &[]),
+        ] {
+            assert!(root.apply(&bad).is_err(), "{bad:?} should be refused");
+        }
+        assert!(root.root.join(ARRIVAL).is_file());
+        assert!(root.root.join(FERRYMAN).is_file());
     }
 
     #[test]

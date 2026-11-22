@@ -6,6 +6,11 @@ import { FormattedEditor } from "../editor/FormattedEditor";
 import type { EditorHandle } from "../editor/types";
 import { NameMatcher } from "../names";
 
+// jsdom has no layout. Tiptap scrolls the caret into view an animation frame
+// after focusing, which can land while an editor is still mounted.
+Range.prototype.getBoundingClientRect = () => new DOMRect();
+Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()));
 

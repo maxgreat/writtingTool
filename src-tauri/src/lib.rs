@@ -6,7 +6,7 @@ mod project;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use project::{ProjectRoot, ProjectSnapshot, Version};
+use project::{Change, ProjectRoot, ProjectSnapshot, Version};
 use tauri::{AppHandle, Manager, State};
 
 /// The open project. The lock is held for a whole command, so two writes or
@@ -107,6 +107,16 @@ async fn restore_version(
     })
 }
 
+/// Makes a change to the binder as a whole or not at all, then returns the
+/// project as it is on disk afterwards.
+#[tauri::command]
+async fn apply_changes(root: String, change: Change, state: State<'_, AppState>) -> Result<ProjectSnapshot, String> {
+    with_open(&state, &root, "change the binder", |open| {
+        open.apply(&change).map_err(|e| format!("Cannot change the binder: {e}. Nothing was changed."))?;
+        open.snapshot().map_err(|e| format!("The binder was changed, but the project could not be read again: {e}"))
+    })
+}
+
 /// Set by `.githooks/verify-launch` to check that a build starts.
 const LAUNCH_CHECK_VAR: &str = "WRITING_TOOL_LAUNCH_CHECK";
 
@@ -132,6 +142,7 @@ pub fn run() {
             write_project_file,
             list_versions,
             restore_version,
+            apply_changes,
             frontend_ready
         ])
         .run(tauri::generate_context!())

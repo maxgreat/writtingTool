@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadBackend, type Backend, type Version } from "./backend";
+import { withChapterDetails, type ChapterDetails, type Plan } from "./binder";
 import { withFinalNewline } from "./markdown";
 import { buildNameMatcher, buildProject, withChapterText, type Project, type ProjectSnapshot } from "./project";
 
@@ -56,6 +57,7 @@ export function useProject() {
 
   const backendRef = useRef<Backend | null>(null);
   const projectRef = useRef<Project | null>(null);
+  const openRef = useRef<string | null>(null);
   const pending = useRef(new Map<string, string>());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const writing = useRef<Promise<void> | null>(null);
@@ -113,25 +115,37 @@ export function useProject() {
     }
   }, []);
 
+  const showChapter = useCallback((root: string, id: string | null) => {
+    openRef.current = id;
+    setOpenChapterId(id);
+    if (id) writeStorage(lastChapterKey(root), id);
+  }, []);
+
   /**
-   * Shows a freshly opened project. `fallbackFor` is set when the remembered
+   * Shows a project read from disk. `fallbackFor` is set when the remembered
    * project could not be reopened and this is the sample instead: the reason
    * is listed with the project's problems, and the remembered path is kept so
    * the next launch tries it again (for example once a drive is mounted).
+   * `openId` is the chapter to open, if it exists; otherwise the chapter open
+   * last time in this project, or the first one.
    */
-  const applySnapshot = useCallback((snapshot: ProjectSnapshot, target: Backend, fallbackFor?: string) => {
-    const built = buildProject(snapshot);
-    const next = fallbackFor ? { ...built, problems: [fallbackFor, ...built.problems] } : built;
-    pending.current.clear();
-    projectRef.current = next;
-    setProject(next);
-    setLoads((count) => count + 1);
-    const remembered = readStorage(lastChapterKey(next.root));
-    setOpenChapterId(remembered && next.chapters[remembered] ? remembered : (next.chapterOrder[0] ?? null));
-    setSave({ status: "saved" });
-    setLoad({ status: "ready" });
-    if (target.kind === "app" && !fallbackFor) writeStorage(LAST_PROJECT_KEY, next.root);
-  }, []);
+  const applySnapshot = useCallback(
+    (snapshot: ProjectSnapshot, target: Backend, options: { fallbackFor?: string; openId?: string | null } = {}) => {
+      const { fallbackFor, openId } = options;
+      const built = buildProject(snapshot);
+      const next = fallbackFor ? { ...built, problems: [fallbackFor, ...built.problems] } : built;
+      pending.current.clear();
+      projectRef.current = next;
+      setProject(next);
+      setLoads((count) => count + 1);
+      const remembered = openId ?? readStorage(lastChapterKey(next.root));
+      showChapter(next.root, remembered && next.chapters[remembered] ? remembered : (next.chapterOrder[0] ?? null));
+      setSave({ status: "saved" });
+      setLoad({ status: "ready" });
+      if (target.kind === "app" && !fallbackFor) writeStorage(LAST_PROJECT_KEY, next.root);
+    },
+    [showChapter],
+  );
 
   // Open the last project on this device, or the sample project.
   useEffect(() => {
@@ -152,7 +166,7 @@ export function useProject() {
         if (cancelled) return;
         backendRef.current = target;
         setBackend(target);
-        applySnapshot(snapshot, target, fallbackFor);
+        applySnapshot(snapshot, target, { fallbackFor });
       } catch (error) {
         if (!cancelled) setLoad({ status: "error", message: message(error) });
       }
@@ -194,27 +208,86 @@ export function useProject() {
     };
   }, [backend, flush]);
 
+  /** Shows a changed project at once and writes `path` about a second after the last change. */
+  const changeLater = useCallback((next: Project, path: string, text: string) => {
+    projectRef.current = next;
+    setProject(next);
+    pending.current.set(path, text);
+    setSave({ status: "pending" });
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = setTimeout(() => void flush(), AUTOSAVE_DELAY_MS);
+  }, [flush]);
+
   const updateChapter = useCallback((id: string, markdown: string) => {
     const current = projectRef.current;
     if (!current || switchingRef.current) return;
     const text = withFinalNewline(markdown);
     const next = withChapterText(current, id, text);
     if (next === current) return;
-    projectRef.current = next;
-    setProject(next);
-    pending.current.set(id, text);
-    setSave({ status: "pending" });
-    if (timer.current !== null) clearTimeout(timer.current);
-    timer.current = setTimeout(() => void flush(), AUTOSAVE_DELAY_MS);
-  }, [flush]);
+    changeLater(next, id, text);
+  }, [changeLater]);
+
+  /**
+   * Sets a chapter's status, point of view or synopsis, saved in
+   * project.json like an edit. Throws, changing nothing, when project.json
+   * could not be read (it must not be overwritten then).
+   */
+  const updateChapterDetails = useCallback((id: string, details: ChapterDetails) => {
+    const current = projectRef.current;
+    if (!current || switchingRef.current) return;
+    const { project: next, write } = withChapterDetails(current, id, details);
+    changeLater(next, write.path, write.text);
+  }, [changeLater]);
 
   const openChapter = useCallback((id: string) => {
     const current = projectRef.current;
     if (!current?.chapters[id]) return;
     void flush();
-    setOpenChapterId(id);
-    writeStorage(lastChapterKey(current.root), id);
-  }, [flush]);
+    showChapter(current.root, id);
+  }, [flush, showChapter]);
+
+  /**
+   * Changes the binder: saves pending edits, plans the change on the project
+   * as saved (`makePlan`, from src/core/binder.ts; null means nothing to
+   * do), has the core make each step, then shows the project as it is on
+   * disk. The open chapter follows its file through renames; a chapter the
+   * plan creates is opened. Edits are refused meanwhile (`switching`).
+   * Rejects with a message for the writer if a step fails; earlier steps of
+   * the plan stay made and are shown.
+   */
+  const changeBinder = useCallback(async (makePlan: (project: Project) => Plan | null): Promise<void> => {
+    const target = backendRef.current;
+    if (!target || !projectRef.current || switchingRef.current) return;
+    switchingRef.current = true;
+    setSwitching(true);
+    try {
+      await flush();
+      if (pending.current.size > 0) {
+        throw new Error("Some changes could not be saved. Save them (Retry) before changing the binder.");
+      }
+      const current = projectRef.current;
+      const plan = makePlan(current);
+      if (!plan) return;
+      const open = openRef.current;
+      let snapshot: ProjectSnapshot | null = null;
+      let made = 0;
+      try {
+        for (const change of plan.changes) {
+          snapshot = await target.applyChanges(current.root, change);
+          made += 1;
+        }
+      } finally {
+        // Paths in `plan` are where things end up once every step is made;
+        // after a failed step, the open chapter is still where it was.
+        const complete = made === plan.changes.length;
+        const openId = complete ? (plan.created ?? (open ? (plan.renamed.get(open) ?? open) : null)) : open;
+        if (snapshot) applySnapshot(snapshot, target, { openId });
+      }
+    } finally {
+      switchingRef.current = false;
+      setSwitching(false);
+    }
+  }, [flush, applySnapshot]);
 
   /**
    * Shows a folder picker, then opens the chosen folder. Rejects with the
@@ -301,6 +374,8 @@ export function useProject() {
     /** Writes pending changes now; also the retry after a failed save. */
     saveNow: flush,
     openFolder,
+    updateChapterDetails,
+    changeBinder,
     listVersions,
     restoreVersion,
     /** The project on disk is about to change (another project opens, a version is restored): show the editors read-only. */

@@ -7,8 +7,10 @@ export interface ProjectSnapshot {
   root: string;
   folderName: string;
   projectJson: string | null;
-  /** Every Markdown file under manuscript/ and sheets/, paths relative to the root with `/`. */
+  /** Every Markdown file under manuscript/, sheets/ and trash/, paths relative to the root with `/`. */
   files: { path: string; text: string }[];
+  /** Every folder under manuscript/ and trash/, so empty parts show too. */
+  folders?: string[];
   /** Files that could not be read as UTF-8 and were left out. */
   skipped: string[];
   /** Other things the Rust core left out, as sentences (for example a linked manuscript folder). */
@@ -53,6 +55,19 @@ export type BinderItem =
   | { type: "part"; id: string; title: string; chapterIds: string[] }
   | { type: "chapter"; id: string };
 
+/** A chapter or a whole part in the Trash, which is the trash/ folder of the project. */
+export interface TrashItem {
+  /** Path in trash/, relative to the project root. */
+  id: string;
+  type: "chapter" | "part";
+  title: string;
+  wordCount: number;
+  /** For a part: its chapter files, in path order. */
+  chapterIds: string[];
+  /** Where it was before it went to the Trash, if project.json remembers. */
+  from: string | null;
+}
+
 export interface Project {
   root: string;
   title: string;
@@ -63,17 +78,29 @@ export interface Project {
   chapterOrder: string[];
   sheets: Sheet[];
   sheetTypes: SheetType[];
+  /** Chapter statuses to choose from, in order. */
+  statuses: string[];
+  trash: TrashItem[];
+  /** Every file and folder path under manuscript/ and trash/, including files left out, so new names never clash. */
+  entries: string[];
+  /** project.json as read, to be written back with changes; unknown fields are kept. */
+  json: Record<string, unknown>;
+  /** Set when project.json exists but could not be read: it must not be overwritten then. */
+  jsonProblem: string | null;
   /** Problems found while reading, for the interface to report. */
   problems: string[];
 }
 
 const MANUSCRIPT = "manuscript/";
 const SHEETS = "sheets/";
+const TRASH = "trash/";
+
+export const DEFAULT_STATUSES = ["Idea", "Draft", "Revised", "Final"];
 
 /** Sheet types that are notes, not names, and are never highlighted. */
 const UNMATCHED_KINDS = new Set(["notes"]);
 
-const DEFAULT_SHEET_TYPES: SheetType[] = [
+export const DEFAULT_SHEET_TYPES: SheetType[] = [
   { folder: "characters", label: "Characters" },
   { folder: "places", label: "Places" },
   { folder: "notes", label: "Notes" },
@@ -90,6 +117,12 @@ interface ProjectJson {
   language?: unknown;
   sheetTypes?: unknown;
   chapters?: Record<string, ChapterMeta>;
+  /** Statuses to choose from. */
+  statuses?: unknown;
+  /** Paths of parts and chapters in binder order. Items missing from it follow, in path order. */
+  binder?: unknown;
+  /** Where each item in trash/ came from: { "<trash path>": { "from": "<path>" } }. */
+  trash?: unknown;
 }
 
 const asString = (value: unknown): string => (typeof value === "string" ? value : "");
@@ -164,16 +197,25 @@ export function parseSheet(path: string, text: string, problems: string[]): Shee
   return { id: path, kind, name, aliases: parseAliases(data.aliases), fields, body: body.replace(/^\s+/u, "") };
 }
 
-function parseProjectJson(text: string | null, problems: string[]): ProjectJson {
-  if (text === null) return {};
+function parseProjectJson(text: string | null): { json: ProjectJson; problem: string | null } {
+  if (text === null) return { json: {}, problem: null };
   try {
     const parsed: unknown = JSON.parse(text);
-    if (isRecord(parsed)) return parsed as ProjectJson;
-    problems.push("project.json does not hold an object; using defaults.");
+    if (isRecord(parsed)) return { json: parsed as ProjectJson, problem: null };
+    return { json: {}, problem: "project.json does not hold an object; using defaults." };
   } catch (error) {
-    problems.push(`project.json could not be read (${(error as Error).message}); using defaults.`);
+    return { json: {}, problem: `project.json could not be read (${(error as Error).message}); using defaults.` };
   }
-  return {};
+}
+
+function parseStatuses(value: unknown, chapters: Chapter[]): string[] {
+  const listed = Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && v.trim() !== "") : [];
+  const statuses = listed.length > 0 ? [...new Set(listed)] : [...DEFAULT_STATUSES];
+  // A status a chapter already has stays choosable, even if the list left it out.
+  for (const chapter of chapters) {
+    if (chapter.status && !statuses.includes(chapter.status)) statuses.push(chapter.status);
+  }
+  return statuses;
 }
 
 function parseSheetTypes(value: unknown, sheets: Sheet[]): SheetType[] {
@@ -196,24 +238,34 @@ function parseSheetTypes(value: unknown, sheets: Sheet[]): SheetType[] {
 
 const byPath = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
 
+/** The top-level folder or file below `prefix` that holds `path`. */
+function topLevel(path: string, prefix: string): string {
+  const slash = path.indexOf("/", prefix.length);
+  return slash === -1 ? path : path.slice(0, slash);
+}
+
 export function buildProject(snapshot: ProjectSnapshot): Project {
+  const { json, problem: jsonProblem } = parseProjectJson(snapshot.projectJson);
   const problems = [
     ...(snapshot.problems ?? []),
     ...snapshot.skipped.map((path) => `${path} is not UTF-8 text and was left out.`),
+    ...(jsonProblem ? [jsonProblem] : []),
   ];
-  const json = parseProjectJson(snapshot.projectJson, problems);
   const meta = isRecord(json.chapters) ? json.chapters : {};
+  const folders = snapshot.folders ?? [];
 
-  const chapterFiles = snapshot.files
-    .filter((f) => f.path.startsWith(MANUSCRIPT))
-    .sort((a, b) => byPath(a.path, b.path));
+  // Binder order: the position in project.json's list, then the path.
+  const listed = Array.isArray(json.binder) ? json.binder.filter((v): v is string => typeof v === "string") : [];
+  const rank = new Map(listed.map((id, index) => [id, index] as const));
+  const byOrder = (a: string, b: string) =>
+    (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity) || byPath(a, b);
+
+  const chapterFiles = snapshot.files.filter((f) => f.path.startsWith(MANUSCRIPT));
   const sheetFiles = snapshot.files
     .filter((f) => f.path.startsWith(SHEETS) && f.path.slice(SHEETS.length).includes("/"))
     .sort((a, b) => byPath(a.path, b.path));
 
   const chapters: Record<string, Chapter> = {};
-  const binder: BinderItem[] = [];
-  const parts = new Map<string, Extract<BinderItem, { type: "part" }>>();
   for (const file of chapterFiles) {
     const m = isRecord(meta[file.path]) ? meta[file.path] : {};
     chapters[file.path] = {
@@ -225,24 +277,67 @@ export function buildProject(snapshot: ProjectSnapshot): Project {
       pov: asString(m.pov),
       synopsis: asString(m.synopsis),
     };
-    const relative = file.path.slice(MANUSCRIPT.length);
-    const slash = relative.indexOf("/");
-    if (slash === -1) {
-      binder.push({ type: "chapter", id: file.path });
-      continue;
-    }
-    // Every chapter below a top-level folder belongs to that folder's part.
-    const partName = relative.slice(0, slash);
-    let part = parts.get(partName);
+  }
+
+  // Every chapter below a top-level folder belongs to that folder's part;
+  // a top-level folder with no chapters is an empty part.
+  const parts = new Map<string, Extract<BinderItem, { type: "part" }>>();
+  const loose: BinderItem[] = [];
+  const partFor = (id: string) => {
+    let part = parts.get(id);
     if (!part) {
-      part = { type: "part", id: MANUSCRIPT + partName, title: partName, chapterIds: [] };
-      parts.set(partName, part);
-      binder.push(part);
+      part = { type: "part", id, title: id.slice(MANUSCRIPT.length), chapterIds: [] };
+      parts.set(id, part);
     }
-    part.chapterIds.push(file.path);
+    return part;
+  };
+  for (const folder of folders) {
+    if (folder.startsWith(MANUSCRIPT)) partFor(topLevel(folder, MANUSCRIPT));
+  }
+  for (const id of Object.keys(chapters).sort(byOrder)) {
+    const top = topLevel(id, MANUSCRIPT);
+    if (top === id) loose.push({ type: "chapter", id });
+    else partFor(top).chapterIds.push(id);
+  }
+  const binder = [...loose, ...parts.values()].sort((a, b) => byOrder(a.id, b.id));
+
+  const trashMeta = isRecord(json.trash) ? json.trash : {};
+  const trash = new Map<string, TrashItem>();
+  const trashItem = (id: string, type: TrashItem["type"]) => {
+    let item = trash.get(id);
+    if (!item) {
+      const record = trashMeta[id];
+      const from = isRecord(record) && typeof record.from === "string" ? record.from : null;
+      const name = id.slice(TRASH.length);
+      item = { id, type, title: type === "part" ? name : stem(name), wordCount: 0, chapterIds: [], from };
+      trash.set(id, item);
+    }
+    return item;
+  };
+  for (const folder of folders) {
+    if (folder.startsWith(TRASH)) trashItem(topLevel(folder, TRASH), "part");
+  }
+  for (const file of snapshot.files
+    .filter((f) => f.path.startsWith(TRASH))
+    .sort((a, b) => byPath(a.path, b.path))) {
+    const top = topLevel(file.path, TRASH);
+    if (top === file.path) {
+      const item = trashItem(top, "chapter");
+      item.title = chapterTitle(file.path, file.text);
+      item.wordCount = countWords(file.text);
+    } else {
+      const item = trashItem(top, "part");
+      item.chapterIds.push(file.path);
+      item.wordCount += countWords(file.text);
+    }
   }
 
   const sheets = sheetFiles.map((f) => parseSheet(f.path, f.text, problems));
+  const entries = [
+    ...folders,
+    ...snapshot.files.filter((f) => f.path.startsWith(MANUSCRIPT) || f.path.startsWith(TRASH)).map((f) => f.path),
+    ...snapshot.skipped,
+  ];
 
   return {
     root: snapshot.root,
@@ -253,6 +348,11 @@ export function buildProject(snapshot: ProjectSnapshot): Project {
     chapterOrder: binder.flatMap((item) => (item.type === "part" ? item.chapterIds : [item.id])),
     sheets,
     sheetTypes: parseSheetTypes(json.sheetTypes, sheets),
+    statuses: parseStatuses(json.statuses, Object.values(chapters)),
+    trash: [...trash.values()].sort((a, b) => byPath(a.id, b.id)),
+    entries,
+    json: json as Record<string, unknown>,
+    jsonProblem,
     problems,
   };
 }

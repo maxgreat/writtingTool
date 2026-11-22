@@ -1,4 +1,5 @@
 import type { Backend, Version } from "./backend";
+import { applyChange, type MemoryTree } from "./memoryFiles";
 import type { ProjectSnapshot } from "./project";
 
 /**
@@ -14,16 +15,24 @@ const sources = import.meta.glob<string>("../../sample-project/MyNovel/**/*.{md,
   eager: true,
 });
 
-const files = new Map<string, string>();
-for (const [key, text] of Object.entries(sources)) files.set(key.slice(PREFIX.length), text);
+const tree: MemoryTree = { files: new Map(), folders: new Set() };
+for (const [key, text] of Object.entries(sources)) {
+  const path = key.slice(PREFIX.length);
+  tree.files.set(path, text);
+  for (let slash = path.indexOf("/"); slash !== -1; slash = path.indexOf("/", slash + 1)) {
+    tree.folders.add(path.slice(0, slash));
+  }
+}
 
 const ROOT = "(browser preview)";
+
+const inBinder = (path: string) => ["manuscript", "trash"].some((top) => path === top || path.startsWith(`${top}/`));
 
 /** The same rules as the Rust core: keep 20 versions, at most one per ten minutes of editing. */
 const VERSIONS_KEPT = 20;
 const VERSION_INTERVAL_MS = 10 * 60 * 1000;
 /** Versions of each chapter, oldest first. */
-const versions = new Map<string, Version[]>();
+let versions = new Map<string, Version[]>();
 
 function keepVersion(chapter: string, text: string, force: boolean): void {
   const kept = versions.get(chapter) ?? [];
@@ -34,9 +43,14 @@ function keepVersion(chapter: string, text: string, force: boolean): void {
   versions.set(chapter, kept.slice(-VERSIONS_KEPT));
 }
 
+function checkRoot(root: string): void {
+  if (root !== ROOT) throw new Error("That project is no longer open.");
+}
+
 function checkChapter(root: string, chapter: string): string {
-  const text = files.get(chapter);
-  if (root !== ROOT || !chapter.startsWith("manuscript/") || text === undefined) {
+  checkRoot(root);
+  const text = tree.files.get(chapter);
+  if (!chapter.startsWith("manuscript/") || text === undefined) {
     throw new Error(`${chapter} is not a chapter of the sample project.`);
   }
   return text;
@@ -46,10 +60,11 @@ function snapshot(): ProjectSnapshot {
   return {
     root: ROOT,
     folderName: "MyNovel",
-    projectJson: files.get("project.json") ?? null,
-    files: [...files]
-      .filter(([path]) => path.startsWith("manuscript/") || path.startsWith("sheets/"))
+    projectJson: tree.files.get("project.json") ?? null,
+    files: [...tree.files]
+      .filter(([path]) => path.endsWith(".md") && (inBinder(path) || path.startsWith("sheets/")))
       .map(([path, text]) => ({ path, text })),
+    folders: [...tree.folders].filter(inBinder).sort(),
     skipped: [],
   };
 }
@@ -63,11 +78,24 @@ export const browserBackend: Backend = {
   },
   pickProjectFolder: async () => null,
   async writeFile(root, path, text) {
-    const current = files.get(path);
-    if (root !== ROOT || current === undefined) throw new Error(`${path} is not part of the sample project.`);
+    checkRoot(root);
+    const current = tree.files.get(path);
+    if (current === undefined) throw new Error(`${path} is not part of the sample project.`);
     if (path.startsWith("manuscript/") && current !== text) keepVersion(path, current, false);
-    files.set(path, text);
+    tree.files.set(path, text);
     return null;
+  },
+  async applyChanges(root, change) {
+    checkRoot(root);
+    applyChange(tree, change);
+    // Versions follow their chapter or part, as in the Rust core.
+    const moved = new Map<string, Version[]>();
+    for (const [path, kept] of versions) {
+      const move = change.moves.find((m) => path === m.from || path.startsWith(`${m.from}/`));
+      moved.set(move ? move.to + path.slice(move.from.length) : path, kept);
+    }
+    versions = moved;
+    return snapshot();
   },
   async listVersions(root, chapter) {
     checkChapter(root, chapter);
@@ -78,7 +106,7 @@ export const browserBackend: Backend = {
     const version = versions.get(chapter)?.find((v) => v.savedAt === savedAt);
     if (!version) throw new Error("That version is no longer kept.");
     keepVersion(chapter, current, true);
-    files.set(chapter, version.text);
+    tree.files.set(chapter, version.text);
     return version.text;
   },
   onCloseRequested: async () => () => undefined,

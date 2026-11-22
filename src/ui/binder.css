@@ -1,4 +1,4 @@
-/* The binder: project title, manuscript tree, sheet types, Open folder. */
+/* The binder: project title, manuscript tree, sheet types, Trash, Open folder. */
 
 .binder {
   display: flex;
@@ -8,9 +8,37 @@
   padding: var(--space-3) var(--space-2) var(--space-4);
 }
 
+/* The title, with the add button at the end of the rows' column. */
+.binder-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-inline-start: var(--space-2);
+}
+
 .binder-title {
-  padding: 0 var(--space-2);
+  min-width: 0;
   font-size: var(--text-lg);
+  overflow-wrap: anywhere;
+}
+
+.binder-add {
+  flex: none;
+}
+
+.binder-add .btn {
+  color: var(--color-text-muted);
+}
+
+.binder-add .btn:hover:not(:disabled),
+.binder-add .btn[aria-expanded="true"] {
+  color: var(--color-text);
+}
+
+/* The insertion line of a drag is placed in the manuscript's coordinates. */
+.binder-manuscript {
+  position: relative;
 }
 
 .binder-list {
@@ -75,7 +103,8 @@
 
 /* Nested rows line up with their group's label: chevron, icon, two gaps. */
 .binder-row--nested,
-.binder .empty-note--nested {
+.binder .empty-note--nested,
+.binder .binder-error--nested {
   padding-inline-start: calc(var(--space-2) + 2 * var(--size-icon) + 2 * var(--space-1-5));
 }
 
@@ -99,8 +128,12 @@
   font-size: var(--text-xs);
 }
 
-.binder-row[aria-current="page"] {
-  background: var(--color-active-bg);
+/* A part's word count, in the same column as its chapters' counts. */
+.binder-row-count {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
 }
 
 .binder-row[aria-current="page"] .binder-row-title {
@@ -109,6 +142,155 @@
 
 .binder-row[aria-current="page"] .binder-row-meta .num {
   color: var(--color-accent);
+}
+
+/* Chapters and parts: the row, and its More button at the end. -------- */
+
+.binder-item {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-md);
+  /* Long-press opens the row's menu, not the WebView's own. */
+  -webkit-touch-callout: none;
+  user-select: none;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    opacity var(--duration-fast) var(--ease-standard);
+}
+
+.binder-item:hover,
+.binder-item.is-menu-open {
+  background: var(--color-hover);
+}
+
+.binder-item.is-current {
+  background: var(--color-active-bg);
+}
+
+.binder-item > .binder-row {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The item has the hover background, the row inside doesn't add its own. */
+.binder-item > .binder-row:hover {
+  background: transparent;
+}
+
+.binder-more {
+  color: var(--color-text-muted);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    opacity var(--duration-fast) var(--ease-standard);
+}
+
+.binder-more:hover:not(:disabled),
+.binder-more[aria-expanded="true"] {
+  color: var(--color-text);
+}
+
+/* With a mouse, the More button shows on hover or focus; on touch it is always there. */
+@media (hover: hover) and (pointer: fine) {
+  .binder-more {
+    opacity: 0;
+  }
+
+  .binder-item:hover .binder-more,
+  .binder-item:focus-within .binder-more,
+  .binder-item.is-menu-open .binder-more {
+    opacity: 1;
+  }
+}
+
+/* Dragging: the row stays as a ghost, and the landing place is a line or the part it goes into. */
+.binder.is-dragging,
+.binder.is-dragging button {
+  cursor: grabbing;
+}
+
+.binder.is-dragging .binder-item:not(.is-current, .is-drop-target) {
+  background: transparent;
+}
+
+.binder.is-dragging .binder-more {
+  opacity: 0;
+}
+
+.binder-item.is-drag-source {
+  opacity: var(--opacity-dragged);
+}
+
+.binder-item.is-drop-target {
+  background: var(--color-active-bg);
+  outline: var(--size-underline) solid var(--color-accent);
+  outline-offset: calc(var(--size-underline) * -1);
+}
+
+.drop-line {
+  position: absolute;
+  inset-inline: var(--space-2) 0;
+  height: var(--size-underline);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  translate: 0 -50%;
+  pointer-events: none;
+}
+
+.drop-line--nested {
+  inset-inline-start: calc(var(--space-2) + 2 * var(--size-icon) + 2 * var(--space-1-5));
+}
+
+/* A title typed in the binder: its text lines up with the rows' titles. */
+.binder-edit {
+  --title-start: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding-block: var(--space-1);
+  padding-inline-start: calc(var(--title-start) - var(--space-1-5) - var(--size-hairline));
+}
+
+.binder-edit--nested {
+  --title-start: calc(var(--space-2) + 2 * var(--size-icon) + 2 * var(--space-1-5));
+}
+
+/* A part's input sits after the same chevron and folder as the part's row. */
+.binder-edit--part {
+  padding-inline-start: var(--space-2);
+}
+
+.binder-edit--part .lucide {
+  color: var(--color-text-muted);
+}
+
+.binder-edit--part .binder-input {
+  margin-inline-start: calc((var(--space-1-5) + var(--size-hairline)) * -1);
+}
+
+.binder-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Trash: what is in it, each with Restore. ------------------------------ */
+
+.trash-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-block: var(--space-1);
+  padding-inline-start: calc(var(--space-2) + 2 * var(--size-icon) + 2 * var(--space-1-5));
+}
+
+.trash-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.trash-restore {
+  flex: none;
 }
 
 .binder-footer {

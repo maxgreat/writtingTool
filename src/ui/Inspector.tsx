@@ -1,10 +1,12 @@
 import { ChevronLeft } from "lucide-react";
 import { useId, useMemo } from "react";
+import type { ChapterDetails as Details } from "../core/binder";
 import type { NameMatcher } from "../core/names";
 import type { Chapter, Project, Sheet } from "../core/project";
-import { cx, formatCount } from "./dom";
+import { ChapterDetails } from "./ChapterDetails";
+import { formatCount } from "./dom";
 import { SheetView } from "./SheetView";
-import { groupByType, namesInText, sheetNamed, sheetSummary } from "./sheets";
+import { groupByType, namesInText, sheetSummary } from "./sheets";
 import { Versions, type VersionSource } from "./Versions";
 
 export type InspectorView = { kind: "chapter" } | { kind: "type"; folder: string } | { kind: "sheet"; id: string };
@@ -17,6 +19,10 @@ export interface InspectorProps {
   view: InspectorView;
   onViewChange(view: InspectorView): void;
   onOpenSheet(id: string): void;
+  /** Sets the open chapter's synopsis, status or point of view. Throws when project.json can't be written. */
+  onChapterDetails(id: string, details: Details): void;
+  /** The project on disk is changing: the chapter's details wait until it has. */
+  busy: boolean;
   /** The open chapter's earlier versions, listed under This chapter. */
   versions: VersionSource;
   /** Whether the panel is on screen; versions are only read then. */
@@ -26,7 +32,7 @@ export interface InspectorProps {
 /**
  * The right panel: a menu with This chapter and one entry per sheet type,
  * and the sheet of a clicked name. Sheets are read-only in this prototype;
- * a chapter's earlier versions can be restored.
+ * a chapter's details can be edited and its earlier versions restored.
  */
 export function Inspector({
   project,
@@ -36,6 +42,8 @@ export function Inspector({
   view,
   onViewChange,
   onOpenSheet,
+  onChapterDetails,
+  busy,
   versions,
   visible,
 }: InspectorProps) {
@@ -77,6 +85,8 @@ export function Inspector({
             matcher={matcher}
             sheetsById={sheetsById}
             onOpenSheet={onOpenSheet}
+            onChapterDetails={onChapterDetails}
+            busy={busy}
             versions={versions}
             visible={visible}
           />
@@ -106,43 +116,32 @@ function ChapterInfo({
   matcher,
   sheetsById,
   onOpenSheet,
+  onChapterDetails,
+  busy,
   versions,
   visible,
-}: Pick<InspectorProps, "project" | "chapter" | "matcher" | "sheetsById" | "onOpenSheet" | "versions" | "visible">) {
+}: Pick<
+  InspectorProps,
+  "project" | "chapter" | "matcher" | "sheetsById" | "onOpenSheet" | "onChapterDetails" | "busy" | "versions" | "visible"
+>) {
   const text = chapter?.text ?? "";
   const found = useMemo(() => namesInText(text, matcher, sheetsById), [text, matcher, sheetsById]);
   if (!chapter) return <p className="empty-note">No chapter is open.</p>;
 
   const groups = groupByType(found, project.sheetTypes, (item) => item.sheet.kind);
-  const povSheet = sheetNamed(project.sheets, chapter.pov);
 
   return (
     <section className="chapter-info" aria-label="This chapter">
       <h2 className="inspector-heading">{chapter.title}</h2>
-      {chapter.synopsis ? (
-        <p className="synopsis">{chapter.synopsis}</p>
-      ) : (
-        <p className="empty-note">No synopsis.</p>
-      )}
-
-      <dl className="fields">
-        <div className="field">
-          <dt>Status</dt>
-          <dd className={cx(!chapter.status && "muted")}>{chapter.status || "Not set"}</dd>
-        </div>
-        <div className="field">
-          <dt>Point of view</dt>
-          <dd className={cx(!chapter.pov && "muted")}>
-            {povSheet ? (
-              <button type="button" className="text-link" onClick={() => onOpenSheet(povSheet.id)}>
-                {chapter.pov}
-              </button>
-            ) : (
-              chapter.pov || "Not set"
-            )}
-          </dd>
-        </div>
-      </dl>
+      {/* Keyed by project and chapter: chapter ids are paths, so another project can reuse one. */}
+      <ChapterDetails
+        key={`details\n${project.root}\n${chapter.id}`}
+        project={project}
+        chapter={chapter}
+        onChange={onChapterDetails}
+        busy={busy}
+        onOpenSheet={onOpenSheet}
+      />
 
       <section className="names-found" aria-label="Names in this chapter">
         <h3 className="section-label">Names in this chapter</h3>

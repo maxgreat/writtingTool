@@ -48,16 +48,24 @@
   font-size: var(--text-lg);
 }
 
-.synopsis {
-  font-size: var(--text-md);
-}
-
 .chapter-info,
+.chapter-details,
 .names-found,
 .versions {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+/* The synopsis grows with its text (set from script), from two lines. */
+.synopsis-input {
+  font-size: var(--text-md);
+}
+
+.synopsis-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .section-label {
@@ -94,6 +102,33 @@
 .field dd {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* Editable fields: each label sits on its control's text. */
+.fields--edit {
+  align-items: baseline;
+}
+
+.fields--edit dd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* The point of view and the button that opens its sheet. */
+.pov-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.pov-row .select {
+  flex: 1;
+}
+
+/* Pulled out by its padding, so the icon lines up with the fields' end. */
+.pov-row .btn--icon {
+  margin-inline-end: calc((var(--size-control) - var(--size-icon)) / -2);
 }
 
 /* Rows that open a sheet. Pulled out by their padding so the text lines up with the content. */
@@ -134,17 +169,6 @@
 .list-row--stacked .list-row-title {
   flex: none;
   max-width: 100%;
-}
-
-.text-link {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--color-accent);
-  text-align: start;
-  text-decoration: underline;
-  text-decoration-thickness: var(--size-hairline);
-  text-underline-offset: var(--name-underline-offset);
 }
 
 .back-link {

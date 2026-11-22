@@ -62,7 +62,8 @@ h4 {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
   color: inherit;
 }
@@ -250,11 +251,85 @@ button:disabled {
   width: var(--size-icon);
 }
 
+.menu-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .menu-item .menu-hint {
   margin-inline-start: auto;
   padding-inline-start: var(--space-4);
   color: var(--color-text-muted);
   font-size: var(--text-xs);
+}
+
+/* Fields ---------------------------------------------------------------- */
+
+.input {
+  min-height: var(--size-control);
+  margin: 0;
+  padding: 0 var(--space-1-5);
+  border: var(--size-hairline) solid var(--color-separator);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+/* The focus ring covers the border instead of leaving a gap outside it. */
+.input:focus-visible {
+  outline-offset: calc(var(--size-hairline) * -1);
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1;
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+.input:disabled {
+  color: var(--color-text-muted);
+}
+
+textarea.input {
+  display: block;
+  width: 100%;
+  padding-block: var(--space-1);
+  resize: none;
+  line-height: var(--leading-normal);
+}
+
+/* A native select with the app's chevron. */
+.select {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.select select {
+  width: 100%;
+  min-width: 0;
+  padding-inline-end: calc(var(--space-1-5) + var(--size-icon) + var(--space-1));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  appearance: none;
+}
+
+.select select:disabled {
+  cursor: default;
+}
+
+.select .chevron {
+  position: absolute;
+  inset-inline-end: var(--space-1-5);
+  color: var(--color-text-muted);
+  pointer-events: none;
 }
 
 /* Shared text styles -------------------------------------------------- */

@@ -39,6 +39,9 @@ const backend: Backend = {
     throw new Error("unused");
   },
   pickProjectFolder: async () => null,
+  applyChanges: async () => {
+    throw new Error("unused");
+  },
   writeFile: async () => null,
   listVersions: async () => [],
   restoreVersion: async () => {

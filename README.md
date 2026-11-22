@@ -14,6 +14,10 @@ These are refreshed with every push, so they always show the app as it is on `ma
 | --- | --- |
 | ![The main window in the dark theme](docs/screenshots/desktop-dark.png) | ![The chapter in plain mode, with Markdown markers dimmed](docs/screenshots/desktop-plain.png) |
 
+| Binder menu | Trash |
+| --- | --- |
+| ![A chapter's menu in the binder: rename, status, move up or down, move to a part, new chapter, Trash](docs/screenshots/desktop-binder-menu.png) | ![The binder after a chapter went to the Trash: its part is empty, and the open Trash lists it with Restore](docs/screenshots/desktop-binder-trash.png) |
+
 | Phone | Binder | Inspector |
 | --- | --- | --- |
 | <img src="docs/screenshots/phone.png" width="240" alt="The chapter on a phone"> | <img src="docs/screenshots/phone-binder.png" width="240" alt="The binder slid in on a phone"> | <img src="docs/screenshots/phone-inspector.png" width="240" alt="The inspector slid in on a phone"> |
@@ -63,6 +67,8 @@ npm run screenshots               # retakes the pictures in docs/screenshots (ne
 In the prototype:
 
 - The binder, the editor and the inspector, with hide buttons, resizable panels, focus mode, a phone layout, and light and dark themes.
+- Binder editing: a menu on each chapter and part (right-click, long-press, or its ⋯ button) to rename, set a status, move, add and trash; drag to reorder with a mouse or pen; part word counts; a Trash with Restore. Chapter files are renumbered to follow the binder order.
+- This chapter's synopsis, status and point of view, edited in the inspector.
 - Two editing modes on the same Markdown: Formatted (Tiptap) and Plain (CodeMirror 6). Switching keeps the caret in place, and the chapter files round-trip byte for byte.
 - Character and place names highlighted as you type: whole words, longest match wins, apostrophes and accents handled, and case rules set per alias. Clicking a name opens its sheet.
 - Autosave about a second after typing stops, with atomic writes.
@@ -73,4 +79,4 @@ Still to build, following the guide's phases:
 - Spelling (spellbook with Hunspell dictionaries) and grammar
 - Export: the Typst PDF preview, then EPUB, Word and Markdown
 - Android and Windows builds, and CI
-- Reordering and renaming in the binder, editing sheets, Trash, and the "Possible names" list
+- Editing sheets, and the "Possible names" list

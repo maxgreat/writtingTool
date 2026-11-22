@@ -274,3 +274,8 @@
   font-size: var(--text-xl);
 }
 
+.editor-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

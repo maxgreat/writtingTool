@@ -29,6 +29,28 @@ const SCENES = [
     colorScheme: "light",
     setup: (page) => page.getByRole("radio", { name: "Plain" }).click(),
   },
+  {
+    name: "desktop-binder-menu",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      await chapterRow(page, "The ferryman").click({ button: "right", position: { x: 96, y: 14 } });
+      await page.getByRole("menu").waitFor();
+    },
+  },
+  {
+    name: "desktop-binder-trash",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // Made through the interface: Upstream goes to the Trash, and the Trash is opened.
+      await chapterRow(page, "Upstream").click({ button: "right", position: { x: 96, y: 14 } });
+      await page.getByRole("menuitem", { name: "Move to Trash" }).click();
+      await page.locator(".trash-row").waitFor({ state: "attached" });
+      await page.getByRole("button", { name: "Trash", exact: true }).click();
+      await page.getByRole("button", { name: "Restore Upstream" }).waitFor();
+    },
+  },
   { name: "phone", ...PHONE, colorScheme: "light" },
   {
     name: "phone-binder",
@@ -43,6 +65,11 @@ const SCENES = [
     setup: (page) => page.locator('button[aria-controls="inspector"]').click(),
   },
 ];
+
+/** A chapter's row in the binder, by its title. */
+function chapterRow(page, title) {
+  return page.locator(".binder-item").filter({ has: page.locator(".binder-row-title", { hasText: title }) });
+}
 
 /** Carets blink and transitions move: hide and stop them so a screenshot only changes when the interface does. */
 const STEADY_CSS = `

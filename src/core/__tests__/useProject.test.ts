@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Backend, Version } from "../backend";
+import type { Change, Plan } from "../binder";
 import type { ProjectSnapshot } from "../project";
 import { AUTOSAVE_DELAY_MS, useProject } from "../useProject";
 
@@ -21,6 +22,7 @@ const snapshot: ProjectSnapshot = {
 };
 
 const writeFile = vi.fn<(root: string, path: string, text: string) => Promise<string | null>>();
+const applyChanges = vi.fn<(root: string, change: Change) => Promise<ProjectSnapshot>>();
 const listVersions = vi.fn<(root: string, chapter: string) => Promise<Version[]>>();
 const restoreVersion = vi.fn<(root: string, chapter: string, savedAt: number) => Promise<string>>();
 const pickProjectFolder = vi.fn<() => Promise<string | null>>();
@@ -33,6 +35,7 @@ const fake: { -readonly [K in keyof Backend]: Backend[K] } = {
   openSampleProject: async () => snapshot,
   openProject,
   pickProjectFolder,
+  applyChanges,
   writeFile,
   listVersions,
   restoreVersion,
@@ -62,6 +65,7 @@ beforeEach(async () => {
   localStorage.clear();
   writeFile.mockReset().mockResolvedValue(null);
   listVersions.mockReset().mockResolvedValue([]);
+  applyChanges.mockReset().mockResolvedValue(snapshot);
   restoreVersion.mockReset().mockResolvedValue("# One\n\nAn older text.\n");
   pickProjectFolder.mockReset().mockResolvedValue(null);
   openProject.mockReset().mockResolvedValue(snapshot);
@@ -273,6 +277,89 @@ describe("versions", () => {
     expect(restoreVersion).not.toHaveBeenCalled();
     expect(api.project?.chapters[CHAPTER].text).toBe("Changed.\n");
     expect(api.switching).toBe(false);
+  });
+});
+
+describe("chapter details and the binder", () => {
+  const MOVED = "manuscript/Part 2/03 One.md";
+  const moved: ProjectSnapshot = {
+    ...snapshot,
+    files: snapshot.files.map((f) => (f.path === CHAPTER ? { ...f, path: MOVED } : f)),
+  };
+  const change: Change = { folders: [], moves: [{ from: CHAPTER, to: MOVED }], writes: [] };
+  const plan = (changes: Change[]): Plan => ({ changes, renamed: new Map([[CHAPTER, MOVED]]), created: null });
+
+  it("saves chapter details in project.json, like an edit", async () => {
+    act(() => api.updateChapterDetails(CHAPTER, { status: "Draft", synopsis: "Elena waits." }));
+    expect(api.project?.chapters[CHAPTER]).toMatchObject({ status: "Draft", synopsis: "Elena waits." });
+    expect(api.save.status).toBe("pending");
+    await settle(AUTOSAVE_DELAY_MS);
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    const [, path, text] = writeFile.mock.calls[0];
+    expect(path).toBe("project.json");
+    expect(JSON.parse(text)).toEqual({ chapters: { [CHAPTER]: { status: "Draft", synopsis: "Elena waits." } } });
+  });
+
+  it("saves first, makes each step, and keeps the open chapter through a rename", async () => {
+    const loads = api.loads;
+    act(() => api.updateChapter(CHAPTER, "Typed."));
+    applyChanges.mockResolvedValueOnce(snapshot).mockResolvedValueOnce(moved);
+    await act(() => api.changeBinder(() => plan([{ folders: [], moves: [], writes: [] }, change])));
+    expect(writeFile).toHaveBeenCalledWith("/projects/Test", CHAPTER, "Typed.\n");
+    expect(writeFile.mock.invocationCallOrder[0]).toBeLessThan(applyChanges.mock.invocationCallOrder[0]);
+    expect(applyChanges).toHaveBeenCalledTimes(2);
+    expect(applyChanges).toHaveBeenLastCalledWith("/projects/Test", change);
+    expect(api.openChapterId).toBe(MOVED);
+    expect(api.project?.chapters[MOVED]).toBeDefined();
+    expect(api.loads).toBe(loads + 1);
+    expect(api.switching).toBe(false);
+  });
+
+  it("plans on the saved project and does nothing for an empty plan", async () => {
+    act(() => api.updateChapter(CHAPTER, "Typed."));
+    let seen = "";
+    await act(() =>
+      api.changeBinder((project) => {
+        seen = project.chapters[CHAPTER].text;
+        return null;
+      }),
+    );
+    expect(seen).toBe("Typed.\n");
+    expect(applyChanges).not.toHaveBeenCalled();
+  });
+
+  it("shows the steps that were made when a later one fails", async () => {
+    applyChanges.mockResolvedValueOnce(moved).mockRejectedValueOnce(new Error("Cannot change the binder: disk full."));
+    let error: unknown = null;
+    await act(async () => {
+      await api.changeBinder(() => plan([change, change])).catch((reason: unknown) => {
+        error = reason;
+      });
+    });
+    expect(String(error)).toContain("disk full");
+    expect(api.project?.chapters[MOVED]).toBeDefined();
+    expect(api.switching).toBe(false);
+  });
+
+  it("keeps the open chapter where it is when a later step fails", async () => {
+    applyChanges.mockResolvedValueOnce(snapshot).mockRejectedValueOnce(new Error("Cannot change the binder: disk full."));
+    await act(async () => {
+      await api.changeBinder(() => plan([{ folders: [], moves: [], writes: [] }, change])).catch(() => undefined);
+    });
+    expect(api.openChapterId).toBe(CHAPTER);
+  });
+
+  it("does not change the binder over changes that could not be saved", async () => {
+    writeFile.mockRejectedValue(new Error("Disk full"));
+    act(() => api.updateChapter(CHAPTER, "Changed."));
+    let error: unknown = null;
+    await act(async () => {
+      await api.changeBinder(() => plan([change])).catch((reason: unknown) => {
+        error = reason;
+      });
+    });
+    expect(String(error)).toContain("could not be saved");
+    expect(applyChanges).not.toHaveBeenCalled();
   });
 });
 
