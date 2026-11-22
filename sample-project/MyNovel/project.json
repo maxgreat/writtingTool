@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "title": "The Ferryman’s Debt",
+  "language": "en-GB",
+  "sheetTypes": [
+    { "folder": "characters", "label": "Characters" },
+    { "folder": "places", "label": "Places" },
+    { "folder": "notes", "label": "Notes" }
+  ],
+  "chapters": {
+    "manuscript/Part 1 - Arrival/01 The arrival.md": {
+      "status": "Revised",
+      "pov": "Elena Voss",
+      "synopsis": "Elena reaches the Harbor Inn in the rain and finds the ferryman already waiting for her."
+    },
+    "manuscript/Part 1 - Arrival/02 The ferryman.md": {
+      "status": "Draft",
+      "pov": "Elena Voss",
+      "synopsis": "Arno Kell names his price for the crossing, and it is not money."
+    },
+    "manuscript/Part 2 - The river/03 Upstream.md": {
+      "status": "Idea",
+      "pov": "Arno Kell",
+      "synopsis": "The first day on the Sel. Arno watches Elena count the bridges."
+    }
+  }
+}
