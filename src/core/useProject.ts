@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { loadBackend, type Backend } from "./backend";
+import { loadBackend, type Backend, type Version } from "./backend";
 import { withFinalNewline } from "./markdown";
 import { buildNameMatcher, buildProject, withChapterText, type Project, type ProjectSnapshot } from "./project";
 
 export type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
 
 export type SaveState =
-  | { status: "saved" }
+  /** `warning`: the text was saved, but something that comes with a save (keeping the previous version) failed. */
+  | { status: "saved"; warning?: string }
   | { status: "pending" }
   | { status: "saving" }
   | { status: "error"; message: string };
@@ -61,9 +62,10 @@ export function useProject() {
   /** A close was refused because of unsaved changes; the next close goes through. */
   const closeRefused = useRef(false);
   /**
-   * Another project is being opened. Edits are refused meanwhile (the editors
-   * are read-only then): the open project is about to change, and an edit
-   * would belong to neither.
+   * The project on disk is about to change under the editors: another
+   * project is being opened, or a chapter's version is being restored. Edits
+   * are refused meanwhile (the editors are read-only then), as they would be
+   * overwritten or belong to neither project.
    */
   const [switching, setSwitching] = useState(false);
   const switchingRef = useRef(false);
@@ -84,10 +86,11 @@ export function useProject() {
     pending.current.clear();
     setSave({ status: "saving" });
     let failure: unknown = null;
+    let warning: string | null = null;
     const run = (async () => {
       for (const [path, text] of batch) {
         try {
-          await target.writeFile(root, path, text);
+          warning = (await target.writeFile(root, path, text)) ?? warning;
         } catch (error) {
           failure = error;
           // Keep it for the next attempt, unless a newer version is waiting.
@@ -105,7 +108,8 @@ export function useProject() {
       setSave({ status: "error", message: message(failure) });
     } else {
       closeRefused.current = false;
-      setSave(pending.current.size > 0 ? { status: "pending" } : { status: "saved" });
+      if (pending.current.size > 0) setSave({ status: "pending" });
+      else setSave(warning ? { status: "saved", warning } : { status: "saved" });
     }
   }, []);
 
@@ -236,6 +240,45 @@ export function useProject() {
     }
   }, [flush, applySnapshot]);
 
+  /** The kept versions of a chapter of the open project, newest first. */
+  const listVersions = useCallback(async (id: string): Promise<Version[]> => {
+    const target = backendRef.current;
+    const root = projectRef.current?.root;
+    if (!target || !root) return [];
+    return target.listVersions(root, id);
+  }, []);
+
+  /**
+   * Puts a kept version back as a chapter's text. Pending edits are saved
+   * first, so the text being replaced is kept as a version too; edits are
+   * refused while the version is written (`switching`). The editors are then
+   * remounted on the restored text, as after a fresh read (`loads`).
+   */
+  const restoreVersion = useCallback(async (id: string, savedAt: number): Promise<void> => {
+    const target = backendRef.current;
+    const current = projectRef.current;
+    if (!target || !current?.chapters[id] || switchingRef.current) return;
+    switchingRef.current = true;
+    setSwitching(true);
+    try {
+      await flush();
+      if (pending.current.has(id)) {
+        throw new Error("This chapter has changes that could not be saved. Save them (Retry) before restoring a version.");
+      }
+      const text = await target.restoreVersion(current.root, id, savedAt);
+      const latest = projectRef.current;
+      if (latest?.root !== current.root || !latest.chapters[id]) return;
+      // The file holds exactly this text now, so nothing is left to save.
+      const next = withChapterText(latest, id, text);
+      projectRef.current = next;
+      setProject(next);
+      setLoads((count) => count + 1);
+    } finally {
+      switchingRef.current = false;
+      setSwitching(false);
+    }
+  }, [flush]);
+
   const sheets = project?.sheets;
   const matcher = useMemo(() => buildNameMatcher(sheets ?? []), [sheets]);
 
@@ -258,12 +301,15 @@ export function useProject() {
     /** Writes pending changes now; also the retry after a failed save. */
     saveNow: flush,
     openFolder,
-    /** Another project is being opened: show the editors read-only. */
+    listVersions,
+    restoreVersion,
+    /** The project on disk is about to change (another project opens, a version is restored): show the editors read-only. */
     switching,
     /**
      * Goes up each time a project is read from disk, including the same folder
-     * again (its chapters may have changed outside the app): editors, which read
-     * their text on mount, must be remounted then.
+     * again (its chapters may have changed outside the app), and when a
+     * chapter's version is restored: editors, which read their text on mount,
+     * must be remounted then.
      */
     loads,
     bookWords,

@@ -6,11 +6,13 @@
 //!   project.json        binder notes, sheet types, settings
 //!   manuscript/         one Markdown file per chapter, parts as folders
 //!   sheets/<type>/      one Markdown file per sheet, with a YAML header
+//!   snapshots/          earlier versions of each chapter, kept on this device
 //! ```
 
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use include_dir::{Dir, include_dir};
 use serde::Serialize;
@@ -21,6 +23,15 @@ const SAMPLE_FOLDER: &str = "MyNovel";
 const PROJECT_FILE: &str = "project.json";
 /// Folders whose Markdown files the interface reads and may write.
 const TEXT_FOLDERS: [&str; 2] = ["manuscript", "sheets"];
+
+/// Earlier versions of each chapter, one file per version:
+/// `snapshots/<chapter path without .md>/<milliseconds since 1970>.md`.
+const VERSIONS_FOLDER: &str = "snapshots";
+/// How many versions of a chapter are kept; older ones are deleted.
+pub const VERSIONS_KEPT: usize = 20;
+/// While a chapter is being edited, its previous text is kept at most this
+/// often, so the versions span hours of work rather than the last few saves.
+pub const VERSION_INTERVAL_MS: u64 = 10 * 60 * 1000;
 
 /// Characters a path segment may not hold. On Windows `\` separates folders
 /// and `:` names drives and streams. Elsewhere both are ordinary characters in
@@ -52,6 +63,15 @@ pub struct ProjectSnapshot {
     pub problems: Vec<String>,
 }
 
+/// An earlier version of a chapter.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Version {
+    /// When it was kept, in milliseconds since 1970. Also names the version.
+    pub saved_at: u64,
+    pub text: String,
+}
+
 #[derive(Debug)]
 pub struct ProjectRoot {
     /// Canonical path, so prefix checks are not fooled by `..` or links.
@@ -64,6 +84,40 @@ fn invalid(message: impl Into<String>) -> io::Error {
 
 fn is_markdown(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+}
+
+/// A chapter: a Markdown file inside manuscript/.
+fn is_chapter(relative: &str) -> bool {
+    relative.starts_with("manuscript/") && is_markdown(Path::new(relative))
+}
+
+fn now_ms() -> u64 {
+    // A clock set before 1970 counts as 1970; versions still sort by name.
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// The versions in a folder, oldest first. Files not named like a version
+/// are not versions and are left alone.
+fn version_files(dir: &Path) -> io::Result<Vec<(u64, PathBuf)>> {
+    let mut versions = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let stamp = name
+            .to_str()
+            .and_then(|n| n.strip_suffix(".md"))
+            .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|n| n.parse::<u64>().ok());
+        if let Some(stamp) = stamp {
+            if entry.file_type()?.is_file() {
+                versions.push((stamp, entry.path()));
+            }
+        }
+    }
+    versions.sort_by_key(|(stamp, _)| *stamp);
+    Ok(versions)
 }
 
 fn is_hidden(name: &std::ffi::OsStr) -> bool {
@@ -186,6 +240,125 @@ impl ProjectRoot {
     pub fn write(&self, relative: &str, text: &str) -> io::Result<()> {
         let target = self.resolve_writable(relative)?;
         atomic_write(&target, text.as_bytes())
+    }
+
+    /// Before a chapter is replaced with `new_text`: keeps its current text
+    /// as a version, unless the newest version is less than
+    /// VERSION_INTERVAL_MS old. Does nothing for other files, for a chapter
+    /// that does not exist yet, or when the text is unchanged.
+    pub fn keep_before_write(&self, relative: &str, new_text: &str) -> io::Result<()> {
+        if !is_chapter(relative) {
+            return Ok(());
+        }
+        let target = self.resolve_writable(relative)?;
+        let current = match fs::read(&target) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        if current == new_text.as_bytes() {
+            return Ok(());
+        }
+        self.keep_version(relative, &current, false)
+    }
+
+    /// The versions of a chapter, newest first. A version that is not UTF-8
+    /// text cannot be shown or restored, so it is left out.
+    pub fn versions(&self, chapter: &str) -> io::Result<Vec<Version>> {
+        self.resolve_chapter(chapter)?;
+        let Some(dir) = self.versions_dir(chapter, false)? else {
+            return Ok(Vec::new());
+        };
+        let mut versions = Vec::new();
+        for (saved_at, path) in version_files(&dir)?.into_iter().rev() {
+            if let Ok(text) = String::from_utf8(fs::read(&path)?) {
+                versions.push(Version { saved_at, text });
+            }
+        }
+        Ok(versions)
+    }
+
+    /// Puts a version back as the chapter's text and returns that text. The
+    /// text it replaces is kept as a version first, so a restore can be
+    /// undone by restoring again.
+    pub fn restore_version(&self, chapter: &str, saved_at: u64) -> io::Result<String> {
+        let target = self.resolve_chapter(chapter)?;
+        let missing = || io::Error::new(io::ErrorKind::NotFound, "that version is no longer kept");
+        let dir = self.versions_dir(chapter, false)?.ok_or_else(missing)?;
+        let path = dir.join(format!("{saved_at}.md"));
+        match fs::symlink_metadata(&path) {
+            Ok(meta) if meta.is_file() => {}
+            Ok(_) => return Err(invalid("that version is not a regular file")),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(missing()),
+            Err(e) => return Err(e),
+        }
+        let text = String::from_utf8(fs::read(&path)?).map_err(|_| invalid("that version is not UTF-8 text"))?;
+        match fs::read(&target) {
+            Ok(current) if current != text.as_bytes() => self.keep_version(chapter, &current, true)?,
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+        atomic_write(&target, text.as_bytes())?;
+        Ok(text)
+    }
+
+    /// A chapter's file, checked as for a write: a Markdown file inside
+    /// manuscript/, through a plain path that stays inside the project.
+    fn resolve_chapter(&self, relative: &str) -> io::Result<PathBuf> {
+        if !is_chapter(relative) {
+            return Err(invalid(format!("{relative} is not a chapter (a .md file in manuscript/)")));
+        }
+        self.resolve_writable(relative)
+    }
+
+    /// The folder holding a chapter's versions. Each folder on the way must
+    /// be a real folder, not a link, so versions never land outside the
+    /// project. Missing folders are created when `create` is set; otherwise
+    /// a missing folder means there are no versions yet.
+    fn versions_dir(&self, chapter: &str, create: bool) -> io::Result<Option<PathBuf>> {
+        // The caller checked that `chapter` is a plain path ending in ".md" (any case).
+        let stem = &chapter[..chapter.len() - ".md".len()];
+        let mut dir = self.root.clone();
+        for segment in std::iter::once(VERSIONS_FOLDER).chain(stem.split('/')) {
+            dir.push(segment);
+            match fs::symlink_metadata(&dir) {
+                Ok(meta) if meta.is_dir() => {}
+                Ok(_) => return Err(invalid(format!("{} is not a folder", self.relative(&dir)))),
+                Err(e) if e.kind() == io::ErrorKind::NotFound && create => fs::create_dir(&dir)?,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(Some(dir))
+    }
+
+    /// Keeps `text` as a new version of `chapter`, then deletes the oldest
+    /// versions beyond VERSIONS_KEPT. Skipped when the newest version holds
+    /// the same text, or, unless `force` is set, when it is less than
+    /// VERSION_INTERVAL_MS old.
+    fn keep_version(&self, chapter: &str, text: &[u8], force: bool) -> io::Result<()> {
+        let dir = self
+            .versions_dir(chapter, true)?
+            .ok_or_else(|| invalid("the versions folder could not be created"))?;
+        let existing = version_files(&dir)?;
+        let now = now_ms();
+        if let Some((newest, path)) = existing.last() {
+            if !force && now.saturating_sub(*newest) < VERSION_INTERVAL_MS {
+                return Ok(());
+            }
+            if fs::read(path)? == text {
+                return Ok(());
+            }
+        }
+        // Always after the newest, even if the clock went back, so names stay unique and in order.
+        let stamp = existing.last().map_or(now, |(newest, _)| now.max(newest + 1));
+        atomic_write(&dir.join(format!("{stamp}.md")), text)?;
+        let all = version_files(&dir)?;
+        for (_, path) in all.iter().take(all.len().saturating_sub(VERSIONS_KEPT)) {
+            fs::remove_file(path)?;
+        }
+        Ok(())
     }
 
     /// Only project.json and Markdown files inside manuscript/ or sheets/ can
@@ -428,6 +601,93 @@ mod tests {
         assert!(!snapshot.files.iter().any(|f| f.path.contains("Caf")));
         assert_eq!(snapshot.problems.len(), 1);
         assert!(snapshot.problems[0].contains("not UTF-8"));
+    }
+
+    const ARRIVAL: &str = "manuscript/Part 1 - Arrival/01 The arrival.md";
+
+    fn read(root: &ProjectRoot, relative: &str) -> String {
+        fs::read_to_string(root.root.join(relative)).unwrap()
+    }
+
+    #[test]
+    fn keeps_the_previous_text_before_a_chapter_is_replaced() {
+        let (_dir, root) = sample();
+        let original = read(&root, ARRIVAL);
+        root.keep_before_write(ARRIVAL, "# New\n").unwrap();
+        root.write(ARRIVAL, "# New\n").unwrap();
+        let versions = root.versions(ARRIVAL).unwrap();
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].text, original);
+        assert!(root.root.join("snapshots/manuscript/Part 1 - Arrival/01 The arrival").is_dir());
+
+        // A save soon after keeps nothing more: the newest version is recent.
+        root.keep_before_write(ARRIVAL, "# Newer\n").unwrap();
+        root.write(ARRIVAL, "# Newer\n").unwrap();
+        assert_eq!(root.versions(ARRIVAL).unwrap().len(), 1);
+
+        // Neither does saving the same text.
+        root.keep_before_write(ARRIVAL, "# Newer\n").unwrap();
+        assert_eq!(root.versions(ARRIVAL).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn keeps_no_versions_of_other_files_or_new_chapters() {
+        let (_dir, root) = sample();
+        root.keep_before_write("project.json", "{}").unwrap();
+        root.keep_before_write("sheets/places/Varn.md", "x").unwrap();
+        root.keep_before_write("manuscript/Part 1 - Arrival/09 New.md", "# New\n").unwrap();
+        assert!(!root.root.join("snapshots").exists());
+        assert!(root.versions("manuscript/Part 1 - Arrival/09 New.md").unwrap().is_empty());
+    }
+
+    #[test]
+    fn keeps_the_newest_versions_only() {
+        let (_dir, root) = sample();
+        for i in 0..VERSIONS_KEPT + 5 {
+            root.keep_version(ARRIVAL, format!("text {i}").as_bytes(), true).unwrap();
+        }
+        let versions = root.versions(ARRIVAL).unwrap();
+        assert_eq!(versions.len(), VERSIONS_KEPT);
+        assert_eq!(versions[0].text, format!("text {}", VERSIONS_KEPT + 4));
+        assert_eq!(versions[VERSIONS_KEPT - 1].text, "text 5");
+        assert!(versions.windows(2).all(|w| w[0].saved_at > w[1].saved_at));
+    }
+
+    #[test]
+    fn restores_a_version_and_keeps_the_text_it_replaces() {
+        let (_dir, root) = sample();
+        let original = read(&root, ARRIVAL);
+        root.keep_before_write(ARRIVAL, "# Rewritten\n").unwrap();
+        root.write(ARRIVAL, "# Rewritten\n").unwrap();
+        let saved_at = root.versions(ARRIVAL).unwrap()[0].saved_at;
+
+        assert_eq!(root.restore_version(ARRIVAL, saved_at).unwrap(), original);
+        assert_eq!(read(&root, ARRIVAL), original);
+        let versions = root.versions(ARRIVAL).unwrap();
+        assert_eq!(versions.len(), 2);
+        assert_eq!(versions[0].text, "# Rewritten\n");
+    }
+
+    #[test]
+    fn refuses_to_restore_what_is_not_a_kept_version() {
+        let (_dir, root) = sample();
+        assert!(root.restore_version(ARRIVAL, 42).is_err());
+        root.keep_version(ARRIVAL, b"old", true).unwrap();
+        assert!(root.restore_version(ARRIVAL, 42).is_err());
+        assert!(root.restore_version("sheets/places/Varn.md", 42).is_err());
+        assert!(root.restore_version("manuscript/../project.json", 42).is_err());
+        assert!(root.versions("project.json").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn never_keeps_versions_through_a_link() {
+        let (_dir, root) = sample();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.root.join("snapshots")).unwrap();
+        assert!(root.keep_before_write(ARRIVAL, "# New\n").is_err());
+        assert!(root.versions(ARRIVAL).is_err());
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
     }
 
     #[test]

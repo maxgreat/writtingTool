@@ -60,6 +60,11 @@
   max-width: var(--size-card);
 }
 
+/* Saved, but something that comes with a save failed: the text is safe. */
+.save-warning {
+  color: var(--color-warning);
+}
+
 /* Phones: tighter, as StatusBar leaves out the book count and language there. */
 .is-phone .status-bar {
   padding-inline: var(--space-3);

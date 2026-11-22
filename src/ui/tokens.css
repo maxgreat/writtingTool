@@ -86,6 +86,7 @@
   --size-popover-max: 20rem;
   --size-error: 32rem;
   --size-skeleton-line: 0.7em;
+  --skeleton-tiny: 25%;
   --skeleton-short: 40%;
   --skeleton-medium: 65%;
   --skeleton-long: 94%;

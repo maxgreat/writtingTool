@@ -1,6 +1,13 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { ProjectSnapshot } from "./project";
 
+/** An earlier version of a chapter, kept on this device. */
+export interface Version {
+  /** When it was kept, in milliseconds since 1970. Also names the version. */
+  savedAt: number;
+  text: string;
+}
+
 /**
  * Everything the interface asks of the core. In the app this goes to Rust
  * over Tauri's IPC; in a plain browser (`npm run dev`) an in-memory copy of
@@ -19,9 +26,18 @@ export interface Backend {
   /**
    * Replaces one file of the open project. `root` is the root of the project
    * the text belongs to (from its snapshot); the save is refused if that
-   * project is no longer the open one.
+   * project is no longer the open one. A chapter's previous text is kept as a
+   * version first (at most every ten minutes). Resolves to a warning when the
+   * text was saved but that version could not be kept, otherwise to null.
    */
-  writeFile(root: string, path: string, text: string): Promise<void>;
+  writeFile(root: string, path: string, text: string): Promise<string | null>;
+  /** The kept versions of a chapter, newest first. */
+  listVersions(root: string, chapter: string): Promise<Version[]>;
+  /**
+   * Puts a kept version back as the chapter's text, on disk, and resolves to
+   * that text. The text it replaces is kept as a version first.
+   */
+  restoreVersion(root: string, chapter: string, savedAt: number): Promise<string>;
   /**
    * Runs before the window closes, so pending saves can finish. The window
    * stays open if the handler resolves to false. Resolves to an unsubscribe.
@@ -52,7 +68,9 @@ const appBackend: Backend = {
     const path = await open({ directory: true, multiple: false, title: "Open a project folder" });
     return typeof path === "string" ? path : null;
   },
-  writeFile: (root, path, text) => call<void>("write_project_file", { root, path, text }),
+  writeFile: (root, path, text) => call<string | null>("write_project_file", { root, path, text }),
+  listVersions: (root, chapter) => call<Version[]>("list_versions", { root, chapter }),
+  restoreVersion: (root, chapter, savedAt) => call<string>("restore_version", { root, chapter, savedAt }),
   async onCloseRequested(handler) {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     return getCurrentWindow().onCloseRequested(async (event) => {

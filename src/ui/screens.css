@@ -23,6 +23,10 @@
   margin-bottom: var(--space-2);
 }
 
+.skeleton--tiny {
+  width: var(--skeleton-tiny);
+}
+
 .skeleton--short {
   width: var(--skeleton-short);
 }

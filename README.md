@@ -18,7 +18,11 @@ These are refreshed with every push, so they always show the app as it is on `ma
 | --- | --- | --- |
 | <img src="docs/screenshots/phone.png" width="240" alt="The chapter on a phone"> | <img src="docs/screenshots/phone-binder.png" width="240" alt="The binder slid in on a phone"> | <img src="docs/screenshots/phone-inspector.png" width="240" alt="The inspector slid in on a phone"> |
 
-The desktop and phone-size pictures come from `npm run screenshots`, which opens the interface on the sample project in a headless Chromium-based browser (hence "Browser preview" in the status bar).
+| Android (the app on the emulator) |
+| --- |
+| <img src="docs/screenshots/android.png" width="240" alt="The app on an Android phone, a chapter open with character names highlighted"> |
+
+The desktop and phone-size pictures come from `npm run screenshots`, which opens the interface on the sample project in a headless Chromium-based browser (hence "Browser preview" in the status bar). The Android one is the real app, taken on the emulator during the check that runs before each push.
 
 ## Run it
 

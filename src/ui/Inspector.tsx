@@ -5,6 +5,7 @@ import type { Chapter, Project, Sheet } from "../core/project";
 import { cx, formatCount } from "./dom";
 import { SheetView } from "./SheetView";
 import { groupByType, namesInText, sheetNamed, sheetSummary } from "./sheets";
+import { Versions, type VersionSource } from "./Versions";
 
 export type InspectorView = { kind: "chapter" } | { kind: "type"; folder: string } | { kind: "sheet"; id: string };
 
@@ -16,13 +17,28 @@ export interface InspectorProps {
   view: InspectorView;
   onViewChange(view: InspectorView): void;
   onOpenSheet(id: string): void;
+  /** The open chapter's earlier versions, listed under This chapter. */
+  versions: VersionSource;
+  /** Whether the panel is on screen; versions are only read then. */
+  visible: boolean;
 }
 
 /**
  * The right panel: a menu with This chapter and one entry per sheet type,
- * and the sheet of a clicked name. Read-only in this prototype.
+ * and the sheet of a clicked name. Sheets are read-only in this prototype;
+ * a chapter's earlier versions can be restored.
  */
-export function Inspector({ project, chapter, matcher, sheetsById, view, onViewChange, onOpenSheet }: InspectorProps) {
+export function Inspector({
+  project,
+  chapter,
+  matcher,
+  sheetsById,
+  view,
+  onViewChange,
+  onOpenSheet,
+  versions,
+  visible,
+}: InspectorProps) {
   const sheet = view.kind === "sheet" ? (sheetsById.get(view.id) ?? null) : null;
   // A sheet that disappeared (another project was opened) falls back to the chapter.
   const shown: InspectorView = view.kind === "sheet" && !sheet ? { kind: "chapter" } : view;
@@ -55,7 +71,15 @@ export function Inspector({ project, chapter, matcher, sheetsById, view, onViewC
 
       <div className="inspector-body">
         {shown.kind === "chapter" && (
-          <ChapterInfo project={project} chapter={chapter} matcher={matcher} sheetsById={sheetsById} onOpenSheet={onOpenSheet} />
+          <ChapterInfo
+            project={project}
+            chapter={chapter}
+            matcher={matcher}
+            sheetsById={sheetsById}
+            onOpenSheet={onOpenSheet}
+            versions={versions}
+            visible={visible}
+          />
         )}
         {shown.kind === "type" && <SheetList project={project} folder={shown.folder} onOpenSheet={onOpenSheet} />}
         {shown.kind === "sheet" && sheet && (
@@ -82,13 +106,9 @@ function ChapterInfo({
   matcher,
   sheetsById,
   onOpenSheet,
-}: {
-  project: Project;
-  chapter: Chapter | null;
-  matcher: NameMatcher;
-  sheetsById: Map<string, Sheet>;
-  onOpenSheet(id: string): void;
-}) {
+  versions,
+  visible,
+}: Pick<InspectorProps, "project" | "chapter" | "matcher" | "sheetsById" | "onOpenSheet" | "versions" | "visible">) {
   const text = chapter?.text ?? "";
   const found = useMemo(() => namesInText(text, matcher, sheetsById), [text, matcher, sheetsById]);
   if (!chapter) return <p className="empty-note">No chapter is open.</p>;
@@ -148,6 +168,9 @@ function ChapterInfo({
           ))
         )}
       </section>
+
+      {/* Keyed by project and chapter: chapter ids are paths, so another project can reuse one. */}
+      <Versions key={`${project.root}\n${chapter.id}`} chapterId={chapter.id} visible={visible} {...versions} />
     </section>
   );
 }

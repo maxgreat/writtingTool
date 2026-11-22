@@ -6,7 +6,7 @@ mod project;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use project::{ProjectRoot, ProjectSnapshot};
+use project::{ProjectRoot, ProjectSnapshot, Version};
 use tauri::{AppHandle, Manager, State};
 
 /// The open project. The lock is held for a whole command, so two writes or
@@ -47,17 +47,64 @@ async fn open_project(path: String, state: State<'_, AppState>) -> Result<Projec
     open_into(&mut guard, PathBuf::from(path))
 }
 
-/// Replaces one file of the open project, atomically. `root` is the root the
-/// interface got with the project's snapshot: a save meant for a project that
-/// is no longer open is refused, so it can never land in another project.
-#[tauri::command]
-async fn write_project_file(root: String, path: String, text: String, state: State<'_, AppState>) -> Result<(), String> {
+/// Runs `action` on the open project. `root` is the root the interface got
+/// with the project's snapshot: a request meant for a project that is no
+/// longer open is refused, so it can never land in another project.
+fn with_open<T>(
+    state: &State<'_, AppState>,
+    root: &str,
+    what: &str,
+    action: impl FnOnce(&ProjectRoot) -> Result<T, String>,
+) -> Result<T, String> {
     let guard = state.project.lock().map_err(|_| "The project state is unavailable.")?;
     let open = guard.as_ref().ok_or("No project is open.")?;
-    if !open.is_at(&root) {
-        return Err(format!("Cannot save {path}: that project is no longer open."));
+    if !open.is_at(root) {
+        return Err(format!("Cannot {what}: that project is no longer open."));
     }
-    open.write(&path, &text).map_err(|e| format!("Cannot save {path}: {e}"))
+    action(open)
+}
+
+/// Replaces one file of the open project, atomically. A chapter's previous
+/// text is kept as a version first. If that fails the text is still saved,
+/// and the reason comes back as a warning.
+#[tauri::command]
+async fn write_project_file(
+    root: String,
+    path: String,
+    text: String,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    with_open(&state, &root, &format!("save {path}"), |open| {
+        let warning = open
+            .keep_before_write(&path, &text)
+            .err()
+            .map(|e| format!("Saved, but the previous version of {path} could not be kept: {e}"));
+        open.write(&path, &text).map_err(|e| format!("Cannot save {path}: {e}"))?;
+        Ok(warning)
+    })
+}
+
+/// The kept versions of a chapter, newest first.
+#[tauri::command]
+async fn list_versions(root: String, chapter: String, state: State<'_, AppState>) -> Result<Vec<Version>, String> {
+    with_open(&state, &root, "list the versions", |open| {
+        open.versions(&chapter)
+            .map_err(|e| format!("Cannot list the versions of {chapter}: {e}"))
+    })
+}
+
+/// Puts a kept version back as the chapter's text and returns that text.
+#[tauri::command]
+async fn restore_version(
+    root: String,
+    chapter: String,
+    saved_at: u64,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    with_open(&state, &root, "restore the version", |open| {
+        open.restore_version(&chapter, saved_at)
+            .map_err(|e| format!("Cannot restore that version of {chapter}: {e}"))
+    })
 }
 
 /// Set by `.githooks/verify-launch` to check that a build starts.
@@ -83,6 +130,8 @@ pub fn run() {
             open_sample_project,
             open_project,
             write_project_file,
+            list_versions,
+            restore_version,
             frontend_ready
         ])
         .run(tauri::generate_context!())

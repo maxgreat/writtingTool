@@ -394,6 +394,14 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
               view={inspectorView}
               onViewChange={setInspectorView}
               onOpenSheet={openSheet}
+              versions={{
+                list: api.listVersions,
+                restore: api.restoreVersion,
+                saveStatus: api.save.status,
+                loads: api.loads,
+                busy: api.switching,
+              }}
+              visible={inspectorVisible}
             />
           </div>
         </div>

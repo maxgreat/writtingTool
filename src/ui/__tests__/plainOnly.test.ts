@@ -39,7 +39,11 @@ const backend: Backend = {
     throw new Error("unused");
   },
   pickProjectFolder: async () => null,
-  writeFile: async () => undefined,
+  writeFile: async () => null,
+  listVersions: async () => [],
+  restoreVersion: async () => {
+    throw new Error("unused");
+  },
   onCloseRequested: async () => () => undefined,
 };
 
@@ -56,6 +60,10 @@ beforeAll(() => {
   Range.prototype.getBoundingClientRect = noRect;
   Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 });
+
+// Stable, as useProject's are: the inspector reads versions again when these change.
+const listVersions = async () => [];
+const restoreVersion = async () => undefined;
 
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()));
@@ -104,6 +112,9 @@ async function mount(firstChapter: string, mode: ViewSettings["mode"] = "formatt
       save: { status: "saved" },
       saveNow: async () => undefined,
       openFolder: async () => undefined,
+      listVersions,
+      restoreVersion,
+      switching: false,
       bookWords: 0,
       wordsToday: 0,
       loads,

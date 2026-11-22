@@ -2,7 +2,7 @@ import { TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import type { Backend } from "../core/backend";
 import type { SaveState } from "../core/useProject";
-import { formatCount, formatSigned, languageName, plural } from "./dom";
+import { cx, formatCount, formatSigned, languageName, plural } from "./dom";
 import { Popover } from "./Popover";
 
 export interface StatusBarProps {
@@ -96,9 +96,16 @@ function SaveStatus({
   }
 
   const state = save.status === "saving" ? "Saving…" : save.status === "pending" ? "Unsaved" : null;
+  // The text was saved, but its previous version wasn't kept: a warning, not an error.
+  const warning = save.status === "saved" ? save.warning : undefined;
   return (
-    <span className="status-item">
-      {browser ? (
+    <span className={cx("status-item", warning && "save-warning")} title={warning}>
+      {warning ? (
+        <>
+          <TriangleAlert aria-hidden />
+          <span aria-hidden>Saved · previous version not kept</span>
+        </>
+      ) : browser ? (
         <span
           className="muted"
           title="This browser preview runs without the app. Edits are kept in memory and are lost when the tab is closed or reloaded."
@@ -108,6 +115,10 @@ function SaveStatus({
       ) : (
         <span className={state ? undefined : "muted"}>{state ?? "Saved on this device"}</span>
       )}
+      {/* Present before a warning appears, so screen readers announce it, in full. */}
+      <span className="visually-hidden" role="status">
+        {warning}
+      </span>
     </span>
   );
 }

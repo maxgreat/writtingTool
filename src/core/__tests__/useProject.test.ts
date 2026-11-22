@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Backend } from "../backend";
+import type { Backend, Version } from "../backend";
 import type { ProjectSnapshot } from "../project";
 import { AUTOSAVE_DELAY_MS, useProject } from "../useProject";
 
@@ -20,7 +20,9 @@ const snapshot: ProjectSnapshot = {
   skipped: [],
 };
 
-const writeFile = vi.fn<(root: string, path: string, text: string) => Promise<void>>();
+const writeFile = vi.fn<(root: string, path: string, text: string) => Promise<string | null>>();
+const listVersions = vi.fn<(root: string, chapter: string) => Promise<Version[]>>();
+const restoreVersion = vi.fn<(root: string, chapter: string, savedAt: number) => Promise<string>>();
 const pickProjectFolder = vi.fn<() => Promise<string | null>>();
 const openProject = vi.fn<(path: string) => Promise<ProjectSnapshot>>();
 
@@ -32,6 +34,8 @@ const fake: { -readonly [K in keyof Backend]: Backend[K] } = {
   openProject,
   pickProjectFolder,
   writeFile,
+  listVersions,
+  restoreVersion,
   onCloseRequested: async () => () => undefined,
 };
 
@@ -56,7 +60,9 @@ async function settle(ms = 0) {
 beforeEach(async () => {
   vi.useFakeTimers();
   localStorage.clear();
-  writeFile.mockReset().mockResolvedValue(undefined);
+  writeFile.mockReset().mockResolvedValue(null);
+  listVersions.mockReset().mockResolvedValue([]);
+  restoreVersion.mockReset().mockResolvedValue("# One\n\nAn older text.\n");
   pickProjectFolder.mockReset().mockResolvedValue(null);
   openProject.mockReset().mockResolvedValue(snapshot);
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -192,6 +198,81 @@ describe("opening another project", () => {
     expect(writeFile).not.toHaveBeenCalled();
     expect(api.switching).toBe(false);
     expect(api.project?.root).toBe("/projects/Other");
+  });
+});
+
+describe("versions", () => {
+  it("says so when a save worked but the previous version could not be kept", async () => {
+    writeFile.mockResolvedValueOnce("Saved, but the previous version could not be kept: Permission denied");
+    act(() => api.updateChapter(CHAPTER, "Changed."));
+    await settle(AUTOSAVE_DELAY_MS);
+    expect(api.save).toEqual({
+      status: "saved",
+      warning: "Saved, but the previous version could not be kept: Permission denied",
+    });
+
+    act(() => api.updateChapter(CHAPTER, "Changed again."));
+    await settle(AUTOSAVE_DELAY_MS);
+    expect(api.save).toEqual({ status: "saved" });
+  });
+
+  it("lists the versions of a chapter of the open project", async () => {
+    listVersions.mockResolvedValue([{ savedAt: 5, text: "# One\n" }]);
+    await expect(api.listVersions(CHAPTER)).resolves.toEqual([{ savedAt: 5, text: "# One\n" }]);
+    expect(listVersions).toHaveBeenCalledWith("/projects/Test", CHAPTER);
+  });
+
+  it("saves pending edits first, then restores and remounts the editors", async () => {
+    const loads = api.loads;
+    act(() => api.updateChapter(CHAPTER, "Typed just now."));
+    await act(() => api.restoreVersion(CHAPTER, 5));
+    expect(writeFile).toHaveBeenCalledWith("/projects/Test", CHAPTER, "Typed just now.\n");
+    expect(writeFile.mock.invocationCallOrder[0]).toBeLessThan(restoreVersion.mock.invocationCallOrder[0]);
+    expect(restoreVersion).toHaveBeenCalledWith("/projects/Test", CHAPTER, 5);
+    expect(api.project?.chapters[CHAPTER].text).toBe("# One\n\nAn older text.\n");
+    expect(api.project?.chapters[CHAPTER].wordCount).toBe(3);
+    expect(api.loads).toBe(loads + 1);
+    expect(api.switching).toBe(false);
+
+    await settle(AUTOSAVE_DELAY_MS * 2);
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    expect(api.save.status).toBe("saved");
+  });
+
+  it("refuses edits while a version is restored", async () => {
+    let finish: (text: string) => void = () => undefined;
+    restoreVersion.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    let restoring: Promise<void> = Promise.resolve();
+    act(() => {
+      restoring = api.restoreVersion(CHAPTER, 5);
+    });
+    await settle();
+    expect(api.switching).toBe(true);
+    act(() => api.updateChapter(CHAPTER, "Typed while restoring."));
+    expect(api.project?.chapters[CHAPTER].text).toBe("# One\n\nElena waits.\n");
+
+    await act(async () => {
+      finish("# One\n\nRestored.\n");
+      await restoring;
+    });
+    expect(api.project?.chapters[CHAPTER].text).toBe("# One\n\nRestored.\n");
+    await settle(AUTOSAVE_DELAY_MS * 2);
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  it("does not restore over changes that could not be saved", async () => {
+    writeFile.mockRejectedValue(new Error("Disk full"));
+    act(() => api.updateChapter(CHAPTER, "Changed."));
+    let error: unknown = null;
+    await act(async () => {
+      await api.restoreVersion(CHAPTER, 5).catch((reason: unknown) => {
+        error = reason;
+      });
+    });
+    expect(String(error)).toContain("could not be saved");
+    expect(restoreVersion).not.toHaveBeenCalled();
+    expect(api.project?.chapters[CHAPTER].text).toBe("Changed.\n");
+    expect(api.switching).toBe(false);
   });
 });
 
