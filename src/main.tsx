@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { reportWhenChapterShows } from "./core/launchCheck";
 import "./ui/tokens.css";
 import "./ui/base.css";
 import "./ui/workspace.css";
@@ -16,3 +17,4 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </StrictMode>,
 );
+reportWhenChapterShows();

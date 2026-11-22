@@ -1,0 +1,77 @@
+#!/bin/sh
+# Builds the desktop app from a commit and checks that it starts: the window
+# loads the interface, installs and opens the sample project, and shows a
+# chapter in the editor. The app then quits by itself.
+#   verify-launch            check HEAD
+#   verify-launch <commit>   check that commit
+# pre-push runs this on each pushed branch after the critic check. It builds a
+# clean copy of the commit, so uncommitted and untracked files don't count.
+# It needs npm, cargo and a desktop session; the window shows for a moment.
+set -u
+limit=60   # seconds the app gets to show a chapter
+
+fail() { echo "verify-launch: $*" >&2; exit 1; }
+
+commit=$(git rev-parse --verify --quiet "${1:-HEAD}^{commit}") || fail "no commit ${1:-HEAD}"
+root=$(git rev-parse --show-toplevel) || exit 1
+
+PATH="$PATH:$HOME/.cargo/bin"   # rustup's usual place, if this shell lacks it
+command -v npm >/dev/null 2>&1 || fail "npm is not on PATH"
+command -v cargo >/dev/null 2>&1 || fail "cargo is not on PATH"
+[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || fail "no desktop session to open the window in"
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/verify-launch.XXXXXX") || exit 1
+pid=""
+cleanup() {
+  [ -n "$pid" ] && kill "$pid" 2>/dev/null
+  rm -rf "$work"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM   # exit through the EXIT trap, which cleans up
+
+echo "verify-launch: building $(git log -1 --format='%h %s' "$commit")"
+mkdir "$work/src" "$work/data" "$work/cache" || exit 1
+git archive "$commit" | tar -x -C "$work/src" || fail "cannot copy $commit"
+# git archive dates every file at the commit time. Date them now instead, so
+# they are newer than anything this check built before and Cargo rebuilds the
+# app from them.
+find "$work/src" -type f -exec touch {} + || exit 1
+
+# Reuse the installed packages when the commit's lockfile is the one they came
+# from, so they are not downloaded again.
+if [ -d "$root/node_modules" ] \
+   && git show "$commit:package-lock.json" 2>/dev/null | cmp -s - "$root/package-lock.json"; then
+  ln -s "$root/node_modules" "$work/src/node_modules" || exit 1
+else
+  (cd "$work/src" && npm ci) >"$work/install.log" 2>&1 \
+    || { tail -n 20 "$work/install.log" >&2; fail "npm ci failed"; }
+fi
+# The check's own Rust build folder: a build made from the working tree can
+# never stand in for the commit's, and the compiled dependencies are kept
+# between checks, so mostly just the app itself is rebuilt.
+target="$root/src-tauri/target/verify-launch"
+(cd "$work/src" && CARGO_TARGET_DIR="$target" npm run tauri build -- --no-bundle) >"$work/build.log" 2>&1 \
+  || { tail -n 30 "$work/build.log" >&2; fail "the build failed"; }
+
+# Fresh data and cache folders: the check installs its own sample project and
+# never opens the user's projects. (These variables work on Linux.)
+XDG_DATA_HOME="$work/data" XDG_CACHE_HOME="$work/cache" WRITING_TOOL_LAUNCH_CHECK=1 \
+  "$target/release/writing-tool" >"$work/run.log" 2>&1 </dev/null &
+pid=$!
+waited=0
+while kill -0 "$pid" 2>/dev/null; do
+  if [ "$waited" -ge "$limit" ]; then
+    tail -n 20 "$work/run.log" >&2
+    fail "the app started but showed no chapter within ${limit}s"
+  fi
+  sleep 1
+  waited=$((waited + 1))
+done
+wait "$pid"
+status=$?
+pid=""
+if [ "$status" -ne 0 ] || ! grep -q '^launch check: ' "$work/run.log"; then
+  tail -n 20 "$work/run.log" >&2
+  fail "the app quit before showing a chapter (exit status $status)"
+fi
+echo "verify-launch: the app starts and shows a chapter (${waited}s)"

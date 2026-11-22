@@ -60,6 +60,20 @@ async fn write_project_file(root: String, path: String, text: String, state: Sta
     open.write(&path, &text).map_err(|e| format!("Cannot save {path}: {e}"))
 }
 
+/// Set by `.githooks/verify-launch` to check that a build starts.
+const LAUNCH_CHECK_VAR: &str = "WRITING_TOOL_LAUNCH_CHECK";
+
+/// The interface reports that a chapter is open in the editor. During a launch
+/// check that means the app works, so it says so and quits; otherwise this
+/// does nothing.
+#[tauri::command]
+fn frontend_ready(app: AppHandle) {
+    if std::env::var_os(LAUNCH_CHECK_VAR).is_some() {
+        println!("launch check: a chapter is open in the editor");
+        app.exit(0);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -68,7 +82,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_sample_project,
             open_project,
-            write_project_file
+            write_project_file,
+            frontend_ready
         ])
         .run(tauri::generate_context!())
         .expect("error while running the application");

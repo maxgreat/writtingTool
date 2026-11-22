@@ -2,12 +2,16 @@
 # Blocks the push if any outgoing commit lacks a critic approval whose
 # fingerprint matches what the commit actually changes. Merge commits count
 # too, measured against their first parent, as when the merge is committed.
+# Once every commit is approved, checks that the app built from each pushed
+# branch starts.
 set -f
 remote="$1"
 root=$(git rev-parse --show-toplevel) || exit 1
 missing=""
+tips=""
 while read -r local_ref local_sha remote_ref remote_sha; do
   case "$local_sha" in *[!0]*) ;; *) continue ;; esac   # branch deletion
+  case " $tips " in *" $local_sha "*) ;; *) tips="$tips $local_sha" ;; esac
   if case "$remote_sha" in *[!0]*) true ;; *) false ;; esac \
      && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
     range="$remote_sha..$local_sha"
@@ -23,12 +27,24 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   $(git log -1 --format='%h %s' "$c")"
   done
 done
-[ -z "$missing" ] && exit 0
-cat >&2 <<MSG
+if [ -n "$missing" ]; then
+  cat >&2 <<MSG
 Push blocked: the critic did not approve these commits, or they changed after
 approval (amend, rebase):$missing
 
 To fix: undo them with git reset --soft <last pushed commit>, keep the changes
 staged, have the critic review them, and commit again.
 MSG
-exit 1
+  exit 1
+fi
+
+for tip in $tips; do
+  "$root/.githooks/verify-launch" "$tip" </dev/null && continue
+  cat >&2 <<MSG
+Push blocked: the app built from $(git log -1 --format='%h %s' "$tip") does not
+start (see above). Fix it in a new commit, approved by the critic as usual,
+and push again.
+MSG
+  exit 1
+done
+exit 0
