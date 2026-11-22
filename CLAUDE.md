@@ -28,5 +28,15 @@ Push to `origin main` after each commit. `.githooks/pre-push` checks two things,
 
 The check needs `npm` and `cargo` on PATH and a desktop session. A push takes a minute or two, so give the push command a long timeout. If the check fails, fix the cause in a new commit, approved by the critic as usual, then push again. To run the check without pushing, use `.githooks/verify-launch` (checks HEAD) or `.githooks/verify-launch <commit>`.
 
+## Android check before every push
+Before any `git push` that changes app code (skip for docs-only changes):
+1. Start the emulator if it isn't running: `emulator -avd writer -no-window -no-audio -no-boot-anim &`, then wait until `adb shell getprop sys.boot_completed` returns 1.
+2. Build a debug APK for the emulator's CPU only: `npm run tauri android build -- --debug --apk --target <aarch64 or x86_64>`, then install it with `adb install -r` (the APK is under src-tauri/gen/android/app/build/outputs/apk/).
+3. Launch it: `adb shell monkey -p <identifier from tauri.conf.json> -c android.intent.category.LAUNCHER 1`.
+4. With mobile-mcp: screenshot the main window; open a chapter, type a sentence containing a known character name, and check the text appears and the name is highlighted; hide and show both side panels.
+5. Read `adb logcat -d` for errors or Rust panics from the app.
+6. If anything fails, do not push: fix it, or stop and show me the screenshot and log lines. If it passes, push and write "Android check passed" in your summary.
+Leave the emulator running afterwards so the next check starts fast.
+
 ## Branches
 For now, work directly on `main` and push to `origin main`. Don't create feature branches or pull requests.
