@@ -46,7 +46,33 @@ Languages: English, French and Spanish at launch, all three added without new li
 
 The interface never touches files directly: it asks the Rust core through Tauri's IPC, and the core owns the project folder, the index, the language tools and the Typst export engine. That split keeps the UI identical everywhere and confines platform differences to one storage module.
 
-&#91;embedded content: architecture · interface, Rust core, project folder\]
+**One web interface, one Rust core, one project folder**
+
+```text
+Interface: TypeScript + React in the system web view
+  Binder                    Editor                    Sheets
+  parts, chapters, scenes   Tiptap: WYSIWYG mode      characters, places, notes
+  drag to reorder, counts   CodeMirror: plain mode    custom types, Appears in
+                                 ▲ highlights               │ names and aliases
+                            Annotation layer  ◄─────────────┘
+                            name matcher (Aho-Corasick)
+                            spelling and grammar marks
+
+        │ commands: save, check, index        ▲ events: results, file changes
+        ▼                                     │
+Core: Rust, identical on every platform
+  Project store        Index and export        Language               Storage and sync
+  Markdown + YAML      names in all chapters   spellbook: spelling    local copy per device
+  atomic saves         Appears in, counts      Harper: English        Dropbox API
+  snapshots            Typst: preview, PDF     LanguageTool: opt-in   guarded uploads
+
+        │ reads and writes
+        ▼
+Local project copy, synced to Dropbox
+  manuscript/: one plain .md file per chapter · sheets/: characters, places, notes
+  project.json: order and templates · dictionary.txt · .presence/
+  snapshots/, .sync/, .cache/ stay local
+```
 
 Sheets feed their names to the annotation layer, which marks both editors; everything below the IPC line is the same Rust code on all five platforms.
 
@@ -96,7 +122,30 @@ Rules every chapter file follows: UTF-8, the chapter title as the first heading,
 
 The main window follows Scrivener and novelWriter: the binder on the left, the chapter in the middle, the inspector on the right, and one slim bar of controls on top. Each side panel has its own hide button at its end of the bar, so the text can take the whole window in two clicks.
 
-&#91;embedded content: main window wireframe · binder, editor, inspector, formatting bar\]
+**Three columns like Scrivener; each side panel folds away with one button**
+
+```text
+ hide or show the binder                                      hide or show the inspector
+  ▼                                                                                  ▼
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│ [◧] [Body ▾] [B] [I] [A− 16 A+] [Line 1.5] [Margins] [Formatted|Plain] [Export] [◨]  │
+├─────────────────────┬────────────────────────────────────────┬───────────────────────┤
+│ MyNovel             │              The arrival               │ [Places ▾]            │
+│ Part 1 - Arrival    │ [Elena] ────────────────────           │ Harbor Inn            │
+│   01 The arrival    │ ──────────── [Harbor Inn] ───          │ opened from the text  │
+│   02 The ferryman   │ ─────~~~~~─────────────────            │ Kind    ──────────    │
+│   03 Night crossing │ ────────────────────                   │ Parent  ──────────    │
+│ Part 2 - The city   │                                        │ Description           │
+│                     │                 * * *                  │ ──────────────        │
+│ Characters          │ ──────────────────────────             │ Appears in ────────   │
+│ Places              │ ──────────────────                     │ Notes                 │
+│ Notes               │                                        │ ──────────────        │
+│                     │                                        │                       │
+│ Trash               │                                        │                       │
+├─────────────────────┴────────────────────────────────────────┴───────────────────────┤
+│ Words: chapter, book, today          Language: French          ● Synced with Dropbox │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+```
 
 Names in the text are highlighted (Elena, Harbor Inn) and clicking one opens its sheet in the inspector; the wavy underline is a spelling mark.
 
@@ -271,7 +320,13 @@ The user signs in on Dropbox's own page, never inside the app, so the app never 
 
 **How a save stays safe**
 
-&#91;embedded content: save and sync flow · 2 checks, merge, conflict copy\]
+**No save can silently overwrite work from another device.** Checks run on open, on the first keystroke and every 30 s; each upload names the revision it started from.
+
+1. Open or edit a chapter.
+2. **Newer in the cloud?** If yes, load it first and merge anything typed meanwhile.
+3. Edit, autosave locally.
+4. Upload, naming our revision. **Upload accepted?** If yes, it is saved on every device.
+5. If not, merge by paragraph (base, yours, theirs). A clean merge is uploaded and saved on every device; edits to the same paragraph keep both versions and the chapter is flagged Conflict.
 
 The check at the top answers your "was this file changed elsewhere before I start" rule; the guarded upload at the bottom catches the rare edit made between two checks.
 
@@ -290,7 +345,33 @@ The check at the top answers your "was this file changed elsewhere before I star
 
 One export window: settings on the left, a live preview of the real pages on the right. It follows novelWriter's Manuscript Build tool, whose PDF is made from the same document as its preview ([novelWriter docs](https://vkbo.github.io/novelWriter.io/docs/project_manuscript.html)). Here Typst, a typesetting engine embedded in the Rust core, draws both the preview pages and the PDF, so what you see is exactly what you get, on every platform including Android.
 
-&#91;embedded content: export window wireframe · settings, live page preview\]
+**The preview shows the exact pages the PDF will contain**
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ Export  [PDF] [EPUB] [Word] [Markdown]                 [Preset: Paperback A5 ▾] │
+├────────────────────────────────────┬────────────────────────────────────────────┤
+│ Content                            │ [Spread|Single]                [Fit page]  │
+│   Include              Whole book  │  ┌──────────────┐  ┌──────────────┐        │
+│   Scene break               * * *  │  │   MyNovel    │  │  Chapter 1   │        │
+│ Page                               │  │ ──────────── │  │  The arrival │        │
+│   Size                         A5  │  │ ──────────── │  │ ──────────── │        │
+│   Margins        Mirrored, in mm   │  │    * * *     │  │ ──────────── │        │
+│ Text                               │  │ ──────────── │  │ ──────────── │        │
+│   Font and size     Serif, 11 pt   │  └──────────────┘  └──────────────┘        │
+│   Line spacing                1.3  │    Facing pages, exactly as printed        │
+│   Paragraphs    Indent, justified  │                                            │
+│   Hyphenation        French rules  │                                            │
+│ Chapters                           │                                            │
+│   Start on       Right-hand page   │                                            │
+│   Heading        Chapter 1, title  │                                            │
+│ Extras                             │                                            │
+│   Title page, contents,            │                                            │
+│   page numbers                     │                                            │
+├────────────────────────────────────┴────────────────────────────────────────────┤
+│ The preview redraws after each change                     [Cancel] [Export PDF] │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
 
 Changing any setting on the left redraws the pages on the right; Export PDF writes those same pages to a file.
 
@@ -322,7 +403,22 @@ Changing any setting on the left redraws the pages on the right; Export PDF writ
 
 Eight phases, about 17 to 24 weeks of full-time work for one developer; after phase 3 (roughly 8 to 12 weeks) you can already write a whole book in the app. Each phase ends with something usable, so the plan can stop or change direction at any gate.
 
-&#91;embedded content: development roadmap · 7 phases, 3 gates\]
+**A usable writing app after phase 3, version 1.0 after phase 7.** Estimates in weeks of full-time work for one developer; roughly double them part-time.
+
+| Phase | What it delivers | Weeks |
+| --- | --- | --- |
+| 0 · Prototype | Tauri app running on Mac, Linux and Android; CI building all three. Typing tests on 2 phones with 2 keyboards; English, French and Spanish dictionaries loaded | 1–2 |
+| ◆ Gate | Typing on Android is reliable (otherwise plain mode on phones) | |
+| 1 · Writing core | Projects, binder, editor and inspector, each side panel with its hide button; formatting bar. Autosave with atomic writes and snapshots; word counts; phone layout with slide-in panels | 3–4 |
+| 2 · Sheets | Characters, places, notes and custom types; field templates and sheet forms. Portraits and images; relationships between sheets | 2–3 |
+| 3 · Name detection | Matcher, highlights, click to open a sheet, shared names, ignore here. Possible-names list; project index for Appears in and per-chapter counts | 2–3 |
+| ◆ Gate | Usable app: you can write a whole book in it | |
+| 4 · Spelling and grammar | spellbook in Rust with personal and project dictionaries; suggestions. Harper for English; LanguageTool for French and Spanish, opt-in; typography aids per language | 2–3 |
+| 5 · Plain mode and polish | CodeMirror mode with lossless switching; focus and typewriter modes. Project-wide search and replace; light and dark themes | 2 |
+| 6 · Cloud sync | Dropbox sign-in on desktop and Android; local copy per device; change checks and check before editing. Guarded uploads, paragraph merge, conflict view, presence badges, outside edits, offline queue | 2–3 |
+| 7 · Export and release | Export window with live page preview; PDF through Typst, plus EPUB, Word and Markdown. Export presets; installers for macOS, Linux, Android and Windows | 3–4 |
+| ◆ Gate | Version 1.0 on macOS, Linux, Android and Windows, with Dropbox sync | |
+| Later | iOS build, corkboard, timeline view, writing statistics | |
 
 Phase 0 is the decision point: if typing on Android is unreliable in the WYSIWYG editor, phones use the plain mode while desktops keep both, and the rest of the plan is unchanged.
 

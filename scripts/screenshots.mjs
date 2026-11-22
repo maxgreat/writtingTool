@@ -1,0 +1,96 @@
+#!/usr/bin/env node
+// Takes the screenshots in docs/screenshots: the interface on the sample
+// project, at desktop and phone sizes, in a headless Chromium-based browser.
+//   npm run screenshots
+// The browser is the first of chromium, google-chrome, brave or
+// microsoft-edge found on PATH, or the one named by SCREENSHOT_BROWSER.
+// The Android screenshot (android.png) comes from the emulator instead, during
+// the Android check described in CLAUDE.md.
+import { execFileSync } from "node:child_process";
+import { mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { chromium } from "playwright-core";
+import { createServer } from "vite";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const outDir = join(root, "docs", "screenshots");
+
+const DESKTOP = { viewport: { width: 1280, height: 820 }, deviceScaleFactor: 1 };
+const PHONE = { viewport: { width: 412, height: 915 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
+
+/** Each scene is one file: a window size, a colour scheme, and what to click first. */
+const SCENES = [
+  { name: "desktop", ...DESKTOP, colorScheme: "light" },
+  { name: "desktop-dark", ...DESKTOP, colorScheme: "dark" },
+  {
+    name: "desktop-plain",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: (page) => page.getByRole("radio", { name: "Plain" }).click(),
+  },
+  { name: "phone", ...PHONE, colorScheme: "light" },
+  {
+    name: "phone-binder",
+    ...PHONE,
+    colorScheme: "light",
+    setup: (page) => page.locator('button[aria-controls="binder"]').click(),
+  },
+  {
+    name: "phone-inspector",
+    ...PHONE,
+    colorScheme: "light",
+    setup: (page) => page.locator('button[aria-controls="inspector"]').click(),
+  },
+];
+
+/** Carets blink and transitions move: hide and stop them so a screenshot only changes when the interface does. */
+const STEADY_CSS = `
+  *, *::before, *::after { transition: none !important; animation: none !important; caret-color: transparent !important; }
+  .cm-cursor, .cm-dropCursor { display: none !important; }
+`;
+
+function findBrowser() {
+  if (process.env.SCREENSHOT_BROWSER) return process.env.SCREENSHOT_BROWSER;
+  for (const name of ["chromium", "chromium-browser", "google-chrome-stable", "google-chrome", "brave", "brave-browser", "microsoft-edge"]) {
+    try {
+      return execFileSync("which", [name], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    } catch {
+      // Not installed; try the next one.
+    }
+  }
+  throw new Error("No Chromium-based browser found. Install one, or set SCREENSHOT_BROWSER to its path.");
+}
+
+async function shoot(browser, url, scene) {
+  const { name, setup, ...options } = scene;
+  const context = await browser.newContext({ ...options, reducedMotion: "reduce" });
+  try {
+    const page = await context.newPage();
+    await page.goto(url);
+    await page.locator(".ProseMirror, .cm-content").first().waitFor();
+    await page.addStyleTag({ content: STEADY_CSS });
+    if (setup) await setup(page);
+    await page.evaluate(() => document.fonts.ready);
+    await page.mouse.move(0, options.viewport.height - 1);
+    const file = join(outDir, `${name}.png`);
+    await page.screenshot({ path: file });
+    console.log(`screenshots: ${file.slice(root.length + 1)}`);
+  } finally {
+    await context.close();
+  }
+}
+
+const server = await createServer({ root, logLevel: "error", server: { port: 0, strictPort: false } });
+let browser;
+try {
+  await server.listen();
+  const url = server.resolvedUrls?.local[0];
+  if (!url) throw new Error("The preview server did not report its address.");
+  mkdirSync(outDir, { recursive: true });
+  browser = await chromium.launch({ executablePath: findBrowser(), headless: true });
+  for (const scene of SCENES) await shoot(browser, url, scene);
+} finally {
+  await browser?.close();
+  await server.close();
+}

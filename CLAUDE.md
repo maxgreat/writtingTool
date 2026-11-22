@@ -38,5 +38,11 @@ Before any `git push` that changes app code (skip for docs-only changes):
 6. If anything fails, do not push: fix it, or stop and show me the screenshot and log lines. If it passes, push and write "Android check passed" in your summary.
 Leave the emulator running afterwards so the next check starts fast.
 
+## Screenshots
+The README shows screenshots from `docs/screenshots/`, so the user can see the state of the app after each push. Keep them current: before any push that changes app code, include fresh screenshots in the commits being pushed.
+1. Run `npm run screenshots` (desktop and phone sizes, from the interface in a headless browser).
+2. During the Android check, after step 4, save the emulator's screen with the chapter open and nothing else on top: `adb exec-out screencap -p > docs/screenshots/android.png`.
+3. When a change adds something worth seeing (a dialog, a menu, a new panel), add a scene for it in `scripts/screenshots.mjs` and show it in the README.
+
 ## Branches
 For now, work directly on `main` and push to `origin main`. Don't create feature branches or pull requests.

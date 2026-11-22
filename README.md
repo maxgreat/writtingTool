@@ -4,6 +4,22 @@ A writing app for novels, in the spirit of Scrivener and novelWriter: a binder o
 
 This is the first prototype: the desktop app on Linux, reading and writing a local project folder.
 
+## Screenshots
+
+These are refreshed with every push, so they always show the app as it is on `main`. All of them are in [docs/screenshots/](docs/screenshots/).
+
+![The main window: binder, chapter and inspector](docs/screenshots/desktop.png)
+
+| Dark theme | Plain mode |
+| --- | --- |
+| ![The main window in the dark theme](docs/screenshots/desktop-dark.png) | ![The chapter in plain mode, with Markdown markers dimmed](docs/screenshots/desktop-plain.png) |
+
+| Phone | Binder | Inspector |
+| --- | --- | --- |
+| <img src="docs/screenshots/phone.png" width="240" alt="The chapter on a phone"> | <img src="docs/screenshots/phone-binder.png" width="240" alt="The binder slid in on a phone"> | <img src="docs/screenshots/phone-inspector.png" width="240" alt="The inspector slid in on a phone"> |
+
+The desktop and phone-size pictures come from `npm run screenshots`, which opens the interface on the sample project in a headless Chromium-based browser (hence "Browser preview" in the status bar).
+
 ## Run it
 
 You need Node.js 22 or newer, the Rust toolchain, and [Tauri's system packages](https://v2.tauri.app/start/prerequisites/) (on Linux: WebKitGTK 4.1, GTK 3, libsoup 3).
@@ -22,6 +38,7 @@ On first launch the app installs a sample project in its data folder (`~/.local/
 npm test                          # Markdown round trip, name matcher, project model, editors
 npm run typecheck
 cd src-tauri && cargo test        # project folder, atomic saves, path checks
+npm run screenshots               # retakes the pictures in docs/screenshots (needs Chromium, Chrome, Brave or Edge)
 .githooks/verify-launch           # builds the app from HEAD and checks that it starts and opens a chapter
 ```
 
@@ -35,6 +52,7 @@ cd src-tauri && cargo test        # project folder, atomic saves, path checks
 | `src/ui/` | The interface: binder, inspector, formatting bar, status bar, design tokens |
 | `src-tauri/` | The Rust core: opens the project folder, returns its files, writes chapters atomically |
 | `sample-project/MyNovel/` | The sample project, bundled into the app and used by the tests |
+| `scripts/screenshots.mjs` | Takes the screenshots in `docs/screenshots/` |
 
 ## What the prototype has, and what comes next
 
