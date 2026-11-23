@@ -129,7 +129,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.name }}
+          name: release-${{ matrix.name }}
           path: release/*
           if-no-files-found: error
           retention-days: 3
@@ -173,11 +173,11 @@ jobs:
           java-version: 17
           cache: gradle
 
-      # Most phones of the last several years are 64-bit ARM; one ABI keeps
-      # the build short and the APK small.
+      # 64-bit ARM (nearly every recent phone), 32-bit ARM (older phones) and
+      # x86_64 (Chromebooks) for the Play bundle; the APK has 64-bit ARM only.
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -194,11 +194,17 @@ jobs:
           if [ ! -d "$NDK_HOME" ]; then
             "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION"
           fi
-          rm -rf src-tauri/gen/android/app/build/outputs/apk
-          # A rising versionCode lets each build install over the one before.
-          npm run tauri android build -- --apk --target aarch64 \
-            --config "{\"bundle\":{\"android\":{\"versionCode\":$RUN_NUMBER}}}" \
+          rm -rf src-tauri/gen/android/app/build/outputs/apk src-tauri/gen/android/app/build/outputs/bundle
+          # A rising versionCode lets each build install over the one before,
+          # and Play refuses a bundle whose versionCode it has already seen.
+          config="{\"bundle\":{\"android\":{\"versionCode\":$RUN_NUMBER}}}"
+          # The Play bundle holds every CPU type (Play gives each phone only
+          # its own). The APK for direct download holds 64-bit ARM only, to
+          # stay small; its Rust library is already built by the first command.
+          npm run tauri android build -- --aab --target aarch64 armv7 x86_64 --config "$config" \
             2>&1 | tee "$RUNNER_TEMP/build.log"
+          npm run tauri android build -- --apk --target aarch64 --config "$config" \
+            2>&1 | tee -a "$RUNNER_TEMP/build.log"
 
       - name: Show the end of the build log on the run's summary
         if: failure()
@@ -227,13 +233,37 @@ jobs:
             --out release/Writing-Tool-android-arm64.apk "${apks[0]}"
           "$build_tools/apksigner" verify release/Writing-Tool-android-arm64.apk
           ls -l release
+          # Play re-signs what it serves; the bundle is signed so Play can
+          # check it comes from the key registered as the upload key.
+          bundles=(src-tauri/gen/android/app/build/outputs/bundle/**/*.aab)
+          if [ "${#bundles[@]}" -ne 1 ]; then
+            echo "::error::Expected one release bundle, found ${#bundles[@]}"
+            exit 1
+          fi
+          mkdir -p play
+          jarsigner -keystore "$keystore" -storetype PKCS12 \
+            -storepass:env ANDROID_KEYSTORE_PASSWORD \
+            -sigalg SHA256withRSA -digestalg SHA-256 \
+            -signedjar play/Writing-Tool-play.aab "${bundles[0]}" writing-tool
+          verify=$(jarsigner -verify play/Writing-Tool-play.aab)
+          grep -q "jar verified" <<< "$verify"
+          ls -l play
 
       - uses: actions/upload-artifact@v7
         with:
-          name: Android
+          name: release-Android
           path: release/*
           if-no-files-found: error
           retention-days: 3
+
+      # Not part of the GitHub release: phones can't install a bundle. It is
+      # what gets uploaded to Google Play.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: play-bundle
+          path: play/Writing-Tool-play.aab
+          if-no-files-found: error
+          retention-days: 30
 
   publish:
     name: Publish the release
@@ -257,6 +287,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
+          pattern: release-*
           path: release
           merge-multiple: true
 
