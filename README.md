@@ -83,6 +83,7 @@ npm run screenshots               # retakes the pictures in docs/screenshots (ne
 | `src/core/` | Everything that is not drawn: the project model, the name matcher, Markdown and caret mapping, autosave, the two editors |
 | `src/ui/` | The interface: binder, inspector, formatting bar, status bar, Projects view, design tokens |
 | `src-tauri/` | The Rust core: opens and creates projects, returns their files, writes chapters atomically and keeps their earlier versions, and makes binder changes as a whole or not at all. `gen/android/` is the Android project |
+| `src-tauri/icons/source/` | The app icon's source. `npx tauri icon src-tauri/icons/source/icon.json` makes every size from it, including Android's launcher icon (the drawing sits in the middle of `app-icon-fg.png` so round launcher masks don't crop it) |
 | `sample-project/MyNovel/` | The sample project, bundled into the app and used by the tests |
 | `scripts/screenshots.mjs` | Takes the screenshots in `docs/screenshots/` |
 | `docs/index.html`, `docs/site.css` | The website, served by GitHub Pages from the `docs/` folder of `main`. It shows the screenshots from `docs/screenshots/`, so it stays current with each push |
