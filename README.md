@@ -87,6 +87,8 @@ npm run screenshots               # retakes the pictures in docs/screenshots (ne
 | `sample-project/MyNovel/` | The sample project, bundled into the app and used by the tests |
 | `scripts/screenshots.mjs` | Takes the screenshots in `docs/screenshots/` |
 | `docs/index.html`, `docs/site.css` | The website, served by GitHub Pages from the `docs/` folder of `main`. It shows the screenshots from `docs/screenshots/`, so it stays current with each push |
+| `docs/privacy.html` | The privacy policy, linked from the website and from the Google Play listing. Update it before releasing anything that sends data off the device |
+| `fastlane/metadata/android/en-US/` | The Google Play listing: title, descriptions, store icon, feature graphic and phone screenshots, in the layout fastlane and F-Droid read |
 | `.github/workflows/release.yml` | Builds the app for Linux, Windows, macOS and Android on each push to `main` and publishes a release. The links under [Download](#download) depend on its file names |
 
 ## What the app has, and what comes next

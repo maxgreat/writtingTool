@@ -1,0 +1,33 @@
+Writing Tool is a writing app for novelists. Your book sits in a binder of parts and chapters, the chapter you are writing fills the screen, and an inspector holds the chapter's synopsis, status and point of view next to your character and place sheets.
+
+Every chapter is a plain Markdown file, a format any text editor can open.
+
+What it does
+
+• Binder of parts and chapters. Long-press a chapter or part for its menu: rename, set a status, move, add, or send to the Trash. Trashed chapters can be restored, and each part shows its word count.
+• Plain Markdown files. A project is an ordinary folder with one Markdown file per chapter.
+• Names highlighted as you type. Character and place names from your sheets, and their aliases, are marked in the text as you write: whole words only, with accents and apostrophes handled. Tap a name to open its sheet.
+• Formatted and Plain modes. Formatted shows styled text; Plain shows the Markdown with its markers dimmed. Switching keeps the cursor in place and leaves the file exactly as it was.
+• Autosave and earlier versions. A chapter saves about a second after you stop typing. Its last 20 versions are kept, and you can restore one from the inspector.
+• Chapter details. Edit each chapter's synopsis, status and point of view in the inspector.
+• Word counts for the chapter, the book and today.
+• Phone layout. The chapter fills the screen, the binder and the inspector slide in with a swipe from the screen edge, and the formatting bar sits just above the keyboard while you type.
+• Projects. Switch between the projects on your phone, or create a new one with its title and language.
+• Light and dark themes, following your system setting.
+
+Privacy
+
+No accounts, no ads and no data collection: no analytics, no crash reporting, no tracking. What you write is kept on your phone, in the app's own storage, and the app makes no network requests.
+
+Open source
+
+Writing Tool is free and open source under the MIT license. The source code is at github.com/maxgreat/writtingTool. The same app is available for Windows, macOS and Linux from maxgreat.github.io/writtingTool.
+
+Not built yet
+
+This is an early version. These are planned but not in the app yet:
+• Sync between devices
+• Spelling and grammar checks
+• Export to PDF, EPUB, Word and Markdown
+• Creating and editing character and place sheets in the app. Until then, on Android only the sample project has sheets, so names are highlighted there but not yet in new projects.
+• Copying projects out of the app on Android. For now they stay in the app's own storage, so uninstalling the app deletes them.

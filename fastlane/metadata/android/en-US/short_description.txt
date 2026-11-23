@@ -1,0 +1,1 @@
+A writing app for novelists, with chapters kept as plain Markdown files

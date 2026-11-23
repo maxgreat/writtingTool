@@ -334,6 +334,15 @@ code {
   height: var(--size-logo);
 }
 
+/* On the other pages the brand links home: underlined only on hover. */
+a.brand {
+  text-decoration-line: none;
+}
+
+a.brand:hover {
+  text-decoration-line: underline;
+}
+
 .site-header .btn {
   margin-inline-end: calc(var(--space-2) * -1);
   font-size: var(--text-md);
@@ -625,6 +634,42 @@ code {
   font-size: var(--text-mono-adjust);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* Privacy policy (privacy.html) ---------------------------------------- */
+
+/* One readable column, headed like the home page; the text is in full contrast because it is the content. */
+.policy {
+  max-width: var(--size-measure);
+  padding-top: var(--space-12);
+}
+
+.policy h1 {
+  font-family: var(--font-serif);
+  font-size: var(--text-display);
+}
+
+.policy-meta {
+  margin-top: var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--text-md);
+}
+
+.policy-section {
+  margin-top: var(--space-10);
+}
+
+.policy-section h2 {
+  font-size: var(--text-xl);
+}
+
+/* A heading sits closer to its text than one paragraph to the next. */
+.policy-section > * + * {
+  margin-top: var(--space-3);
+}
+
+.policy-section > h2 + * {
+  margin-top: var(--space-2);
 }
 
 /* Footer ---------------------------------------------------------------- */
