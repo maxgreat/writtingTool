@@ -1,0 +1,639 @@
+/*
+ * The project website (GitHub Pages serves docs/ as it is: no build step).
+ *
+ * Design tokens. The values in the first block are copied from the app's
+ * src/ui/tokens.css so the site looks like the app; the site can't import
+ * from src/ because only docs/ is published. When the app's tokens change,
+ * copy the new values here. The "Site only" block holds the few values a web
+ * page needs that the app doesn't: headline sizes, page widths and the
+ * download button's height.
+ *
+ * Contrast (WCAG AA), checked for every text colour on every background it
+ * sits on, in both themes: --color-text is above 13:1 everywhere; the lowest
+ * pair is --color-text-muted on a hovered quiet button (5.8:1 light, 6.1:1
+ * dark); the download button is --color-on-accent on --color-accent-fill
+ * (6.95:1 light, 8.5:1 dark; at least 6.95:1 when hovered or pressed).
+ *
+ * Breakpoints (media queries can't read custom properties): 700px is the
+ * app's phone breakpoint (src/ui/hooks.ts); 1000px is where the phone
+ * screenshots move beside their text.
+ */
+:root {
+  color-scheme: light dark;
+
+  /* From src/ui/tokens.css: fonts. System fonts only, as in the app. */
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Iowan Old Style", "Charter", "Bitstream Charter", "Sitka Text", Cambria, "Noto Serif",
+    "Source Serif 4", "DejaVu Serif", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", Menlo, Consolas,
+    monospace;
+
+  /* From src/ui/tokens.css: type scale. */
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-mono-adjust: 0.92em;
+  --leading-tight: 1.25;
+  --leading-normal: 1.45;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* From src/ui/tokens.css: spacing, on a 4 px grid. */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* From src/ui/tokens.css: radius. */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  /* From src/ui/tokens.css: sizes. */
+  --size-hairline: 1px;
+  --size-focus-ring: 2px;
+  --size-underline: 2px;
+  --name-underline-offset: 0.2em;
+  --size-icon: 16px;
+  --icon-stroke: 1.75;
+  --size-control: 28px;
+  --size-skeleton-line: 0.7em;
+  --skeleton-medium: 65%;
+  /* The skeleton's pulse, from the app's src/ui/base.css. */
+  --opacity-skeleton-pulse: 0.55;
+
+  /* From src/ui/tokens.css: motion. Reduced motion sets the durations to zero below. */
+  --duration-fast: 150ms;
+  --duration-pulse: 1.6s;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* From src/ui/tokens.css: colour, light theme. One accent: the download button and key data. */
+  --color-bg: #fbfaf8;
+  --color-surface: #f1f0ec;
+  --color-text: #1d1c1a;
+  --color-text-muted: #5d5b56;
+  --color-hover: rgb(29 28 26 / 0.06);
+  --color-pressed: rgb(29 28 26 / 0.1);
+  --color-separator: #dddbd5;
+  --color-accent-fill: #3a50b8;
+  --color-accent-fill-hover: #33479f;
+  --color-accent-fill-pressed: #2c3d8a;
+  --color-on-accent: #ffffff;
+  --color-focus-ring: #3a50b8;
+  --color-skeleton: #e4e2dd;
+
+  /* Site only. */
+  /* The headline: 1.75rem on phones (its last phrase fits a 390 px screen), growing to 2.75rem by 1000 px. */
+  --text-display: clamp(1.75rem, 1.1rem + 2.65vw, 2.75rem);
+  --size-page: 72rem;
+  --size-measure: 40rem;
+  --size-column: 17rem;
+  --size-phone-shot: 15rem;
+  --size-logo: 28px;
+  --size-cta: 44px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* From src/ui/tokens.css: colour, dark theme. */
+    --color-bg: #1a1a1c;
+    --color-surface: #222225;
+    --color-text: #ebe9e5;
+    --color-text-muted: #a9a7a1;
+    --color-hover: rgb(235 233 229 / 0.07);
+    --color-pressed: rgb(235 233 229 / 0.12);
+    --color-separator: #3a3a3f;
+    --color-accent-fill: #a3b1ff;
+    --color-accent-fill-hover: #b6c1ff;
+    --color-accent-fill-pressed: #8f9ff5;
+    --color-on-accent: #141833;
+    --color-focus-ring: #a3b1ff;
+    --color-skeleton: #333337;
+  }
+}
+
+/* From src/ui/tokens.css: touch screens get larger controls. */
+@media (pointer: coarse) {
+  :root {
+    --size-control: 40px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+  }
+}
+
+/* Page ------------------------------------------------------------------ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Jumping to the downloads glides there, so the reader sees where they went. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-lg);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+figure,
+pre {
+  margin: 0;
+}
+
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  text-wrap: balance;
+}
+
+p,
+li {
+  text-wrap: pretty;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+:focus-visible {
+  outline: var(--size-focus-ring) solid var(--color-focus-ring);
+  outline-offset: var(--size-hairline);
+}
+
+a {
+  color: inherit;
+  text-decoration-line: underline;
+  text-decoration-color: var(--color-text-muted);
+  text-decoration-thickness: var(--size-hairline);
+  text-underline-offset: var(--name-underline-offset);
+  transition: text-decoration-color var(--duration-fast) var(--ease-standard);
+}
+
+a:hover {
+  text-decoration-color: currentColor;
+  text-decoration-thickness: var(--size-underline);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Monospace only for commands, file names and folder names. */
+code {
+  font-family: var(--font-mono);
+}
+
+:not(pre) > code {
+  font-size: var(--text-mono-adjust);
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+/* Lucide, as in the app: one size and stroke everywhere. */
+.icon {
+  flex: none;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--icon-stroke);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.page {
+  width: min(100% - 2 * var(--space-5), var(--size-page));
+  margin-inline: auto;
+}
+
+/* Buttons, as in the app's src/ui/base.css ------------------------------ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--size-control);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.btn:hover {
+  background: var(--color-hover);
+}
+
+.btn:active {
+  background: var(--color-pressed);
+}
+
+/* The one primary action of the page: the download. */
+.btn--primary {
+  min-height: var(--size-cta);
+  padding: 0 var(--space-5);
+  background: var(--color-accent-fill);
+  color: var(--color-on-accent);
+  font-weight: var(--weight-medium);
+}
+
+.btn--primary:hover {
+  background: var(--color-accent-fill-hover);
+}
+
+.btn--primary:active {
+  background: var(--color-accent-fill-pressed);
+}
+
+/* The tray's open top makes the icon look high next to the text: nudge it down. */
+.btn--primary .icon {
+  translate: 0 var(--size-hairline);
+}
+
+.btn--quiet {
+  color: var(--color-text-muted);
+}
+
+.btn--quiet:hover {
+  color: var(--color-text);
+}
+
+/* Header ---------------------------------------------------------------- */
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-block: var(--space-4);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-semibold);
+}
+
+.brand img {
+  width: var(--size-logo);
+  height: var(--size-logo);
+}
+
+.site-header .btn {
+  margin-inline-end: calc(var(--space-2) * -1);
+  font-size: var(--text-md);
+}
+
+/* Hero ------------------------------------------------------------------ */
+
+.hero {
+  padding-top: var(--space-12);
+}
+
+.hero h1 {
+  max-width: var(--size-measure);
+  font-family: var(--font-serif);
+  font-size: var(--text-display);
+}
+
+/* The headline breaks between its phrases, not inside them. */
+.phrase {
+  display: inline-block;
+}
+
+.lead {
+  max-width: var(--size-measure);
+  margin-top: var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--text-lg);
+}
+
+@media (min-width: 700px) {
+  .lead {
+    font-size: var(--text-xl);
+  }
+}
+
+.cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+  margin-top: var(--space-8);
+}
+
+.cta-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  font-size: var(--text-md);
+}
+
+.status {
+  max-width: var(--size-measure);
+  margin-top: var(--space-6);
+  color: var(--color-text-muted);
+  font-size: var(--text-md);
+}
+
+.hero-shot {
+  margin-top: var(--space-12);
+}
+
+/* Screenshots ----------------------------------------------------------- */
+
+/* The width and height attributes keep each picture's room; the surface colour fills it while it loads. */
+.shot img {
+  width: 100%;
+  border: var(--size-hairline) solid var(--color-separator);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.shot--phone img {
+  border-radius: var(--radius-xl);
+}
+
+.shot figcaption {
+  margin-top: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-md);
+}
+
+/* The theme that isn't the page's: dark on a light page, light on a dark one. */
+.only-dark {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .only-dark {
+    display: block;
+  }
+
+  .only-light {
+    display: none;
+  }
+}
+
+/* Sections -------------------------------------------------------------- */
+
+.section {
+  margin-top: var(--space-16);
+  scroll-margin-top: var(--space-6);
+}
+
+.section > h2 {
+  font-size: var(--text-2xl);
+}
+
+.section-intro {
+  max-width: var(--size-measure);
+  margin-top: var(--space-3);
+  color: var(--color-text-muted);
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--size-column)), 1fr));
+  gap: var(--space-8) var(--space-10);
+  margin-top: var(--space-8);
+}
+
+.features h3 {
+  font-size: var(--text-lg);
+}
+
+.features p {
+  margin-top: var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.gallery {
+  display: grid;
+  gap: var(--space-8);
+  margin-top: var(--space-12);
+}
+
+@media (min-width: 700px) {
+  .gallery {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.phones {
+  display: grid;
+  gap: var(--space-6);
+  margin-top: var(--space-12);
+}
+
+.phones h3 {
+  font-size: var(--text-lg);
+}
+
+.phones-text p {
+  max-width: var(--size-measure);
+  margin-top: var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.phones-shots {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, var(--size-phone-shot)));
+  gap: var(--space-4);
+}
+
+@media (min-width: 1000px) {
+  .phones {
+    grid-template-columns: 1fr auto;
+    gap: var(--space-10);
+  }
+}
+
+.list {
+  display: grid;
+  gap: var(--space-2);
+  max-width: var(--size-measure);
+  margin-top: var(--space-5);
+  padding-inline-start: var(--space-5);
+  list-style: disc;
+}
+
+.list li::marker {
+  color: var(--color-text-muted);
+}
+
+.note {
+  max-width: var(--size-measure);
+  margin-top: var(--space-5);
+  color: var(--color-text-muted);
+}
+
+/* Downloads ------------------------------------------------------------- */
+
+.build-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin-top: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-md);
+}
+
+.build-info {
+  font-variant-numeric: tabular-nums;
+}
+
+.build-info[aria-busy="true"] {
+  display: inline-flex;
+  align-items: center;
+  width: var(--size-column);
+}
+
+.skeleton {
+  display: block;
+  width: var(--skeleton-medium);
+  height: var(--size-skeleton-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-skeleton);
+  animation: skeleton-pulse var(--duration-pulse) ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+  50% {
+    opacity: var(--opacity-skeleton-pulse);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+.platforms {
+  display: grid;
+  gap: var(--space-10);
+  margin-top: var(--space-10);
+}
+
+@media (min-width: 700px) {
+  .platforms {
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-12) var(--space-10);
+  }
+}
+
+.platform {
+  scroll-margin-top: var(--space-6);
+}
+
+.platform h3 {
+  font-size: var(--text-xl);
+}
+
+.files {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.files li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-2);
+}
+
+.file {
+  font-weight: var(--weight-medium);
+}
+
+.files .muted {
+  font-size: var(--text-md);
+}
+
+.steps {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-md);
+}
+
+.cmd {
+  margin-top: var(--space-1-5);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-mono-adjust);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Footer ---------------------------------------------------------------- */
+
+.site-footer {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-16);
+  padding-bottom: var(--space-12);
+  color: var(--color-text-muted);
+  font-size: var(--text-md);
+}

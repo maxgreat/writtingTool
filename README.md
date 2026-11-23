@@ -6,6 +6,8 @@ Phase 1 of the guide, the writing core, is built: the desktop app (tested on Lin
 
 ## Download
 
+The website, **[maxgreat.github.io/writtingTool](https://maxgreat.github.io/writtingTool/)**, has these downloads too, with screenshots and the same install notes.
+
 Every push to `main` that changes the app builds it for each platform and publishes the files as a [release](https://github.com/maxgreat/writtingTool/releases). These links always get the newest build:
 
 | Platform | Download |
@@ -83,6 +85,7 @@ npm run screenshots               # retakes the pictures in docs/screenshots (ne
 | `src-tauri/` | The Rust core: opens and creates projects, returns their files, writes chapters atomically and keeps their earlier versions, and makes binder changes as a whole or not at all. `gen/android/` is the Android project |
 | `sample-project/MyNovel/` | The sample project, bundled into the app and used by the tests |
 | `scripts/screenshots.mjs` | Takes the screenshots in `docs/screenshots/` |
+| `docs/index.html`, `docs/site.css` | The website, served by GitHub Pages from the `docs/` folder of `main`. It shows the screenshots from `docs/screenshots/`, so it stays current with each push |
 | `.github/workflows/release.yml` | Builds the app for Linux, Windows, macOS and Android on each push to `main` and publishes a release. The links under [Download](#download) depend on its file names |
 
 ## What the app has, and what comes next
