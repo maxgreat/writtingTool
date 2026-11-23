@@ -4,6 +4,24 @@ A writing app for novels, in the spirit of Scrivener and novelWriter: a binder o
 
 Phase 1 of the guide, the writing core, is built: the desktop app (tested on Linux) and the Android app, reading and writing project folders on the device. Cloud sync, spelling and export come in later phases.
 
+## Download
+
+Every push to `main` that changes the app builds it for each platform and publishes the files as a [release](https://github.com/maxgreat/writtingTool/releases). These links always get the newest build:
+
+| Platform | Download |
+| --- | --- |
+| Windows 10 and 11 | [Writing-Tool-windows-x64-setup.exe](https://github.com/maxgreat/writtingTool/releases/latest/download/Writing-Tool-windows-x64-setup.exe) |
+| macOS, Apple silicon and Intel | [Writing-Tool-macos-universal.dmg](https://github.com/maxgreat/writtingTool/releases/latest/download/Writing-Tool-macos-universal.dmg) |
+| Linux | [AppImage](https://github.com/maxgreat/writtingTool/releases/latest/download/Writing-Tool-linux-x86_64.AppImage), [.deb](https://github.com/maxgreat/writtingTool/releases/latest/download/Writing-Tool-linux-amd64.deb) (Debian, Ubuntu) or [.rpm](https://github.com/maxgreat/writtingTool/releases/latest/download/Writing-Tool-linux-x86_64.rpm) (Fedora, openSUSE) |
+| Android, 64-bit ARM phones | [Writing-Tool-android-arm64.apk](https://github.com/maxgreat/writtingTool/releases/latest/download/Writing-Tool-android-arm64.apk) |
+
+The apps are not code-signed yet, so Windows and macOS warn before the first launch:
+
+- **Windows:** run the setup file. If SmartScreen says "Windows protected your PC", choose **More info**, then **Run anyway**. It installs for your user only, without admin rights.
+- **macOS:** open the .dmg and drag Writing Tool to Applications. The first time you open it, macOS says it can't verify the app: open **System Settings → Privacy & Security** and choose **Open Anyway**.
+- **Linux:** make the AppImage executable and run it (`chmod +x Writing-Tool-linux-x86_64.AppImage`, then `./Writing-Tool-linux-x86_64.AppImage`), or install a package with `sudo apt install ./Writing-Tool-linux-amd64.deb` or `sudo dnf install ./Writing-Tool-linux-x86_64.rpm`. The app needs WebKitGTK 4.1, which current distributions have.
+- **Android:** open the APK on the phone and allow your browser to install apps when asked. Later builds install over it and keep your projects.
+
 ## Screenshots
 
 These are refreshed with every push, so they always show the app as it is on `main`. All of them are in [docs/screenshots/](docs/screenshots/).
@@ -65,6 +83,7 @@ npm run screenshots               # retakes the pictures in docs/screenshots (ne
 | `src-tauri/` | The Rust core: opens and creates projects, returns their files, writes chapters atomically and keeps their earlier versions, and makes binder changes as a whole or not at all. `gen/android/` is the Android project |
 | `sample-project/MyNovel/` | The sample project, bundled into the app and used by the tests |
 | `scripts/screenshots.mjs` | Takes the screenshots in `docs/screenshots/` |
+| `.github/workflows/release.yml` | Builds the app for Linux, Windows, macOS and Android on each push to `main` and publishes a release. The links under [Download](#download) depend on its file names |
 
 ## What the app has, and what comes next
 
@@ -84,5 +103,5 @@ Still to build, following the guide's phases:
 - Dropbox sync, presence badges and conflict merging
 - Spelling (spellbook with Hunspell dictionaries) and grammar
 - Export: the Typst PDF preview, then EPUB, Word and Markdown
-- Windows builds, and CI building every platform (Android builds locally and is checked on an emulator before each push)
+- Testing the Windows and macOS builds on real machines (CI builds them, but only the Linux and Android apps have been run so far), and code-signing them
 - Editing sheets, and the "Possible names" list

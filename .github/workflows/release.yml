@@ -1,0 +1,356 @@
+# Builds the app for Linux, Windows, macOS and Android on every push to main
+# that changes the app, and publishes the files as a GitHub release named
+# build-<run number>. The README and the website link to
+# releases/latest/download/<file>, so the file names below must not change.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    # Changes that cannot change the app don't make a new build.
+    paths-ignore:
+      - '*.md'
+      - '*.pdf'
+      - 'LICENSE'
+      - 'docs/**'
+      - '.claude/**'
+      - '.githooks/**'
+  workflow_dispatch:
+
+# A push that arrives during a build waits for it to finish, so a release is
+# never left half published. If several pushes wait, only the newest is built.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  NODE_VERSION: 24
+  # The NDK the Android check uses locally; the Ubuntu runner image has it.
+  NDK_VERSION: 30.0.16248370
+
+jobs:
+  desktop:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest supported Ubuntu, so the Linux files also run on
+          # distributions with an older glibc.
+          - name: Linux
+            os: ubuntu-22.04
+            bundle_dir: src-tauri/target/release/bundle
+            args: --bundles appimage,deb,rpm
+          - name: Windows
+            os: windows-latest
+            bundle_dir: src-tauri/target/release/bundle
+            args: --bundles nsis
+          # One file for Apple silicon and Intel Macs. Not notarized: the
+          # ad-hoc signature ("-") lets macOS offer "Open Anyway" instead of
+          # calling the app damaged.
+          - name: macOS
+            os: macos-latest
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            bundle_dir: src-tauri/target/universal-apple-darwin/release/bundle
+            args: --target universal-apple-darwin --bundles dmg --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}'
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the system packages Tauri needs
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf file
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build
+        run: |
+          set -o pipefail
+          # The Rust cache can bring back an earlier build's installers.
+          rm -rf "${{ matrix.bundle_dir }}"
+          npx tauri build ${{ matrix.args }} 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Show the end of the build log on the run's summary
+        if: failure()
+        run: bash .github/scripts/annotate-log-tail.sh "$RUNNER_TEMP/build.log" "${{ matrix.name }} build failed"
+
+      - name: Give the files their release names
+        env:
+          BUNDLE_DIR: ${{ matrix.bundle_dir }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p release
+          # Copies the one file matching the pattern, and fails on none or several.
+          take() {
+            local matches=($1)
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "::error::Expected one file for $1, found ${#matches[@]}"
+              exit 1
+            fi
+            cp "${matches[0]}" "release/$2"
+          }
+          case "$RUNNER_OS" in
+            Linux)
+              take "$BUNDLE_DIR/appimage/*.AppImage" Writing-Tool-linux-x86_64.AppImage
+              take "$BUNDLE_DIR/deb/*.deb" Writing-Tool-linux-amd64.deb
+              take "$BUNDLE_DIR/rpm/*.rpm" Writing-Tool-linux-x86_64.rpm
+              ;;
+            Windows)
+              take "$BUNDLE_DIR/nsis/*-setup.exe" Writing-Tool-windows-x64-setup.exe
+              ;;
+            macOS)
+              take "$BUNDLE_DIR/dmg/*.dmg" Writing-Tool-macos-universal.dmg
+              ;;
+          esac
+          ls -l release
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 3
+
+  # Secrets can't be read in a job's `if`, so this job looks for the signing
+  # key and the Android job runs only when it is there.
+  android-key:
+    name: Android signing key
+    runs-on: ubuntu-24.04
+    outputs:
+      present: ${{ steps.check.outputs.present }}
+    steps:
+      - id: check
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE" ] && [ -n "$PASSWORD" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::The repository secrets ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD are not set, so this release has no Android APK."
+          fi
+
+  android:
+    name: Android
+    needs: android-key
+    if: needs.android-key.outputs.present == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      # Most phones of the last several years are 64-bit ARM; one ABI keeps
+      # the build short and the APK small.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+          if [ ! -d "$NDK_HOME" ]; then
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION"
+          fi
+          rm -rf src-tauri/gen/android/app/build/outputs/apk
+          # A rising versionCode lets each build install over the one before.
+          npm run tauri android build -- --apk --target aarch64 \
+            --config "{\"bundle\":{\"android\":{\"versionCode\":$RUN_NUMBER}}}" \
+            2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Show the end of the build log on the run's summary
+        if: failure()
+        run: bash .github/scripts/annotate-log-tail.sh "$RUNNER_TEMP/build.log" "Android build failed"
+
+      - name: Sign
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          apks=(src-tauri/gen/android/app/build/outputs/apk/**/*-release-unsigned.apk)
+          if [ "${#apks[@]}" -ne 1 ]; then
+            echo "::error::Expected one unsigned release APK, found ${#apks[@]}"
+            exit 1
+          fi
+          build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          keystore="$RUNNER_TEMP/release.p12"
+          trap 'rm -f "$keystore"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$keystore"
+          mkdir -p release
+          "$build_tools/apksigner" sign \
+            --ks "$keystore" --ks-key-alias writing-tool \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD --v4-signing-enabled false \
+            --out release/Writing-Tool-android-arm64.apk "${apks[0]}"
+          "$build_tools/apksigner" verify release/Writing-Tool-android-arm64.apk
+          ls -l release
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Android
+          path: release/*
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: Publish the release
+    needs: [desktop, android]
+    # Publish only when every desktop build worked. The Android job is
+    # skipped, not failed, when the signing key is missing.
+    if: >-
+      !cancelled()
+      && needs.desktop.result == 'success'
+      && (needs.android.result == 'success' || needs.android.result == 'skipped')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      SHA: ${{ github.sha }}
+      RUN_NUMBER: ${{ github.run_number }}
+      # How many builds stay on the Releases page; older ones are deleted.
+      KEEP: 10
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: release
+          merge-multiple: true
+
+      # The build files are kept for 3 days. "Re-run failed jobs" after that
+      # would find only the re-run jobs' files, and the release would miss
+      # the others.
+      - name: Check that every file is there
+        env:
+          ANDROID_RESULT: ${{ needs.android.result }}
+        run: |
+          set -euo pipefail
+          expected=(
+            Writing-Tool-linux-x86_64.AppImage
+            Writing-Tool-linux-amd64.deb
+            Writing-Tool-linux-x86_64.rpm
+            Writing-Tool-windows-x64-setup.exe
+            Writing-Tool-macos-universal.dmg
+          )
+          if [ "$ANDROID_RESULT" = success ]; then
+            expected+=(Writing-Tool-android-arm64.apk)
+          fi
+          missing=0
+          for file in "${expected[@]}"; do
+            if [ ! -s "release/$file" ]; then
+              echo "::error::release/$file is missing. If the build files have expired, re-run all jobs."
+              missing=1
+            fi
+          done
+          ls -l release
+          exit "$missing"
+
+      - name: Write the release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          # The numbers of the other published builds, smallest first. Builds
+          # are ordered by number, not by date: re-running an old failed run
+          # publishes an older commit after newer ones.
+          others=$(gh release list --repo "$REPO" --limit 200 --json tagName \
+            --jq "[.[].tagName | select(startswith(\"build-\")) | ltrimstr(\"build-\") | tonumber? | select(. != $RUN_NUMBER)] | sort | .[]")
+          prev=""
+          latest=true
+          for n in $others; do
+            if [ "$n" -lt "$RUN_NUMBER" ]; then
+              prev="build-$n"
+            else
+              # A newer build exists: it stays the one the download links get.
+              latest=false
+            fi
+          done
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          {
+            echo "Build $RUN_NUMBER of Writing Tool, made from commit [${SHA:0:7}](https://github.com/$REPO/commit/$SHA)."
+            echo
+            echo "| Platform | File |"
+            echo "| --- | --- |"
+            echo "| Windows 10 and 11 | Writing-Tool-windows-x64-setup.exe |"
+            echo "| macOS, Apple silicon and Intel | Writing-Tool-macos-universal.dmg |"
+            echo "| Linux | Writing-Tool-linux-x86_64.AppImage, or the .deb or .rpm package |"
+            if [ -f release/Writing-Tool-android-arm64.apk ]; then
+              echo "| Android, 64-bit ARM | Writing-Tool-android-arm64.apk |"
+            fi
+            echo
+            echo "The apps are not code-signed, so Windows and macOS warn before the first launch. The [install steps](https://github.com/$REPO#download) say how to get past the warning."
+            if [ -n "$prev" ]; then
+              echo
+              echo "## Changes since $prev"
+              echo
+              gh api "repos/$REPO/compare/$prev...$SHA" \
+                --jq '.commits[] | "- \(.commit.message | split("\n")[0]) (\(.sha[0:7]))"'
+            fi
+          } > notes.md
+          cat notes.md
+
+      - name: Publish
+        env:
+          LATEST: ${{ steps.notes.outputs.latest }}
+        run: |
+          set -euo pipefail
+          tag="build-$RUN_NUMBER"
+          # A re-run of the same workflow run reuses its build number.
+          if gh release view "$tag" --repo "$REPO" > /dev/null 2>&1; then
+            gh release delete "$tag" --repo "$REPO" --cleanup-tag --yes
+          fi
+          gh release create "$tag" release/* --repo "$REPO" --target "$SHA" \
+            --title "Build $RUN_NUMBER" --notes-file notes.md --latest="$LATEST"
+
+      - name: Delete old builds
+        run: |
+          set -euo pipefail
+          # Keeps the KEEP highest build numbers.
+          gh release list --repo "$REPO" --limit 200 --json tagName \
+            --jq "[.[].tagName | select(startswith(\"build-\")) | ltrimstr(\"build-\") | tonumber?] | sort | reverse | .[$KEEP:] | .[] | \"build-\(.)\"" |
+          while read -r old; do
+            echo "Deleting $old"
+            gh release delete "$old" --repo "$REPO" --cleanup-tag --yes
+          done

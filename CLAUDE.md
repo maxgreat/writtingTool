@@ -44,5 +44,10 @@ The README shows screenshots from `docs/screenshots/`, so the user can see the s
 2. During the Android check, after step 4, save the emulator's screen with the chapter open and nothing else on top: `adb exec-out screencap -p > docs/screenshots/android.png`.
 3. When a change adds something worth seeing (a dialog, a menu, a new panel), add a scene for it in `scripts/screenshots.mjs` and show it in the README.
 
+## Releases
+`.github/workflows/release.yml` builds the app for Linux, Windows, macOS and Android on each push to `main` that changes the app, and publishes a GitHub release named `build-<run number>`. Only the newest 10 builds are kept. The README's Download links point to `releases/latest/download/<file>`, so the release file names (`Writing-Tool-…`) must stay the same. If you rename one, change every link to it in the same commit.
+
+After pushing a change to the app, check that the run passed: `curl -s "https://api.github.com/repos/maxgreat/writtingTool/actions/runs?per_page=1"` (no login needed). If it failed, fix the cause in a new commit, as for any other failure. The Android APK is signed with the key in `~/.android/writing-tool-release.p12` (password in `writing-tool-release.password` next to it), stored in the repository secrets `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`. Without those secrets the release has no APK.
+
 ## Branches
 For now, work directly on `main` and push to `origin main`. Don't create feature branches or pull requests.
