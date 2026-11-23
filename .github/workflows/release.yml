@@ -366,9 +366,33 @@ jobs:
       - name: Publish
         env:
           LATEST: ${{ steps.notes.outputs.latest }}
+          BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           tag="build-$RUN_NUMBER"
+          # GitHub refuses this job's token a tag on a commit whose workflow
+          # files differ from the branch's (that needs the workflows
+          # permission, which the token can't have). It happens when a later
+          # push changed .github/workflows while this run was building. That
+          # push starts its own run, which publishes the newer build.
+          workflows_at() {
+            gh api "repos/$REPO/contents/.github?ref=$1" \
+              --jq '.[] | select(.name == "workflows") | .sha'
+          }
+          # Plain assignments, so a failed lookup stops the step (set -e)
+          # instead of looking like a difference.
+          here=$(workflows_at "$SHA")
+          there=$(workflows_at "$BRANCH")
+          for tree in "$here" "$there"; do
+            if ! [[ "$tree" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Couldn't read the .github/workflows tree: '$tree'"
+              exit 1
+            fi
+          done
+          if [ "$here" != "$there" ]; then
+            echo "::notice::A newer commit on $BRANCH changed the workflows, so this run can't tag ${SHA:0:7}. The run for that commit publishes the newer build instead."
+            exit 0
+          fi
           # A re-run of the same workflow run reuses its build number.
           if gh release view "$tag" --repo "$REPO" > /dev/null 2>&1; then
             gh release delete "$tag" --repo "$REPO" --cleanup-tag --yes
