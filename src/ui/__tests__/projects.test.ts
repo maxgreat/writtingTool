@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { APP_VERSION, PRIVACY_POLICY_URL } from "../../core/about";
 import type { ProjectEntry } from "../../core/projects";
 import { folderName, projectDetail, ProjectsButton, type ProjectsSource } from "../Projects";
 
@@ -344,5 +345,95 @@ describe("on phones", () => {
     await click(document.activeElement as HTMLElement);
     expect(document.querySelector(".bottom-sheet.is-open")).toBeNull();
     expect(document.activeElement).toBe(titleButton());
+  });
+});
+
+describe("the version and the privacy policy", () => {
+  const about = () => dialog()?.querySelector(".projects-about-line")?.textContent;
+  const link = () => dialog()?.querySelector<HTMLAnchorElement>(".projects-about a") ?? null;
+
+  /** Clicks the link and says whether its default action was prevented. Then prevents it: jsdom can't open pages. */
+  async function clickLink(): Promise<boolean> {
+    const el = link();
+    if (!el) throw new Error("No link to click");
+    let prevented = false;
+    const record = (event: Event) => {
+      prevented = event.defaultPrevented;
+      event.preventDefault();
+    };
+    document.addEventListener("click", record);
+    try {
+      await act(async () => el.click());
+    } finally {
+      document.removeEventListener("click", record);
+    }
+    return prevented;
+  }
+
+  it("ends the view with the app's version and a link to the policy", async () => {
+    await render();
+    await openView();
+    expect(APP_VERSION).toMatch(/^\d+\.\d+\.\d+/u);
+    expect(about()).toContain(`Version ${APP_VERSION}`);
+    expect(link()?.textContent).toBe("Privacy policy");
+    expect(link()?.href).toBe(PRIVACY_POLICY_URL);
+    expect(link()?.target).toBe("_blank");
+  });
+
+  it("leaves the link to open a new tab in the browser preview", async () => {
+    await render({ openUrl: undefined });
+    await openView();
+    expect(await clickLink()).toBe(false);
+  });
+
+  it("opens the policy in the system browser in the app", async () => {
+    const openUrl = vi.fn<(url: string) => Promise<void>>().mockResolvedValue(undefined);
+    await render({ openUrl });
+    await openView();
+    expect(await clickLink()).toBe(true);
+    expect(openUrl).toHaveBeenCalledWith(PRIVACY_POLICY_URL);
+    expect(alerts()).toEqual([]);
+    expect(dialog()).not.toBeNull();
+  });
+
+  it("opens it once, however often the link is clicked meanwhile", async () => {
+    const answer = deferred<void>();
+    const openUrl = vi.fn<(url: string) => Promise<void>>(() => answer.promise);
+    await render({ openUrl });
+    await openView();
+    await clickLink();
+    expect(link()?.getAttribute("aria-disabled")).toBe("true");
+    expect(await clickLink()).toBe(true);
+    expect(openUrl).toHaveBeenCalledTimes(1);
+    await act(async () => answer.resolve());
+    expect(link()?.hasAttribute("aria-disabled")).toBe(false);
+  });
+
+  it("shows the address when the browser can't be opened, and tries again on the next click", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const openUrl = vi
+        .fn<(url: string) => Promise<void>>()
+        .mockRejectedValueOnce(new Error("Not allowed to open url"))
+        .mockResolvedValue(undefined);
+      await render({ openUrl });
+      await openView();
+      await clickLink();
+      const [alert] = alerts();
+      expect(alert).toContain("Couldn’t open the browser.");
+      expect(alert).toContain(PRIVACY_POLICY_URL);
+      expect(link()?.getAttribute("aria-describedby")).toBe(dialog()?.querySelector('[role="alert"]')?.id);
+      await clickLink();
+      expect(openUrl).toHaveBeenCalledTimes(2);
+      expect(alerts()).toEqual([]);
+    } finally {
+      quiet.mockRestore();
+    }
+  });
+
+  it("ends the sheet on phones too", async () => {
+    await render({ phone: true });
+    await openView();
+    expect(document.querySelector(".bottom-sheet.is-open .projects-about a")?.textContent).toBe("Privacy policy");
   });
 });

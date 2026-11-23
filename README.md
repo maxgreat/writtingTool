@@ -40,7 +40,7 @@ These are refreshed with every push, so they always show the app as it is on `ma
 
 | Projects |
 | --- |
-| ![The Projects view, open under the project title at the top of the binder: the open project is checked. The browser preview has only the sample project, so it says so instead of offering a new project](docs/screenshots/desktop-projects.png) |
+| ![The Projects view, open under the project title at the top of the binder: the open project is checked. The browser preview has only the sample project, so it says so instead of offering a new project. The last line has the app's version and a link to the privacy policy](docs/screenshots/desktop-projects.png) |
 
 | Phone | Binder | Inspector |
 | --- | --- | --- |
@@ -48,7 +48,7 @@ These are refreshed with every push, so they always show the app as it is on `ma
 
 | Projects on a phone | Android (the app on the emulator) |
 | --- | --- |
-| <img src="docs/screenshots/phone-projects.png" width="240" alt="The Projects view as a sheet from the bottom, over the binder it was opened from"> | <img src="docs/screenshots/android.png" width="240" alt="The app on an Android phone, a chapter open with character names highlighted"> |
+| <img src="docs/screenshots/phone-projects.png" width="240" alt="The Projects view as a sheet from the bottom, over the binder it was opened from, ending with the app's version and a link to the privacy policy"> | <img src="docs/screenshots/android.png" width="240" alt="The app on an Android phone, a chapter open with character names highlighted"> |
 
 The desktop and phone-size pictures come from `npm run screenshots`, which opens the interface on the sample project in a headless Chromium-based browser (hence "Browser preview" in the status bar). The Android one is the real app, taken on the emulator during the check that runs before each push.
 
@@ -87,7 +87,7 @@ npm run screenshots               # retakes the pictures in docs/screenshots (ne
 | `sample-project/MyNovel/` | The sample project, bundled into the app and used by the tests |
 | `scripts/screenshots.mjs` | Takes the screenshots in `docs/screenshots/` |
 | `docs/index.html`, `docs/site.css` | The website, served by GitHub Pages from the `docs/` folder of `main`. It shows the screenshots from `docs/screenshots/`, so it stays current with each push |
-| `docs/privacy.html` | The privacy policy, linked from the website and from the Google Play listing. Update it before releasing anything that sends data off the device |
+| `docs/privacy.html` | The privacy policy, linked from the website, from the Google Play listing and from the app (the last line of the Projects view; the app may open pages of this site only). Update it before releasing anything that sends data off the device |
 | `fastlane/metadata/android/en-US/` | The Google Play listing: title, descriptions, store icon, feature graphic and phone screenshots, in the layout fastlane and F-Droid read |
 | `.github/workflows/release.yml` | Builds the app for Linux, Windows, macOS and Android on each push to `main` and publishes a release. The links under [Download](#download) depend on its file names |
 
@@ -97,6 +97,7 @@ Built so far (phases 0 and 1 of the guide):
 
 - The binder, the editor and the inspector, with hide buttons, resizable panels, focus mode, a phone layout, and light and dark themes. On phones the panels also slide in with a swipe from the screen edge (on Android with gesture navigation, from the middle of the edge: above and below it the edge stays the system's Back gesture), and the formatting bar docks above the on-screen keyboard while you type.
 - Projects: the project title opens the list of projects on this device, to switch to another or create one with its title and language. On desktop, "Open folder…" opens a project folder from anywhere, and the ones opened recently are listed too.
+- The app's version and a link to the [privacy policy](https://maxgreat.github.io/writtingTool/privacy.html), on the last line of the Projects view, as Google Play asks. The link opens in the system browser; if that fails, the view shows the address.
 - Binder editing: a menu on each chapter and part (right-click, long-press, or its ⋯ button) to rename, set a status, move, add and trash; drag to reorder with a mouse or pen; part word counts; a Trash with Restore. Chapter files are renumbered to follow the binder order.
 - This chapter's synopsis, status and point of view, edited in the inspector.
 - Two editing modes on the same Markdown: Formatted (Tiptap) and Plain (CodeMirror 6). Switching keeps the caret in place, and the chapter files round-trip byte for byte.

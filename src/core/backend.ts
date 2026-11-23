@@ -28,6 +28,13 @@ export interface Backend {
   /** Shows a folder picker; the chosen folder's path, or null if cancelled. Opens nothing. */
   pickProjectFolder(): Promise<string | null>;
   /**
+   * Opens a web page in the system browser, since the app's window doesn't
+   * follow links. Only the app's website may be opened (see
+   * src-tauri/capabilities/default.json). Absent in the browser preview,
+   * where a link opens in a new tab by itself.
+   */
+  openUrl?(url: string): Promise<void>;
+  /**
    * The projects on this device: those in the app's own folder, then the
    * `recent` folders opened from elsewhere that still open.
    */
@@ -84,6 +91,14 @@ const appBackend: Omit<Backend, "canOpenFolders"> = {
     const { open } = await import("@tauri-apps/plugin-dialog");
     const path = await open({ directory: true, multiple: false, title: "Open a project folder" });
     return typeof path === "string" ? path : null;
+  },
+  async openUrl(url) {
+    try {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      await openUrl(url);
+    } catch (error) {
+      throw asError(error);
+    }
   },
   listProjects: (recent) => call<ProjectEntry[]>("list_projects", { recent }),
   createProject: ({ name, folders, files }) => call<ProjectSnapshot>("create_project", { name, folders, files }),

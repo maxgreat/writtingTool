@@ -488,3 +488,34 @@ button.project-row--action:hover:not(:disabled) {
   display: flex;
   padding-top: var(--space-1);
 }
+
+/* The app's version and privacy policy: the view's last line, small and
+   muted, in line with the heading. */
+.projects-about {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-inline: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+/* On the baseline: the link is as tall as a control, the version only a line. */
+.projects-about-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-1-5);
+}
+
+/* The address in the text colour, to be read and typed. */
+.projects-about-error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  padding-block-end: var(--space-1);
+}
+
+.projects-about-error .path {
+  color: var(--color-text);
+}

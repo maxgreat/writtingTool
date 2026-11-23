@@ -350,6 +350,21 @@ textarea.input {
   font-size: var(--text-mono-adjust);
 }
 
+/* A link out of the app: the colour of the text around it, told apart by its
+   underline. As tall as a control, so it is easy to tap. */
+.text-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--size-control);
+  color: inherit;
+  text-decoration: underline;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.text-link:hover {
+  color: var(--color-text);
+}
+
 /* Skeletons ------------------------------------------------------------- */
 
 .skeleton {

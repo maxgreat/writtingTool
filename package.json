@@ -21,6 +21,7 @@
     "@lezer/highlight": "1.2.5",
     "@tauri-apps/api": "2.12.4",
     "@tauri-apps/plugin-dialog": "2.8.4",
+    "@tauri-apps/plugin-opener": "2.7.2",
     "@tiptap/core": "3.33.0",
     "@tiptap/extension-horizontal-rule": "3.33.0",
     "@tiptap/markdown": "3.33.0",

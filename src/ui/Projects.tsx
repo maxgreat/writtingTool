@@ -1,5 +1,6 @@
 import { Check, ChevronDown, FolderOpen, X } from "lucide-react";
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type MouseEvent } from "react";
+import { APP_VERSION, PRIVACY_POLICY_URL } from "../core/about";
 import { defaultLanguage, LANGUAGES, type ProjectEntry } from "../core/projects";
 import { BottomSheet } from "./BottomSheet";
 import { cx, errorMessage } from "./dom";
@@ -21,6 +22,8 @@ export interface ProjectsSource {
   openFolder?: () => Promise<void>;
   /** False in the browser preview, which only has the sample project. */
   canCreate: boolean;
+  /** The backend's openUrl, for the privacy policy; absent in the browser preview, where the link opens a new tab. */
+  openUrl?: (url: string) => Promise<void>;
   /** The project on disk is changing (useProject's `switching`): nothing can be opened until it has. */
   busy: boolean;
   /** Phones get a sheet from the bottom instead of a dialog under the title. */
@@ -481,10 +484,79 @@ function ProjectsView({ source, headingId, onClose, onPendingChange }: ProjectsV
         <p className="projects-note muted">The browser preview only has the sample project.</p>
       )}
 
+      <AboutLine openUrl={source.openUrl} />
+
       {/* Present before an action starts, so screen readers announce it. */}
       <p className="visually-hidden" role="status">
         {status}
       </p>
+    </div>
+  );
+}
+
+/** The privacy link: at rest, being opened in the system browser, or failed to open. */
+type LinkState = "idle" | "opening" | "failed";
+
+/**
+ * The view's last line, quiet: the app's version and its privacy policy,
+ * which belong to the app rather than to a project. In the app the link
+ * opens in the system browser (openUrl); if that fails, the address shows so
+ * it can be typed there. In the browser preview it is a plain link that
+ * opens a new tab.
+ */
+function AboutLine({ openUrl }: { openUrl?: (url: string) => Promise<void> }) {
+  const [link, setLink] = useState<LinkState>("idle");
+  /** Set at once on a click, so a second click can't open the page twice. */
+  const opening = useRef(false);
+  const errorId = useId();
+
+  const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    // The browser preview: the link opens a new tab by itself.
+    if (!openUrl) return;
+    // The app: the page opens through openUrl only. A prevented click is also
+    // left alone by the opener plugin's own script for links.
+    event.preventDefault();
+    if (opening.current) return;
+    opening.current = true;
+    setLink("opening");
+    openUrl(PRIVACY_POLICY_URL)
+      .then(
+        () => setLink("idle"),
+        (error: unknown) => {
+          console.error("Cannot open the privacy policy", error);
+          setLink("failed");
+        },
+      )
+      .finally(() => {
+        opening.current = false;
+      });
+  };
+
+  return (
+    <div className="projects-about">
+      <p className="projects-about-line">
+        <span>
+          Version <span className="num">{APP_VERSION}</span>
+        </span>
+        <span aria-hidden>·</span>
+        <a
+          className="text-link"
+          href={PRIVACY_POLICY_URL}
+          target="_blank"
+          rel="noreferrer"
+          aria-disabled={link === "opening" || undefined}
+          aria-describedby={link === "failed" ? errorId : undefined}
+          onClick={onClick}
+        >
+          Privacy policy
+        </a>
+      </p>
+      {link === "failed" && (
+        <div id={errorId} className="projects-about-error" role="alert">
+          <p className="inline-error">Couldn’t open the browser. The privacy policy is at this address:</p>
+          <p className="path">{PRIVACY_POLICY_URL}</p>
+        </div>
+      )}
     </div>
   );
 }

@@ -313,6 +313,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     create: api.createProject,
     openFolder: backend.canOpenFolders ? api.openFolder : undefined,
     canCreate: backend.canCreateProjects,
+    openUrl: backend.openUrl,
     busy: api.switching,
     phone: isPhone,
   };
