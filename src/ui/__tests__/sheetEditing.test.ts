@@ -119,6 +119,7 @@ function Harness({ initialView, busy }: { initialView: InspectorView; busy: bool
     onCreateSheet: createSheet,
     onUpdateSheet: updateSheet,
     ignoring: { ignored: project.ignoredNames, setIgnored: () => undefined, busy },
+    suggestions: { list: [], words: new Set<string>(), rule: null },
     onMarkNotName: () => undefined,
     busy,
     versions: { list: async () => [], restore: async () => undefined, saveStatus: "saved", loads: 1, busy: false },

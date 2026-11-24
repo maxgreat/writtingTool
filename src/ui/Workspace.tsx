@@ -4,8 +4,9 @@ import type { TextPosition } from "../core/caret";
 import type { BlockStyle, EditorHandle, FormatState } from "../core/editor/types";
 import { NameIndex } from "../core/nameIndex";
 import type { IgnoredName } from "../core/names";
-import type { Project } from "../core/project";
+import { holdsNames, type Project } from "../core/project";
 import type { EditorMode, ViewSettings } from "../core/settings";
+import { useNameSuggestions } from "../core/useNameSuggestions";
 import type { useProject } from "../core/useProject";
 import { Binder } from "./Binder";
 import { SheetPreview } from "./BottomSheet";
@@ -16,6 +17,7 @@ import { HOVER_QUERY, useMediaQuery } from "./hooks";
 import type { IgnoreSource } from "./IgnoreHere";
 import { Inspector, type InspectorView } from "./Inspector";
 import { panelStyle } from "./layoutStyle";
+import type { SuggestionSource } from "./PossibleNameMenu";
 import type { ProjectsSource } from "./Projects";
 import { ResizeHandle } from "./ResizeHandle";
 import { StatusBar } from "./StatusBar";
@@ -35,6 +37,9 @@ export interface WorkspaceProps {
 }
 
 const NO_FORMAT: FormatState = { bold: false, italic: false, block: "body" };
+
+/** Focus mode marks no possible names. */
+const NO_WORDS: ReadonlySet<string> = new Set();
 
 /**
  * The phone's name preview: which sheet, whether it is up, the name tapped
@@ -69,6 +74,9 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   // preview. Kept as long as the workspace is: a new matcher (a sheet added, renamed or
   // removed, another project) starts it afresh.
   const [nameIndex] = useState(() => new NameIndex());
+  // Possible names across the book, read in the background: marked in the text and listed
+  // under This chapter in the inspector.
+  const suggestions = useNameSuggestions(backend, project, matcher);
 
   const editorRef = useRef<EditorHandle>(null);
   const [format, setFormat] = useState<FormatState>(NO_FORMAT);
@@ -236,6 +244,17 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   const ignoring = useMemo<IgnoreSource>(
     () => ({ ignored: project.ignoredNames, setIgnored: api.ignoreName, busy: api.switching }),
     [project.ignoredNames, api.ignoreName, api.switching],
+  );
+
+  /** Add to and Not a name, on a possible name clicked in the text. */
+  const suggesting = useMemo<SuggestionSource>(
+    () => ({
+      types: project.sheetTypes.filter((type) => holdsNames(type.folder)),
+      createSheet: api.createSheet,
+      markNotName: api.markNotName,
+      busy: api.switching,
+    }),
+    [project.sheetTypes, api.createSheet, api.markNotName, api.switching],
   );
 
   /* Chapters and modes ----------------------------------------------------- */
@@ -497,6 +516,9 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           onFormatChange={setFormat}
           onOpenSheet={focusMode ? null : openSheetFromText}
           ignoring={ignoring}
+          // Focus mode is for writing without distractions: no marks, no menu.
+          suggestions={focusMode ? NO_WORDS : suggestions.words}
+          suggesting={focusMode ? null : suggesting}
           sheetsById={sheetsById}
           hoverCards={canHover && !isPhone}
           empty={empty}
@@ -531,6 +553,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
               onCreateSheet={api.createSheet}
               onUpdateSheet={api.updateSheet}
               ignoring={ignoring}
+              suggestions={suggestions}
               onMarkNotName={api.markNotName}
               busy={api.switching}
               versions={{

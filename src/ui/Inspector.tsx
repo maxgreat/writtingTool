@@ -5,6 +5,7 @@ import type { NameIndex } from "../core/nameIndex";
 import type { IgnoredName, NameMatcher } from "../core/names";
 import type { Chapter, Project, Sheet } from "../core/project";
 import type { SheetEdit } from "../core/sheetFile";
+import type { NameSuggestions } from "../core/useNameSuggestions";
 import type { AppearancesSource } from "./AppearsIn";
 import { ChapterDetails } from "./ChapterDetails";
 import { cx, errorMessage, focusLost, formatCount } from "./dom";
@@ -47,6 +48,8 @@ export interface InspectorProps {
   onUpdateSheet(id: string, edit: SheetEdit): void;
   /** Ignore here, under a sheet opened from the text, and each sheet's ignored mentions. */
   ignoring: IgnoreSource;
+  /** The book's possible names (useNameSuggestions): This chapter lists those found in the open chapter. */
+  suggestions: NameSuggestions;
   /** useProject's markNotName, for possible names. Throws, changing nothing, when project.json can't be read. */
   onMarkNotName(word: string, notName: boolean): void;
   /** The project on disk is changing: the chapter's details, sheets and Appears in wait until it has. */
@@ -78,6 +81,7 @@ export function Inspector({
   onCreateSheet,
   onUpdateSheet,
   ignoring,
+  suggestions,
   onMarkNotName,
   busy,
   versions,
@@ -153,6 +157,7 @@ export function Inspector({
             onOpenSheet={onOpenSheet}
             onChapterDetails={onChapterDetails}
             onCreateSheet={onCreateSheet}
+            suggestions={suggestions}
             onMarkNotName={onMarkNotName}
             busy={busy}
             versions={versions}
@@ -233,6 +238,7 @@ function ChapterInfo({
   onOpenSheet,
   onChapterDetails,
   onCreateSheet,
+  suggestions,
   onMarkNotName,
   busy,
   versions,
@@ -247,6 +253,7 @@ function ChapterInfo({
   | "onOpenSheet"
   | "onChapterDetails"
   | "onCreateSheet"
+  | "suggestions"
   | "onMarkNotName"
   | "busy"
   | "versions"
@@ -327,9 +334,7 @@ function ChapterInfo({
         key={`possible\n${project.root}\n${chapter.id}`}
         project={project}
         chapterId={chapter.id}
-        matcher={matcher}
-        index={index}
-        visible={visible}
+        suggestions={suggestions}
         busy={busy}
         onCreateSheet={onCreateSheet}
         onMarkNotName={onMarkNotName}

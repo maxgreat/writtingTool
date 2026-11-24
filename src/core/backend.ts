@@ -63,6 +63,14 @@ export interface Backend {
    */
   restoreVersion(root: string, chapter: string, savedAt: number): Promise<string>;
   /**
+   * For each word, whether it is an ordinary word of `language` (a project
+   * language such as "en-GB") written with a capital, such as "River",
+   * rather than a name, from the dictionaries bundled with the app.
+   * Resolves to null when there is no dictionary for the language. Absent
+   * where there are no dictionaries at all (the browser preview).
+   */
+  ordinaryWords?(language: string, words: string[]): Promise<boolean[] | null>;
+  /**
    * Runs before the window closes, so pending saves can finish. The window
    * stays open if the handler resolves to false. Resolves to an unsubscribe.
    */
@@ -106,6 +114,7 @@ const appBackend: Omit<Backend, "canOpenFolders"> = {
   writeFile: (root, path, text) => call<string | null>("write_project_file", { root, path, text }),
   listVersions: (root, chapter) => call<Version[]>("list_versions", { root, chapter }),
   restoreVersion: (root, chapter, savedAt) => call<string>("restore_version", { root, chapter, savedAt }),
+  ordinaryWords: (language, words) => call<boolean[] | null>("ordinary_words", { language, words }),
   async onCloseRequested(handler) {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     return getCurrentWindow().onCloseRequested(async (event) => {

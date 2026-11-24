@@ -208,6 +208,31 @@
   }
 }
 
+/*
+ * Possible names: capitalized words with no sheet yet. A hairline of dots,
+ * lighter than any name's mark (no tint, no 2 px line) and nothing like a
+ * spelling mark (no colour, no wave). Focus mode leaves them out.
+ */
+.possible-name {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: var(--size-hairline);
+  text-decoration-color: var(--color-possible-name);
+  text-underline-offset: var(--name-underline-offset);
+  transition: text-decoration-color var(--duration-fast) var(--ease-standard);
+}
+
+/* A click opens Add to and Not a name: the dots darken under the pointer. */
+@media (hover: hover) and (pointer: fine) {
+  .possible-name {
+    cursor: pointer;
+  }
+
+  .possible-name:hover {
+    text-decoration-color: var(--color-text-muted);
+  }
+}
+
 /* Summary card on hover (desktop). */
 .name-card {
   position: fixed;

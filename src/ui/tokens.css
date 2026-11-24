@@ -163,6 +163,8 @@
   --color-name-character-hover: rgb(58 80 184 / 0.24);
   --color-name-place: rgb(58 80 184 / 0.7);
   --color-name-other: rgb(93 91 86 / 0.7);
+  /* Possible names: a hairline of dots, quieter than any name's mark. On the page: 4.1:1 light, 4.2:1 dark. */
+  --color-possible-name: rgb(93 91 86 / 0.8);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -192,6 +194,7 @@
     --color-name-character-hover: rgb(163 177 255 / 0.32);
     --color-name-place: rgb(163 177 255 / 0.75);
     --color-name-other: rgb(169 167 161 / 0.75);
+    --color-possible-name: rgb(169 167 161 / 0.7);
 
     --shadow-popover: 0 4px 16px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.3);
     --shadow-overlay: 0 8px 32px rgb(0 0 0 / 0.55);

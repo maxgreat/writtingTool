@@ -28,6 +28,8 @@ interface PopoverProps {
   autoFocus?: boolean;
   /** Presses here don't count as outside: usually the trigger, which toggles. */
   ignore?: RefObject<HTMLElement | null>;
+  /** Something chosen here is being done: its items wait (aria-busy). */
+  busy?: boolean;
 }
 
 const ITEMS = '[role^="menuitem"]:not(:disabled)';
@@ -39,7 +41,7 @@ const FOCUSABLE = `${ITEMS}, input:not(:disabled), button:not(:disabled)`;
  * scrolls when it is taller than the room it has, and closes on Escape or a
  * press outside.
  */
-export function Popover({ anchor, onClose, children, role, label, id, className, autoFocus, ignore }: PopoverProps) {
+export function Popover({ anchor, onClose, children, role, label, id, className, autoFocus, ignore, busy }: PopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
@@ -126,6 +128,7 @@ export function Popover({ anchor, onClose, children, role, label, id, className,
       id={id}
       role={role}
       aria-label={label}
+      aria-busy={busy || undefined}
       tabIndex={-1}
       className={cx("popover", className)}
       onKeyDown={onKeyDown}

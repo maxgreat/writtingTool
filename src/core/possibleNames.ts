@@ -1,4 +1,4 @@
-import type { NameMatcher } from "./names";
+import type { NameMatch, NameMatcher } from "./names";
 import { ABBREVIATIONS, sentenceRanges } from "./sentences";
 
 /**
@@ -16,8 +16,19 @@ export interface PossibleName {
   chapterIds: string[];
 }
 
-/** How many times a word must be found before it is offered. */
+/**
+ * How many times a word must be found before it is offered when there is no
+ * dictionary to tell ordinary words from names (see useNameSuggestions.ts).
+ */
 export const MIN_POSSIBLE_NAME_COUNT = 3;
+
+/** A capitalized word of a paragraph that may be a name, where it is in the paragraph. */
+export interface CapitalizedWord {
+  /** The word, composed (NFC). */
+  word: string;
+  from: number;
+  to: number;
+}
 
 const WORD = /[\p{L}\p{M}\p{N}]+(?:-[\p{L}\p{M}\p{N}]+)*/gu;
 /** Marks that open a line of dialogue or an aside: the word after one starts a sentence. */
@@ -35,30 +46,39 @@ function isSentenceStart(line: string, sentenceFrom: number, wordFrom: number): 
 }
 
 /**
- * The capitalized words of a chapter's Markdown that may be names, with how
- * often each is found: not the first word of a sentence, not in a heading,
- * not already highlighted as a name, with at least one lower-case letter
- * (so "I", "OK" and shouted words are left out), and not a title like "Mr".
+ * The capitalized words of one paragraph that may be names: not the first
+ * word of a sentence, not in a heading, not already highlighted as a name,
+ * with at least one lower-case letter (so "I", "OK" and shouted words are
+ * left out), and not a title like "Mr". `line` is a line of a chapter's
+ * Markdown or a paragraph's text in the formatted editor (`heading` tells
+ * it a heading there, which has no "#"); `names` are the matcher's names in
+ * it, as `matcher.find(line)` gives them.
  */
+export function capitalizedInLine(line: string, names: NameMatch[], heading = false): CapitalizedWord[] {
+  if (heading || /^\s*#/u.test(line) || SCENE_BREAK.test(line)) return [];
+  // Block quote marks become spaces, so offsets stay those of the line.
+  const text = line.replace(/^(?:\s*>)+/u, (m) => " ".repeat(m.length));
+  const sentences = sentenceRanges(text);
+  const found: CapitalizedWord[] = [];
+  let s = 0;
+  for (const match of text.matchAll(WORD)) {
+    const word = match[0];
+    const from = match.index;
+    const to = from + word.length;
+    if (!/^\p{Lu}/u.test(word) || !/\p{Ll}/u.test(word) || ABBREVIATIONS.has(word)) continue;
+    if (names.some((n) => n.from < to && from < n.to)) continue;
+    while (s < sentences.length - 1 && from >= sentences[s].to) s++;
+    if (isSentenceStart(text, sentences[s]?.from ?? 0, from)) continue;
+    found.push({ word: word.normalize("NFC"), from, to });
+  }
+  return found;
+}
+
+/** The capitalized words of a chapter's Markdown that may be names (see capitalizedInLine), with how often each is found. */
 export function capitalizedWords(text: string, matcher: NameMatcher): Map<string, number> {
   const counts = new Map<string, number>();
-  for (const raw of text.split("\n")) {
-    if (/^\s*#/u.test(raw) || SCENE_BREAK.test(raw)) continue;
-    const line = raw.replace(/^(?:\s*>)+/u, (m) => " ".repeat(m.length));
-    const names = matcher.find(line);
-    const sentences = sentenceRanges(line);
-    let s = 0;
-    for (const match of line.matchAll(WORD)) {
-      const word = match[0];
-      const from = match.index;
-      const to = from + word.length;
-      if (!/^\p{Lu}/u.test(word) || !/\p{Ll}/u.test(word) || ABBREVIATIONS.has(word)) continue;
-      if (names.some((n) => n.from < to && from < n.to)) continue;
-      while (s < sentences.length - 1 && from >= sentences[s].to) s++;
-      if (isSentenceStart(line, sentences[s]?.from ?? 0, from)) continue;
-      const key = word.normalize("NFC");
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
+  for (const line of text.split("\n")) {
+    for (const { word } of capitalizedInLine(line, matcher.find(line))) counts.set(word, (counts.get(word) ?? 0) + 1);
   }
   return counts;
 }

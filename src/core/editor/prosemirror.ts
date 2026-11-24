@@ -4,49 +4,54 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { TextPosition } from "../caret";
 import { NameMatcher } from "../names";
-import { sentenceKeyFinder } from "../sentences";
-import { nameMarkAttributes } from "./nameMarks";
+import { paragraphMarks } from "./nameMarks";
 
 export const nameHighlightKey = new PluginKey<DecorationSet>("nameHighlight");
-/** Transaction meta that makes the plugin re-scan the whole chapter (new matcher). */
+/** Transaction meta that makes the plugin re-scan the whole chapter (new matcher or possible names). */
 export const REFRESH_NAMES = "refresh";
 
 const EMPTY_MATCHER = new NameMatcher([]);
+const NO_WORDS: ReadonlySet<string> = new Set();
+
+/** What the highlights come from, read at each scan. */
+interface Sources {
+  getMatcher: () => NameMatcher;
+  /** Possible names to mark (see ChapterEditorProps.suggestions). */
+  getSuggestions: () => ReadonlySet<string>;
+}
 /** Leaf inline nodes count as one character, as they take one position. */
 const LEAF_TEXT = "￼";
 
-function decorateBlock(matcher: NameMatcher, block: PMNode, pos: number): Decoration[] {
+function decorateBlock(sources: Sources, block: PMNode, pos: number): Decoration[] {
   const text = block.textBetween(0, block.content.size, undefined, LEAF_TEXT);
-  const matches = matcher.find(text);
-  if (matches.length === 0) return [];
-  const sentenceAt = sentenceKeyFinder(text);
-  return matches.map((m) =>
-    Decoration.inline(pos + 1 + m.from, pos + 1 + m.to, nameMarkAttributes(m, sentenceAt(m.from))),
+  const heading = block.type.name === "heading";
+  return paragraphMarks(text, sources.getMatcher(), sources.getSuggestions(), heading).map((m) =>
+    Decoration.inline(pos + 1 + m.from, pos + 1 + m.to, m.attributes),
   );
 }
 
-function decorateAll(matcher: NameMatcher, doc: PMNode): DecorationSet {
+function decorateAll(sources: Sources, doc: PMNode): DecorationSet {
   const decorations: Decoration[] = [];
   doc.descendants((node, pos) => {
     if (!node.isTextblock) return true;
-    decorations.push(...decorateBlock(matcher, node, pos));
+    decorations.push(...decorateBlock(sources, node, pos));
     return false;
   });
   return DecorationSet.create(doc, decorations);
 }
 
 /**
- * Highlights names in the formatted editor. After an edit only the
- * paragraphs the edit touched are scanned again; the rest of the highlights
- * are mapped through the change.
+ * Highlights names, and marks possible names, in the formatted editor.
+ * After an edit only the paragraphs the edit touched are scanned again; the
+ * rest of the marks are mapped through the change.
  */
-function nameHighlightPlugin(getMatcher: () => NameMatcher): Plugin<DecorationSet> {
+function nameHighlightPlugin(sources: Sources): Plugin<DecorationSet> {
   return new Plugin<DecorationSet>({
     key: nameHighlightKey,
     state: {
-      init: (_config, state) => decorateAll(getMatcher(), state.doc),
+      init: (_config, state) => decorateAll(sources, state.doc),
       apply(tr, previous) {
-        if (tr.getMeta(nameHighlightKey) === REFRESH_NAMES) return decorateAll(getMatcher(), tr.doc);
+        if (tr.getMeta(nameHighlightKey) === REFRESH_NAMES) return decorateAll(sources, tr.doc);
         if (!tr.docChanged) return previous;
 
         const doc = tr.doc;
@@ -59,7 +64,6 @@ function nameHighlightPlugin(getMatcher: () => NameMatcher): Plugin<DecorationSe
           });
         });
 
-        const matcher = getMatcher();
         const done = new Set<number>();
         for (const [from, to] of changed) {
           // One position of slack so an edit at a paragraph edge still
@@ -71,7 +75,7 @@ function nameHighlightPlugin(getMatcher: () => NameMatcher): Plugin<DecorationSe
             if (!done.has(pos)) {
               done.add(pos);
               set = set.remove(set.find(pos, pos + node.nodeSize));
-              set = set.add(doc, decorateBlock(matcher, node, pos));
+              set = set.add(doc, decorateBlock(sources, node, pos));
             }
             return false;
           });
@@ -85,13 +89,13 @@ function nameHighlightPlugin(getMatcher: () => NameMatcher): Plugin<DecorationSe
   });
 }
 
-export const NameHighlight = Extension.create<{ getMatcher: () => NameMatcher }>({
+export const NameHighlight = Extension.create<Sources>({
   name: "nameHighlight",
   addOptions() {
-    return { getMatcher: () => EMPTY_MATCHER };
+    return { getMatcher: () => EMPTY_MATCHER, getSuggestions: () => NO_WORDS };
   },
   addProseMirrorPlugins() {
-    return [nameHighlightPlugin(this.options.getMatcher)];
+    return [nameHighlightPlugin(this.options)];
   },
 });
 

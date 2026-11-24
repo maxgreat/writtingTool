@@ -4,7 +4,7 @@ import type { TextPosition } from "../core/caret";
 import { FormattedEditor } from "../core/editor/FormattedEditor";
 import { nameMarkAt, NAME_MARK_CLASS } from "../core/editor/nameMarks";
 import { PlainEditor } from "../core/editor/PlainEditor";
-import type { EditorHandle, FormatState, NameHit } from "../core/editor/types";
+import type { EditorHandle, FormatState, NameHit, SuggestionHit } from "../core/editor/types";
 import type { IgnoredName, NameMatcher } from "../core/names";
 import type { Chapter, Sheet } from "../core/project";
 import type { EditorMode, ViewSettings } from "../core/settings";
@@ -12,6 +12,7 @@ import { tokenMs } from "./dom";
 import type { IgnoreSource } from "./IgnoreHere";
 import { editorStyle } from "./layoutStyle";
 import { NameCard, NameChoice } from "./NameCard";
+import { PossibleNameMenu, type SuggestionSource } from "./PossibleNameMenu";
 
 /** The note saying why a chapter is open in Plain; the mode switch points to it. */
 export const PLAIN_ONLY_NOTE_ID = "plain-only-note";
@@ -40,6 +41,13 @@ export interface EditorPaneProps {
   onOpenSheet: ((id: string, occurrence: IgnoredName) => void) | null;
   /** Ignore here, in the choice offered for a name shared by several sheets. */
   ignoring: IgnoreSource;
+  /**
+   * Possible names to mark in the text (useNameSuggestions' words): none in
+   * focus mode. The same set while its words don't change.
+   */
+  suggestions: ReadonlySet<string>;
+  /** Add to and Not a name, offered when a marked word is clicked; null in focus mode. */
+  suggesting: SuggestionSource | null;
   sheetsById: Map<string, Sheet>;
   /** Hover summary cards, for devices with a real pointer. */
   hoverCards: boolean;
@@ -62,14 +70,24 @@ export function EditorPane({
   onFormatChange,
   onOpenSheet,
   ignoring,
+  suggestions,
+  suggesting,
   sheetsById,
   hoverCards,
   empty,
 }: EditorPaneProps) {
   const [hover, setHover] = useState<NameHit | null>(null);
   const [choice, setChoice] = useState<NameHit | null>(null);
+  /** The possible name whose menu is open, and a count of openings, so each click starts the menu afresh. */
+  const [suggestion, setSuggestion] = useState<{ hit: SuggestionHit; opening: number } | null>(null);
+  const openings = useRef(0);
+  /** Said to screen readers: what a possible name became. Here, as the menu closes when a sheet is made. */
+  const [note, setNote] = useState("");
   const hovered = useRef<Element | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Focus mode takes the marks away, and the menu with them.
+  if (!suggesting && suggestion) setSuggestion(null);
 
   const hideCard = useCallback(() => {
     if (timer.current !== null) clearTimeout(timer.current);
@@ -107,9 +125,24 @@ export function EditorPane({
   const onNameClick = (hit: NameHit) => {
     hideCard();
     if (!onOpenSheet) return;
+    setSuggestion(null);
     if (hit.ambiguous) setChoice(hit);
     else onOpenSheet(hit.sheetIds[0], hit.occurrence);
   };
+
+  /** A word marked as a possible name: its menu, anchored to it, on desktop and phones alike. */
+  const onSuggestionClick = (hit: SuggestionHit) => {
+    hideCard();
+    if (!suggesting) return;
+    setChoice(null);
+    openings.current += 1;
+    setSuggestion({ hit, opening: openings.current });
+  };
+
+  const closeSuggestion = useCallback(() => {
+    setSuggestion(null);
+    editorRef.current?.focus();
+  }, [editorRef]);
 
   // A press in the empty space around the text puts the caret back in it.
   const onMouseDown = (event: MouseEvent) => {
@@ -130,6 +163,8 @@ export function EditorPane({
     onChange: (markdown: string) => onChange(chapter.id, markdown),
     onFormatChange,
     onNameClick,
+    suggestions,
+    onSuggestionClick,
     readOnly,
     ariaLabel: "Chapter text",
   };
@@ -185,6 +220,18 @@ export function EditorPane({
           }}
         />
       )}
+      {suggestion && suggesting && (
+        <PossibleNameMenu
+          key={suggestion.opening}
+          hit={suggestion.hit}
+          source={suggesting}
+          onClose={closeSuggestion}
+          announce={setNote}
+        />
+      )}
+      <p className="visually-hidden" role="status">
+        {note}
+      </p>
     </main>
   );
 }

@@ -14,8 +14,10 @@ import {
   setLineStyle,
   toggleMarker,
 } from "./codemirror";
-import { nameMarkAt } from "./nameMarks";
+import { nameMarkAt, suggestionMarkAt } from "./nameMarks";
 import { sameFormat, shouldFocusOnMount, type ChapterEditorProps, type FormatState } from "./types";
+
+const NO_WORDS: ReadonlySet<string> = new Set();
 
 /**
  * The unformatted mode: CodeMirror 6 over the same Markdown, markers visible
@@ -30,6 +32,8 @@ export function PlainEditor({
   onChange,
   onFormatChange,
   onNameClick,
+  suggestions = NO_WORDS,
+  onSuggestionClick,
   readOnly = false,
   className,
   ariaLabel,
@@ -40,8 +44,8 @@ export function PlainEditor({
   const editable = useRef(new Compartment());
   const editableExtensions = (on: boolean) => [EditorView.editable.of(on), EditorState.readOnly.of(!on)];
   const initialReadOnly = useRef(readOnly);
-  const latest = useRef({ matcher, onChange, onFormatChange, onNameClick });
-  latest.current = { matcher, onChange, onFormatChange, onNameClick };
+  const latest = useRef({ matcher, suggestions, onChange, onFormatChange, onNameClick, onSuggestionClick });
+  latest.current = { matcher, suggestions, onChange, onFormatChange, onNameClick, onSuggestionClick };
   // Read once, when the editor is created; remount to load other text.
   const initial = useRef({ markdown, initialCaret, ariaLabel });
 
@@ -73,7 +77,10 @@ export function PlainEditor({
           markdownLanguage(),
           syntaxHighlighting(markdownClasses),
           EditorView.lineWrapping,
-          nameHighlight(() => latest.current.matcher),
+          nameHighlight(
+            () => latest.current.matcher,
+            () => latest.current.suggestions,
+          ),
           EditorView.editorAttributes.of({ class: "chapter-text-plain" }),
           // The WebView's checker can't learn the project's names.
           EditorView.contentAttributes.of({ spellcheck: "false", "aria-label": label ?? "Chapter text" }),
@@ -81,6 +88,8 @@ export function PlainEditor({
             click(event) {
               const hit = nameMarkAt(event.target);
               if (hit) latest.current.onNameClick?.(hit);
+              const suggestion = hit ? null : suggestionMarkAt(event.target);
+              if (suggestion) latest.current.onSuggestionClick?.(suggestion);
               return false;
             },
           }),
@@ -105,10 +114,10 @@ export function PlainEditor({
     view.current?.dispatch({ effects: editable.current.reconfigure(editableExtensions(!readOnly)) });
   }, [readOnly]);
 
-  // A new matcher (a sheet was added or renamed): highlight everything again.
+  // A new matcher (a sheet was added or renamed) or new possible names: mark everything again.
   useEffect(() => {
     view.current?.dispatch({ effects: refreshNames.of(null) });
-  }, [matcher]);
+  }, [matcher, suggestions]);
 
   useImperativeHandle(
     ref,

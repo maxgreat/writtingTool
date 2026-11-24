@@ -24,6 +24,13 @@ export interface NameHit {
   occurrence: IgnoredName;
 }
 
+/** A word marked in the text as a possible name, clicked. */
+export interface SuggestionHit {
+  word: string;
+  /** Where the word is on screen, to anchor a menu. */
+  rect: DOMRect;
+}
+
 /** Commands the formatting bar and the mode switch use; both editors implement them. */
 export interface EditorHandle {
   focus(): void;
@@ -49,6 +56,14 @@ export interface ChapterEditorProps {
   onFormatChange?(state: FormatState): void;
   /** A highlighted name was clicked; the caret is still placed as usual. */
   onNameClick?(hit: NameHit): void;
+  /**
+   * Possible names to mark in the text (dotted underline), as composed
+   * words; see useNameSuggestions.ts. Give the same set while its words
+   * don't change: a new one marks the whole chapter again.
+   */
+  suggestions?: ReadonlySet<string>;
+  /** A word marked as a possible name was clicked; the caret is still placed as usual. */
+  onSuggestionClick?(hit: SuggestionHit): void;
   /**
    * Formatted editor only: the chapter uses Markdown outside the chapter
    * subset, which this editor cannot save without losing it. The editor is

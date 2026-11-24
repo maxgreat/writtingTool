@@ -1,6 +1,7 @@
 //! The Rust core. The interface never touches files itself: it asks these
 //! commands, and the core owns the project folder.
 
+mod dictionary;
 mod project;
 mod projects;
 
@@ -163,6 +164,14 @@ async fn apply_changes(root: String, change: Change, state: State<'_, AppState>)
     })
 }
 
+/// For each word, whether it is an ordinary word of `language` (a project
+/// language such as "en-GB") written with a capital, rather than a name.
+/// None when no dictionary is bundled for the language.
+#[tauri::command]
+async fn ordinary_words(language: String, words: Vec<String>) -> Result<Option<Vec<bool>>, String> {
+    dictionary::ordinary_words(&language, &words)
+}
+
 /// Set by `.githooks/verify-launch` to check that a build starts.
 const LAUNCH_CHECK_VAR: &str = "WRITING_TOOL_LAUNCH_CHECK";
 
@@ -193,6 +202,7 @@ pub fn run() {
             list_versions,
             restore_version,
             apply_changes,
+            ordinary_words,
             frontend_ready
         ])
         .run(tauri::generate_context!())

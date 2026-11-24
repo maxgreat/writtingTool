@@ -94,6 +94,7 @@ describe("Appears in, in the inspector", () => {
       onCreateSheet: vi.fn(),
       onUpdateSheet: vi.fn(),
       ignoring: { ignored: [], setIgnored: vi.fn(), busy: false },
+      suggestions: { list: [], words: new Set<string>(), rule: null },
       onMarkNotName: vi.fn(),
       busy: false,
       versions: { list: async () => [], restore: async () => undefined, saveStatus: "saved", loads: 1, busy: false },

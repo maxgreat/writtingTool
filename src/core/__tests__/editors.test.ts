@@ -6,7 +6,7 @@ import { Editor } from "@tiptap/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { markdownOffsetToPosition, positionToMarkdownOffset } from "../caret";
 import { insertSceneBreak, nameHighlight, plainFormat, setLineStyle, toggleMarker } from "../editor/codemirror";
-import { nameMarkAt, nameMarkAttributes } from "../editor/nameMarks";
+import { nameMarkAt, nameMarkAttributes, suggestionMarkAt, suggestionMarkAttributes } from "../editor/nameMarks";
 import { NameHighlight, REFRESH_NAMES, nameHighlightKey, pmPositionToText, textToPmPosition } from "../editor/prosemirror";
 import { chapterExtensions } from "../markdown";
 import { NameMatcher } from "../names";
@@ -301,5 +301,42 @@ describe("name marks", () => {
   it("ignores elements that are not names", () => {
     expect(nameMarkAt(document.createElement("p"))).toBeNull();
     expect(nameMarkAt(null)).toBeNull();
+  });
+});
+
+describe("possible names in the text", () => {
+  const suggestions = new Set(["Mara"]);
+  const text = "# Mara Falls\n\nThen Mara met Elena. Mara left.\n";
+
+  function plainSuggestions(doc: string) {
+    const view = new EditorView({
+      state: EditorState.create({ doc, extensions: [markdownLanguage(), nameHighlight(() => matcher, () => suggestions)] }),
+      parent: document.body,
+    });
+    cleanups.push(() => view.destroy());
+    return [...view.dom.querySelectorAll<HTMLElement>(".possible-name")].map((el) => suggestionMarkAt(el)!.word);
+  }
+
+  it("marks the same words in both editors: not in headings, not at a sentence start", () => {
+    const editor = new Editor({
+      extensions: [...chapterExtensions(), NameHighlight.configure({ getMatcher: () => matcher, getSuggestions: () => suggestions })],
+      content: text,
+      contentType: "markdown",
+    });
+    cleanups.push(() => editor.destroy());
+    const marked = nameHighlightKey
+      .getState(editor.state)!
+      .find()
+      .filter((d) => (d as unknown as { type: { attrs: Record<string, string> } }).type.attrs.class === "possible-name")
+      .map((d) => editor.state.doc.textBetween(d.from, d.to));
+    expect(marked).toEqual(["Mara"]);
+    expect(plainSuggestions(text)).toEqual(["Mara"]);
+  });
+
+  it("round-trips the word through the element", () => {
+    const span = document.createElement("span");
+    for (const [k, v] of Object.entries(suggestionMarkAttributes("Mara"))) span.setAttribute(k, v);
+    expect(suggestionMarkAt(span.appendChild(document.createTextNode("Mara")).parentElement)?.word).toBe("Mara");
+    expect(suggestionMarkAt(document.createElement("p"))).toBeNull();
   });
 });

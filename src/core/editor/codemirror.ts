@@ -3,8 +3,7 @@ import { EditorSelection, RangeSetBuilder, StateEffect, type EditorState, type T
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import type { NameMatcher } from "../names";
-import { sentenceKeyFinder } from "../sentences";
-import { nameMarkAttributes } from "./nameMarks";
+import { paragraphMarks } from "./nameMarks";
 import type { BlockStyle, FormatState } from "./types";
 
 /**
@@ -20,10 +19,10 @@ export const markdownClasses = HighlightStyle.define([
   { tag: tags.contentSeparator, class: "md-scene-break" },
 ]);
 
-/** Dispatch this effect to re-scan names after the matcher changed. */
+/** Dispatch this effect to re-scan names after the matcher or the possible names changed. */
 export const refreshNames = StateEffect.define<null>();
 
-function decorateVisible(view: EditorView, matcher: NameMatcher): DecorationSet {
+function decorateVisible(view: EditorView, matcher: NameMatcher, suggestions: ReadonlySet<string>): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   let lastLine = 0;
   for (const { from, to } of view.visibleRanges) {
@@ -31,11 +30,8 @@ function decorateVisible(view: EditorView, matcher: NameMatcher): DecorationSet 
       const line = view.state.doc.lineAt(pos);
       if (line.number > lastLine) {
         lastLine = line.number;
-        const matches = matcher.find(line.text);
-        const sentenceAt = matches.length > 0 ? sentenceKeyFinder(line.text) : null;
-        for (const m of matches) {
-          const attributes = nameMarkAttributes(m, sentenceAt!(m.from));
-          builder.add(line.from + m.from, line.from + m.to, Decoration.mark({ attributes }));
+        for (const m of paragraphMarks(line.text, matcher, suggestions)) {
+          builder.add(line.from + m.from, line.from + m.to, Decoration.mark({ attributes: m.attributes }));
         }
       }
       pos = line.to + 1;
@@ -44,18 +40,24 @@ function decorateVisible(view: EditorView, matcher: NameMatcher): DecorationSet 
   return builder.finish();
 }
 
-/** Highlights names in the lines on screen; each line is one paragraph. */
-export function nameHighlight(getMatcher: () => NameMatcher) {
+const NO_WORDS: ReadonlySet<string> = new Set();
+
+/**
+ * Highlights names, and marks possible names (`getSuggestions`, see
+ * ChapterEditorProps.suggestions), in the lines on screen; each line is one
+ * paragraph.
+ */
+export function nameHighlight(getMatcher: () => NameMatcher, getSuggestions: () => ReadonlySet<string> = () => NO_WORDS) {
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
       constructor(view: EditorView) {
-        this.decorations = decorateVisible(view, getMatcher());
+        this.decorations = decorateVisible(view, getMatcher(), getSuggestions());
       }
       update(update: ViewUpdate) {
         const refresh = update.transactions.some((tr) => tr.effects.some((e) => e.is(refreshNames)));
         if (refresh || update.docChanged || update.viewportChanged) {
-          this.decorations = decorateVisible(update.view, getMatcher());
+          this.decorations = decorateVisible(update.view, getMatcher(), getSuggestions());
         }
       }
     },

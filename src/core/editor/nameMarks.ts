@@ -1,5 +1,7 @@
-import type { NameMatch } from "../names";
-import type { NameHit } from "./types";
+import type { NameMatch, NameMatcher } from "../names";
+import { capitalizedInLine } from "../possibleNames";
+import { sentenceKeyFinder } from "../sentences";
+import type { NameHit, SuggestionHit } from "./types";
 
 /**
  * Both editors render a highlighted name as an element with these classes:
@@ -43,4 +45,54 @@ export function nameMarkAt(target: EventTarget | null): NameHit | null {
     rect: element.getBoundingClientRect(),
     occurrence: { name: element.getAttribute("data-name") ?? "", sentence: element.getAttribute("data-sentence") ?? "" },
   };
+}
+
+/** Words marked as possible names: an element with this class and `data-word`. */
+export const SUGGESTION_MARK_CLASS = "possible-name";
+
+export function suggestionMarkAttributes(word: string): Record<string, string> {
+  return { class: SUGGESTION_MARK_CLASS, "data-word": word };
+}
+
+/** The possible name an event happened on, if any. */
+export function suggestionMarkAt(target: EventTarget | null): SuggestionHit | null {
+  const element = target instanceof Element ? target.closest(`.${SUGGESTION_MARK_CLASS}`) : null;
+  const word = element?.getAttribute("data-word");
+  if (!element || !word) return null;
+  return { word, rect: element.getBoundingClientRect() };
+}
+
+/** A mark to put on a paragraph's text: offsets into it, and the element's attributes. */
+export interface ParagraphMark {
+  from: number;
+  to: number;
+  attributes: Record<string, string>;
+}
+
+/**
+ * Every mark of one paragraph, in text order: its names (see
+ * nameMarkAttributes) and the words among `suggestions` written where they
+ * may be names (see capitalizedInLine and suggestionMarkAttributes). Both
+ * editors mark a paragraph with this, so they mark the same words.
+ * `heading`: the formatted editor's heading, whose text has no "#".
+ */
+export function paragraphMarks(
+  text: string,
+  matcher: NameMatcher,
+  suggestions: ReadonlySet<string>,
+  heading = false,
+): ParagraphMark[] {
+  const matches = matcher.find(text);
+  const marks: ParagraphMark[] = [];
+  if (matches.length > 0) {
+    const sentenceAt = sentenceKeyFinder(text);
+    for (const m of matches) marks.push({ from: m.from, to: m.to, attributes: nameMarkAttributes(m, sentenceAt(m.from)) });
+  }
+  if (suggestions.size > 0) {
+    for (const w of capitalizedInLine(text, matches, heading)) {
+      if (suggestions.has(w.word)) marks.push({ from: w.from, to: w.to, attributes: suggestionMarkAttributes(w.word) });
+    }
+    marks.sort((a, b) => a.from - b.from);
+  }
+  return marks;
 }

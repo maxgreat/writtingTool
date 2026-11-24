@@ -3,9 +3,11 @@ import { Selection } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useEffect, useImperativeHandle, useRef } from "react";
 import { chapterExtensions, keepsChapterExactly } from "../markdown";
-import { nameMarkAt } from "./nameMarks";
+import { nameMarkAt, suggestionMarkAt } from "./nameMarks";
 import { NameHighlight, REFRESH_NAMES, nameHighlightKey, pmPositionToText, textToPmPosition } from "./prosemirror";
 import { sameFormat, shouldFocusOnMount, type ChapterEditorProps, type FormatState } from "./types";
+
+const NO_WORDS: ReadonlySet<string> = new Set();
 
 function formatOf(editor: Editor): FormatState {
   const block = editor.isActive("blockquote") ? "quote" : editor.isActive("heading") ? "heading" : "body";
@@ -24,13 +26,33 @@ export function FormattedEditor({
   onChange,
   onFormatChange,
   onNameClick,
+  suggestions = NO_WORDS,
+  onSuggestionClick,
   onUnsupportedMarkdown,
   readOnly = false,
   className,
   ariaLabel,
 }: ChapterEditorProps) {
-  const latest = useRef({ matcher, onChange, onFormatChange, onNameClick, onUnsupportedMarkdown, readOnly });
-  latest.current = { matcher, onChange, onFormatChange, onNameClick, onUnsupportedMarkdown, readOnly };
+  const latest = useRef({
+    matcher,
+    suggestions,
+    onChange,
+    onFormatChange,
+    onNameClick,
+    onSuggestionClick,
+    onUnsupportedMarkdown,
+    readOnly,
+  });
+  latest.current = {
+    matcher,
+    suggestions,
+    onChange,
+    onFormatChange,
+    onNameClick,
+    onSuggestionClick,
+    onUnsupportedMarkdown,
+    readOnly,
+  };
   const lastFormat = useRef<FormatState | null>(null);
   // Saving starts off and is switched on in onCreate once the editor is known
   // to reproduce the chapter exactly. Until then, nothing reaches onChange:
@@ -52,7 +74,13 @@ export function FormattedEditor({
   };
 
   const editor = useEditor({
-    extensions: [...chapterExtensions(), NameHighlight.configure({ getMatcher: () => latest.current.matcher })],
+    extensions: [
+      ...chapterExtensions(),
+      NameHighlight.configure({
+        getMatcher: () => latest.current.matcher,
+        getSuggestions: () => latest.current.suggestions,
+      }),
+    ],
     content: markdown,
     contentType: "markdown",
     shouldRerenderOnTransaction: false,
@@ -66,6 +94,8 @@ export function FormattedEditor({
       handleClick(_view, _pos, event) {
         const hit = nameMarkAt(event.target);
         if (hit) latest.current.onNameClick?.(hit);
+        const suggestion = hit ? null : suggestionMarkAt(event.target);
+        if (suggestion) latest.current.onSuggestionClick?.(suggestion);
         return false;
       },
     },
@@ -99,12 +129,12 @@ export function FormattedEditor({
     if (editor && !editor.isDestroyed && created.current) editor.setEditable(takesEdits(), false);
   }, [editor, readOnly]);
 
-  // A new matcher (a sheet was added or renamed): highlight everything again.
+  // A new matcher (a sheet was added or renamed) or new possible names: mark everything again.
   useEffect(() => {
     if (editor && !editor.isDestroyed) {
       editor.view.dispatch(editor.state.tr.setMeta(nameHighlightKey, REFRESH_NAMES));
     }
-  }, [editor, matcher]);
+  }, [editor, matcher, suggestions]);
 
   useImperativeHandle(
     ref,

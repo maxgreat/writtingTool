@@ -104,6 +104,17 @@ const SCENES = [
     },
   },
   {
+    name: "desktop-possible-name-menu",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // Upstream, where each Mara has the dotted mark of a possible name: a click on the first opens its menu.
+      await chapterRow(page, "Upstream").locator(".binder-row--chapter").click();
+      await page.locator('.ProseMirror .possible-name[data-word="Mara"]').first().click();
+      await page.getByRole("menu", { name: "Possible name: Mara" }).waitFor();
+    },
+  },
+  {
     name: "desktop-sheet-new",
     ...DESKTOP,
     colorScheme: "light",

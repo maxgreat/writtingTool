@@ -96,11 +96,17 @@ export class NameIndex {
    * The possible names across the book, most often found first (see
    * possibleNames.ts). Pass every chapter of the book, as for appearances.
    * `isTaken` leaves out words already settled: names the matcher knows,
-   * and words marked as not names.
+   * and words marked as not names. `min`: how many times a word must be
+   * found (MIN_POSSIBLE_NAME_COUNT unless given).
    */
-  possibleNames(chapters: IndexedChapter[], matcher: NameMatcher, isTaken: (word: string) => boolean): PossibleName[] {
+  possibleNames(
+    chapters: IndexedChapter[],
+    matcher: NameMatcher,
+    isTaken: (word: string) => boolean,
+    min?: number,
+  ): PossibleName[] {
     const perChapter = chapters.map((chapter) => ({ chapterId: chapter.id, words: this.words(chapter, matcher) }));
     this.forgetOthers(chapters);
-    return possibleNames(perChapter, isTaken);
+    return possibleNames(perChapter, isTaken, min);
   }
 }

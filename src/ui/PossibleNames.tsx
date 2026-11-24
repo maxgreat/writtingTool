@@ -1,8 +1,8 @@
-import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { NameIndex } from "../core/nameIndex";
-import { normalizeName, type NameMatcher } from "../core/names";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { normalizeName } from "../core/names";
 import { MIN_POSSIBLE_NAME_COUNT, type PossibleName } from "../core/possibleNames";
 import { holdsNames, type Project, type SheetType } from "../core/project";
+import type { NameSuggestions } from "../core/useNameSuggestions";
 import { cx, errorMessage, focusLost, formatCount, plural } from "./dom";
 import { MenuButton, MenuItem } from "./Popover";
 
@@ -10,11 +10,8 @@ export interface PossibleNamesProps {
   project: Project;
   /** The open chapter: only the words found in it are listed. */
   chapterId: string;
-  matcher: NameMatcher;
-  /** The project's name index, which keeps each chapter's words so only an edited chapter is read again. */
-  index: NameIndex;
-  /** Whether the inspector is on screen: the book is only read then. */
-  visible: boolean;
+  /** The book's possible names and how they were chosen (useNameSuggestions), the same as marked in the text. */
+  suggestions: NameSuggestions;
   /** The project on disk is changing: nothing can be made or marked until it has. */
   busy: boolean;
   /** useProject's createSheet: resolves to the new sheet's id, or rejects with a message for the writer. */
@@ -30,40 +27,36 @@ export interface PossibleNamesProps {
 /** As the core orders them: most found first, then by word. */
 const byCount = (a: PossibleName, b: PossibleName) => b.count - a.count || a.word.localeCompare(b.word);
 
+/** What the list holds, as the rule that chose its words says it. Nothing until the rule is known. */
+function introFor(rule: NameSuggestions["rule"]): string | null {
+  if (rule === "dictionary") return "Capitalized words that aren’t dictionary words, with no sheet yet.";
+  if (rule === "count") return `Found ${MIN_POSSIBLE_NAME_COUNT} or more times in the book, with no sheet yet.`;
+  return null;
+}
+
 /**
- * Possible names: capitalized words of the open chapter that no sheet
- * names, found often enough across the book (not at the start of a
- * sentence) to be names. Each can be added as a sheet of a type that holds
- * names, and becomes a name at once, or marked as not a name, which stays
- * in its place with Undo until another chapter is opened. Shown only when
- * there are some. Mount one per chapter (key it by project and chapter).
+ * Possible names: the open chapter's words among the book's possible names
+ * (capitalized words that no sheet names, not at the start of a sentence;
+ * see useNameSuggestions), the same words the text marks. Each can be
+ * added as a sheet of a type that holds names, and becomes a name at once,
+ * or marked as not a name, which stays in its place with Undo until
+ * another chapter is opened. Shown only when there are some. Mount one per
+ * chapter (key it by project and chapter).
  */
 export function PossibleNames({
   project,
   chapterId,
-  matcher,
-  index,
-  visible,
+  suggestions,
   busy,
   onCreateSheet,
   onMarkNotName,
   onCreated,
   announce,
 }: PossibleNamesProps) {
-  const { chapterOrder, chapters, notNames, sheetTypes } = project;
-  const book = useMemo(() => chapterOrder.flatMap((id) => chapters[id] ?? []), [chapterOrder, chapters]);
-  // The whole book is read the first time (about 200 ms for a long novel), then only the
-  // chapter being typed in: both happen in the background, so typing and opening the panel
-  // never wait for it. Nothing is read while the inspector is hidden.
-  const scanned = useDeferredValue(visible ? book : null, null);
+  const { notNames, sheetTypes } = project;
   const settled = useMemo(() => new Set(notNames), [notNames]);
-  const found = useMemo(
-    () =>
-      scanned === null
-        ? []
-        : index.possibleNames(scanned, matcher, (word) => matcher.knows(word) || settled.has(normalizeName(word))),
-    [scanned, index, matcher, settled],
-  );
+  const found = suggestions.list;
+  const intro = introFor(suggestions.rule);
 
   const types = sheetTypes.filter((type) => holdsNames(type.folder));
   const [menuFor, setMenuFor] = useState<string | null>(null);
@@ -168,9 +161,7 @@ export function PossibleNames({
   return (
     <section className="possible-names" aria-label="Possible names" aria-busy={creating !== null}>
       <h3 className="section-label">Possible names</h3>
-      <p className="section-intro">
-        Found {MIN_POSSIBLE_NAME_COUNT} or more times in the book, with no sheet yet.
-      </p>
+      {intro !== null && <p className="section-intro">{intro}</p>}
       <ul className="possible-list">
         {rows.map((entry, i) => {
           const { word, count } = entry;

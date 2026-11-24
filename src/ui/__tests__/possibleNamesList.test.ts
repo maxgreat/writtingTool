@@ -8,6 +8,7 @@ import { NameIndex } from "../../core/nameIndex";
 import { buildNameMatcher, buildProject, withSheetText, type Project } from "../../core/project";
 import { DEFAULT_SETTINGS } from "../../core/settings";
 import { newSheetPath, newSheetText } from "../../core/sheetFile";
+import { useNameSuggestions, type NameSuggestions } from "../../core/useNameSuggestions";
 import type { useProject } from "../../core/useProject";
 import { Inspector, type InspectorView } from "../Inspector";
 import { Workspace } from "../Workspace";
@@ -99,11 +100,19 @@ afterEach(() => {
 
 interface Shown {
   chapter: string;
-  visible: boolean;
   busy: boolean;
+  /** Where the dictionary answers come from, as in Workspace: none, so words need three uses. */
+  backend: Backend | null;
+  /** Possible names to give the inspector instead of the hook's. */
+  given?: NameSuggestions;
 }
 
-function Harness({ chapter, visible, busy }: Shown) {
+/** "River" is an ordinary word; nothing else in the test book is. */
+const dictionary = {
+  ordinaryWords: vi.fn(async (_language: string, words: string[]) => words.map((w) => w === "River")),
+} as unknown as Backend;
+
+function Harness({ chapter, busy, backend, given }: Shown) {
   const [project, setProject] = useState(latest);
   showProject = setProject;
   const [view, setView] = useState<InspectorView>({ kind: "chapter" });
@@ -112,6 +121,8 @@ function Harness({ chapter, visible, busy }: Shown) {
     [project.sheets, project.ignoredNames],
   );
   const sheetsById = useMemo(() => new Map(project.sheets.map((s) => [s.id, s])), [project.sheets]);
+  // As Workspace does: the hook reads the book, the inspector lists what it found.
+  const found = useNameSuggestions(backend, project, matcher);
   return createElement(Inspector, {
     project,
     chapter: project.chapters[chapter],
@@ -129,10 +140,11 @@ function Harness({ chapter, visible, busy }: Shown) {
     onCreateSheet: createSheet,
     onUpdateSheet: () => undefined,
     ignoring: { ignored: project.ignoredNames, setIgnored: () => undefined, busy },
+    suggestions: given ?? found,
     onMarkNotName: markNotName,
     busy,
     versions: { list: async () => [], restore: async () => undefined, saveStatus: "saved", loads: 1, busy: false },
-    visible,
+    visible: true,
   });
 }
 
@@ -142,10 +154,12 @@ let shown: Shown;
 async function render(patch: Partial<Shown> = {}) {
   shown = { ...shown, ...patch };
   await act(async () => root.render(createElement(Harness, shown)));
+  // The dictionary's answers, when there is one.
+  await act(async () => {});
 }
 
 beforeEach(() => {
-  shown = { chapter: A, visible: true, busy: false };
+  shown = { chapter: A, busy: false, backend: null };
 });
 
 /* Finding things -------------------------------------------------------------- */
@@ -197,15 +211,43 @@ describe("possible names", () => {
     expect(container.textContent).not.toContain("Possible names");
   });
 
-  it("reads nothing while the inspector is hidden", async () => {
-    const read = vi.spyOn(index, "possibleNames");
-    await render({ visible: false });
-    expect(section()).toBeNull();
-    expect(read).not.toHaveBeenCalled();
+  it("lists the words the text marks, as found for the whole book, not its own", async () => {
+    const given: NameSuggestions = {
+      list: [
+        { word: "Zed", count: 7, chapterIds: [A, B] },
+        { word: "Ida", count: 1, chapterIds: [B] },
+      ],
+      words: new Set(["Zed", "Ida"]),
+      rule: "dictionary",
+    };
+    await render({ given });
+    expect(rows()).toEqual(["Zed | 7 | Add to | Not a name"]);
+  });
 
-    await render({ visible: true });
-    expect(rows()).toHaveLength(2);
-    expect(read).toHaveBeenCalled();
+  it("says how its words were chosen: three uses without a dictionary", async () => {
+    await render();
+    expect(section()!.querySelector(".section-intro")?.textContent).toBe(
+      "Found 3 or more times in the book, with no sheet yet.",
+    );
+  });
+
+  it("says how its words were chosen: not dictionary words, from their first use, with one", async () => {
+    await render({ chapter: C, backend: dictionary });
+    expect(rows()).toEqual(["Mara | 3 | Add to | Not a name", "Kit | 2 | Add to | Not a name"]);
+    expect(section()!.querySelector(".section-intro")?.textContent).toBe(
+      "Capitalized words that aren’t dictionary words, with no sheet yet.",
+    );
+  });
+
+  it("says nothing of a rule not known yet", async () => {
+    const given: NameSuggestions = {
+      list: [{ word: "Tomas", count: 3, chapterIds: [A] }],
+      words: new Set(["Tomas"]),
+      rule: null,
+    };
+    await render({ given });
+    expect(rows()).toEqual(["Tomas | 3 | Add to | Not a name"]);
+    expect(section()!.querySelector(".section-intro")).toBeNull();
   });
 
   it("adds a word as a sheet of a type that holds names: it becomes a name of this chapter", async () => {
@@ -393,9 +435,10 @@ describe("possible names on a phone", () => {
     await act(async () => root.render(createElement(PhoneHarness)));
   }
 
-  it("are read once the inspector slides in, and work there", async () => {
+  it("are marked in the text, listed in the inspector, and work there", async () => {
     await mount();
-    expect(section()).toBeNull();
+    const marked = () => [...container.querySelectorAll(".cm-content .possible-name")].map((m) => m.textContent);
+    expect(marked()).toEqual(["Mara", "Mara", "Mara"]);
     await click(container.querySelector<HTMLButtonElement>('button[aria-controls="inspector"]')!);
     expect(container.querySelector(".panel--inspector")!.classList.contains("is-open")).toBe(true);
     expect(rows()).toEqual(["Mara | 3 | Add to | Not a name"]);
@@ -405,8 +448,9 @@ describe("possible names on a phone", () => {
     expect(createSheet).toHaveBeenCalledExactlyOnceWith("characters", "Mara");
     expect(section()).toBeNull();
     expect(namesFound()).toEqual(["Mara3", "Elena Voss1"]);
-    // Highlighted in the text at once.
+    // Highlighted in the text at once, as a name.
     const marks = [...container.querySelectorAll(".cm-content .name-mark")].map((m) => m.textContent);
     expect(marks.filter((m) => m === "Mara")).toHaveLength(3);
+    expect(marked()).toEqual([]);
   });
 });
