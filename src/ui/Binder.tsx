@@ -40,6 +40,7 @@ import {
 import { cx, errorMessage, formatCount, plural } from "./dom";
 import { MenuButton, MenuItem, Popover } from "./Popover";
 import { ProjectsButton, type ProjectsSource } from "./Projects";
+import { newSheetLabel, sheetNoun } from "./sheets";
 import { SheetTypeIcon } from "./SheetTypeIcon";
 import { useBinderDrag } from "./useBinderDrag";
 
@@ -59,6 +60,10 @@ export interface BinderProps {
   onChange(makePlan: (project: Project) => Plan | null): Promise<void>;
   /** Sets a chapter's status (useProject's updateChapterDetails). Throws when project.json can't be written. */
   onChapterDetails(id: string, details: ChapterDetails): void;
+  /** useProject's createSheet: resolves to the new sheet's id, or rejects with a message for the writer. */
+  onCreateSheet(kind: string, name: string): Promise<string>;
+  /** A sheet was made from its group here: it opens in its form. */
+  onSheetCreated(id: string): void;
   /** The project on disk is changing (a binder change, a restore, another project): binder actions wait. */
   busy: boolean;
   /** A chapter was created and opened. */
@@ -67,10 +72,11 @@ export interface BinderProps {
   newChapterRequest?: number;
 }
 
-/** What is being named in the binder: a new item at its place, or an item being renamed. */
+/** What is being named in the binder: a new item at its place, a new sheet in its type's group, or an item being renamed. */
 type Naming =
   | { kind: "new-chapter"; place: Place }
   | { kind: "new-part"; index: number }
+  | { kind: "new-sheet"; folder: string }
   | { kind: "rename-chapter"; id: string }
   | { kind: "rename-part"; id: string };
 
@@ -96,12 +102,16 @@ interface Failure {
 /** The Trash folds like a part; its key in `collapsed` can't be a part's or a sheet type's. */
 const TRASH_GROUP = "trash";
 
+/** A sheet type's key in `collapsed`. */
+const sheetGroup = (folder: string) => `sheets/${folder}`;
+
 /**
  * The left panel: the project title (which opens the Projects view), parts
  * as folders with their chapters, each sheet type with its sheets, then the
  * Trash. Chapters and parts have a menu (right-click, long-press, or the
  * More button) to rename, set a status, move, add and trash; a mouse or pen
- * can also drag them.
+ * can also drag them. Each sheet type has a New button, which asks for the
+ * name in its group; the top add menu offers the same.
  */
 export function Binder({
   project,
@@ -111,6 +121,8 @@ export function Binder({
   projects,
   onChange,
   onChapterDetails,
+  onCreateSheet,
+  onSheetCreated,
   busy: projectBusy,
   onChapterCreated,
   newChapterRequest = 0,
@@ -139,6 +151,12 @@ export function Binder({
     afterRender.current = null;
     run?.();
   });
+
+  /** The project shown now: a sheet that is made after another project opened isn't this one's to show. */
+  const shownRoot = useRef(project.root);
+  useEffect(() => {
+    shownRoot.current = project.root;
+  }, [project.root]);
 
   // Another project: nothing in progress here belongs to it.
   const [root, setRoot] = useState(project.root);
@@ -172,9 +190,34 @@ export function Binder({
     setEditing({ ...next, returnTo });
     setDraft(initial);
     if (next.kind === "new-chapter" && next.place.partId) expand(next.place.partId);
+    if (next.kind === "new-sheet") expand(sheetGroup(next.folder));
   };
 
   const addButton = () => addRef.current?.querySelector<HTMLElement>("button") ?? null;
+
+  /** A sheet type's New button. */
+  const focusSheetAdd = (folder: string) => () => {
+    const buttons = navRef.current?.querySelectorAll<HTMLElement>("[data-sheet-add]") ?? [];
+    [...buttons].find((b) => b.dataset.sheetAdd === folder)?.focus();
+  };
+
+  /**
+   * Asks for a new sheet's name in its type's group; one already being named
+   * there keeps its text. The group opens if it was folded meanwhile, and the
+   * field takes focus once it is shown.
+   */
+  const startNewSheet = (folder: string, returnTo: () => void) => {
+    if (editing?.kind === "new-sheet" && editing.folder === folder) {
+      setAddOpen(false);
+      const focusField = () => navRef.current?.querySelector<HTMLElement>(".binder-input")?.focus();
+      if (collapsed.has(sheetGroup(folder))) {
+        expand(sheetGroup(folder));
+        afterRender.current = focusField;
+      } else focusField();
+      return;
+    }
+    startEditing({ kind: "new-sheet", folder }, "", returnTo);
+  };
 
   const focusRow = (type: DragItem["type"], id: string) => () => {
     const rows = navRef.current?.querySelectorAll<HTMLElement>(`[data-drag-row="${type}"]`) ?? [];
@@ -249,8 +292,47 @@ export function Binder({
     setFailure(null);
   };
 
+  /**
+   * Makes the sheet being named; it opens in the inspector, in its form.
+   * Because of that, leaving the field never makes it: an empty name is
+   * dropped, a typed one waits for Enter.
+   */
+  const submitSheet = async (folder: string, viaBlur: boolean) => {
+    const name = draft.trim();
+    if (viaBlur) {
+      if (name === "") {
+        setEditing(null);
+        setFailure(null);
+      }
+      return;
+    }
+    if (name === "") {
+      setFailure({ at: "edit", message: `Give the ${sheetNoun(folder)} a name.` });
+      return;
+    }
+    const startedIn = project.root;
+    setFailure(null);
+    setWorking("edit");
+    let id: string;
+    try {
+      id = await onCreateSheet(folder, name);
+    } catch (error) {
+      if (shownRoot.current === startedIn) setFailure({ at: "edit", message: errorMessage(error) });
+      return;
+    } finally {
+      setWorking(null);
+    }
+    if (shownRoot.current !== startedIn) return;
+    setEditing(null);
+    onSheetCreated(id);
+  };
+
   const submit = async (viaBlur: boolean) => {
     if (!editing || busy) return;
+    if (editing.kind === "new-sheet") {
+      await submitSheet(editing.folder, viaBlur);
+      return;
+    }
     const title = draft.trim();
     const isPart = editing.kind === "new-part" || editing.kind === "rename-part";
     if (title === "") {
@@ -366,7 +448,7 @@ export function Binder({
     return (
       <button
         type="button"
-        className="btn btn--icon binder-more"
+        className="btn btn--icon binder-action binder-more"
         aria-label={`Actions for ${title}`}
         title={`Actions for ${title}`}
         aria-haspopup="menu"
@@ -694,9 +776,9 @@ export function Binder({
           <MenuButton
             open={addOpen}
             onOpenChange={setAddOpen}
-            menuLabel="Add to the manuscript"
-            ariaLabel="New chapter or part"
-            title="New chapter or part"
+            menuLabel="Add to the project"
+            ariaLabel="New chapter, part or sheet"
+            title="New chapter, part or sheet"
             disabled={busy}
             menu={
               <>
@@ -720,6 +802,16 @@ export function Binder({
                 >
                   New part
                 </MenuItem>
+                <div className="popover-gap" role="none" />
+                {project.sheetTypes.map((type) => (
+                  <MenuItem
+                    key={type.folder}
+                    noCheck
+                    onSelect={() => startNewSheet(type.folder, () => addButton()?.focus())}
+                  >
+                    {newSheetLabel(type)}
+                  </MenuItem>
+                ))}
               </>
             }
           >
@@ -756,7 +848,9 @@ export function Binder({
         <ul className="binder-list">
           {project.sheetTypes.map((type) => {
             const sheets = project.sheets.filter((s) => s.kind === type.folder);
-            const id = `sheets/${type.folder}`;
+            const id = sheetGroup(type.folder);
+            const naming = editing?.kind === "new-sheet" && editing.folder === type.folder;
+            const add = newSheetLabel(type);
             return (
               <li key={type.folder}>
                 <Group
@@ -764,11 +858,34 @@ export function Binder({
                   icon={<SheetTypeIcon folder={type.folder} />}
                   open={!collapsed.has(id)}
                   onToggle={() => toggle(id)}
+                  action={
+                    <button
+                      type="button"
+                      className="btn btn--icon binder-action"
+                      aria-label={add}
+                      title={add}
+                      disabled={busy}
+                      data-sheet-add={type.folder}
+                      onClick={() => startNewSheet(type.folder, focusSheetAdd(type.folder))}
+                    >
+                      <Plus aria-hidden />
+                    </button>
+                  }
                 >
-                  {sheets.length === 0 ? (
-                    <p className="empty-note empty-note--nested">No sheets yet.</p>
+                  {sheets.length === 0 && !naming ? (
+                    <p className="empty-note empty-note--nested">No {type.label.toLowerCase()} yet.</p>
                   ) : (
                     <ul className="binder-list">
+                      {naming && (
+                        <li key="new">
+                          {editField({
+                            part: false,
+                            nested: true,
+                            label: `Name of the new ${sheetNoun(type.folder)}`,
+                            placeholder: "Name",
+                          })}
+                        </li>
+                      )}
                       {sheets.map((sheet) => (
                         <li key={sheet.id}>
                           <button type="button" className="binder-row binder-row--nested" onClick={() => onOpenSheet(sheet.id)}>
@@ -942,34 +1059,47 @@ function TitleInput({
   );
 }
 
+/** A folding group: a sheet type or the Trash. `action` is a button at the end of its row. */
 function Group({
   label,
   icon,
   open,
   onToggle,
+  action,
   children,
 }: {
   label: string;
   icon: ReactNode;
   open: boolean;
   onToggle(): void;
+  action?: ReactNode;
   children: ReactNode;
 }) {
   // Unique per group, whatever characters its folder name has.
   const contentId = useId();
+  const row = (
+    <button
+      type="button"
+      className="binder-row binder-row--group"
+      aria-expanded={open}
+      aria-controls={contentId}
+      onClick={onToggle}
+    >
+      <ChevronRight className="disclosure" aria-hidden />
+      {icon}
+      <span className="binder-row-title">{label}</span>
+    </button>
+  );
   return (
     <>
-      <button
-        type="button"
-        className="binder-row binder-row--group"
-        aria-expanded={open}
-        aria-controls={contentId}
-        onClick={onToggle}
-      >
-        <ChevronRight className="disclosure" aria-hidden />
-        {icon}
-        <span className="binder-row-title">{label}</span>
-      </button>
+      {action ? (
+        <div className="binder-item">
+          {row}
+          {action}
+        </div>
+      ) : (
+        row
+      )}
       <div id={contentId} hidden={!open}>
         {children}
       </div>

@@ -5,7 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { Backend } from "../../core/backend";
 import { NameIndex } from "../../core/nameIndex";
 import { buildNameMatcher, buildProject, withSheetText, type Project } from "../../core/project";
-import { DEFAULT_SETTINGS } from "../../core/settings";
+import { DEFAULT_SETTINGS, type ViewSettings } from "../../core/settings";
 import { editSheetText, newSheetPath, newSheetText, type SheetEdit } from "../../core/sheetFile";
 import type { useProject } from "../../core/useProject";
 import { SheetPreview } from "../BottomSheet";
@@ -193,12 +193,29 @@ describe("a new sheet", () => {
     await type(name, "Mira Holt");
     await press(name, "Enter");
     expect(createSheet).toHaveBeenCalledExactlyOnceWith("characters", "Mira Holt");
-    expect(view).toEqual({ kind: "sheet", id: "sheets/characters/Mira Holt.md", editing: true });
+    expect(view).toEqual({ kind: "sheet", id: "sheets/characters/Mira Holt.md", editing: true, created: true });
     expect(input("Name").value).toBe("Mira Holt");
     // The type's template: Role and Age, empty, Role first.
     expect(input("Role").value).toBe("");
     expect(input("Age").value).toBe("");
     expect(document.activeElement).toBe(input("Role"));
+  });
+
+  it("is new only once: after Done, Edit keeps focus on its button", async () => {
+    await render({ kind: "type", folder: "characters" });
+    await click(button("New character")!);
+    const name = input("Name of the new character");
+    await type(name, "Mira Holt");
+    await press(name, "Enter");
+    expect(document.activeElement).toBe(input("Role"));
+
+    const toggle = button("Done")!;
+    toggle.focus();
+    await click(toggle);
+    expect(view).toEqual({ kind: "sheet", id: "sheets/characters/Mira Holt.md", editing: false });
+    await click(toggle);
+    expect(form()).not.toBeNull();
+    expect(document.activeElement).toBe(toggle);
   });
 
   it("is cancelled by Escape, which gives focus back to New", async () => {
@@ -533,6 +550,86 @@ describe("a sheet's form", () => {
   });
 });
 
+/* The whole window, with the project as useProject keeps it ------------------- */
+
+const backend = {
+  kind: "browser",
+  canOpenFolders: false,
+  canCreateProjects: false,
+  listProjects: async () => [],
+  listVersions: async () => [],
+  onCloseRequested: async () => () => undefined,
+} as unknown as Backend;
+// Stable, as useProject's are.
+const listVersions = async () => [];
+const restoreVersion = async () => undefined;
+const listProjects = async () => [];
+
+/** A touchscreen device, with no layout: editors don't take focus when they mount, and measure nothing. */
+function stubLayout() {
+  window.matchMedia = ((query: string) => ({
+    matches: query === "(pointer: coarse)",
+    media: query,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  })) as unknown as typeof window.matchMedia;
+  // jsdom has no layout; the editors measure ranges to scroll the caret into view.
+  Range.prototype.getBoundingClientRect = () => new DOMRect();
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+}
+
+/**
+ * The window on the test project, in Plain (its names answer clicks without
+ * layout): the phone layout, or desktop with `initial` settings, which
+ * `update` changes as the app does.
+ */
+async function mountWorkspace({ isPhone = true, initial = {} as Partial<ViewSettings>, onUpdate = vi.fn() } = {}) {
+  function WorkspaceHarness() {
+    const [current, setCurrent] = useState<Project>(latest);
+    const [settings, setSettings] = useState<ViewSettings>({ ...DEFAULT_SETTINGS, mode: "plain", ...initial });
+    showProject = setCurrent;
+    const matcher = useMemo(() => buildNameMatcher(current.sheets), [current.sheets]);
+    const api = {
+      backend,
+      load: { status: "ready" },
+      project: current,
+      matcher,
+      openChapterId: CHAPTER,
+      openChapter: () => undefined,
+      updateChapter: () => undefined,
+      updateSheet,
+      createSheet,
+      save: { status: "saved" },
+      saveNow: async () => undefined,
+      openFolder: async () => undefined,
+      openProjectAt: async () => undefined,
+      createProject: async () => undefined,
+      listProjects,
+      listVersions,
+      restoreVersion,
+      switching: false,
+      bookWords: 0,
+      wordsToday: 0,
+      loads: 1,
+    } as unknown as ReturnType<typeof useProject>;
+    return createElement(Workspace, {
+      api,
+      project: current,
+      backend,
+      settings,
+      update: (patch: Partial<ViewSettings>) => {
+        onUpdate(patch);
+        setSettings((s) => ({ ...s, ...patch }));
+      },
+      isPhone,
+    });
+  }
+  await act(async () => root.render(createElement(WorkspaceHarness)));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 /* The phone's preview ----------------------------------------------------- */
 
 describe("the phone's name preview", () => {
@@ -564,78 +661,10 @@ describe("the phone's name preview", () => {
   });
 
   describe("on a phone", () => {
-    const backend = {
-      kind: "browser",
-      canOpenFolders: false,
-      canCreateProjects: false,
-      listProjects: async () => [],
-      listVersions: async () => [],
-      onCloseRequested: async () => () => undefined,
-    } as unknown as Backend;
-    // Stable, as useProject's are.
-    const listVersions = async () => [];
-    const restoreVersion = async () => undefined;
-    const listProjects = async () => [];
-
-    beforeAll(() => {
-      // A touchscreen phone: editors don't take focus when they mount.
-      window.matchMedia = ((query: string) => ({
-        matches: query === "(pointer: coarse)",
-        media: query,
-        addEventListener: () => undefined,
-        removeEventListener: () => undefined,
-      })) as unknown as typeof window.matchMedia;
-      // jsdom has no layout; the editors measure ranges to scroll the caret into view.
-      Range.prototype.getBoundingClientRect = () => new DOMRect();
-      Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
-    });
-
-    /** The phone layout on the test project, in Plain (its names answer clicks without layout). */
-    async function mount() {
-      function PhoneHarness() {
-        const [current, setCurrent] = useState<Project>(latest);
-        showProject = setCurrent;
-        const matcher = useMemo(() => buildNameMatcher(current.sheets), [current.sheets]);
-        const api = {
-          backend,
-          load: { status: "ready" },
-          project: current,
-          matcher,
-          openChapterId: CHAPTER,
-          openChapter: () => undefined,
-          updateChapter: () => undefined,
-          updateSheet,
-          createSheet,
-          save: { status: "saved" },
-          saveNow: async () => undefined,
-          openFolder: async () => undefined,
-          openProjectAt: async () => undefined,
-          createProject: async () => undefined,
-          listProjects,
-          listVersions,
-          restoreVersion,
-          switching: false,
-          bookWords: 0,
-          wordsToday: 0,
-          loads: 1,
-        } as unknown as ReturnType<typeof useProject>;
-        return createElement(Workspace, {
-          api,
-          project: current,
-          backend,
-          settings: { ...DEFAULT_SETTINGS, mode: "plain" },
-          update: () => undefined,
-          isPhone: true,
-        });
-      }
-      await act(async () => root.render(createElement(PhoneHarness)));
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-    }
+    beforeAll(stubLayout);
 
     it("Edit closes the preview and opens the sheet's form in the inspector", async () => {
-      await mount();
+      await mountWorkspace();
       const mark = [...container.querySelectorAll(".cm-content .name-mark")].find((m) => m.textContent === "Elena")!;
       await act(async () => mark.dispatchEvent(new MouseEvent("click", { bubbles: true })));
       const preview = document.querySelector<HTMLElement>(".bottom-sheet.is-open")!;
@@ -660,5 +689,53 @@ describe("the phone's name preview", () => {
         ],
       });
     });
+  });
+});
+
+/* A sheet made in the binder ---------------------------------------------- */
+
+describe("a sheet made in the binder", () => {
+  beforeAll(stubLayout);
+
+  const binder = () => container.querySelector<HTMLElement>(".panel--binder")!;
+  const inspector = () => container.querySelector<HTMLElement>(".panel--inspector")!;
+
+  async function makeInBinder(name: string) {
+    await click(binder().querySelector<HTMLButtonElement>('button[aria-label="New character"]')!);
+    const field = binder().querySelector<HTMLInputElement>('input[aria-label="Name of the new character"]')!;
+    expect(document.activeElement).toBe(field);
+    await type(field, name);
+    await press(field, "Enter");
+  }
+
+  it("opens in its form in the inspector, which shows if it was hidden, the caret in its first field", async () => {
+    const onUpdate = vi.fn();
+    await mountWorkspace({ isPhone: false, initial: { inspectorOpen: false }, onUpdate });
+    expect(inspector().classList.contains("is-open")).toBe(false);
+
+    await makeInBinder("Mira Holt");
+    expect(createSheet).toHaveBeenCalledExactlyOnceWith("characters", "Mira Holt");
+    expect(onUpdate).toHaveBeenCalledExactlyOnceWith({ inspectorOpen: true });
+    expect(inspector().classList.contains("is-open")).toBe(true);
+    expect(inspector().querySelector<HTMLInputElement>('.sheet-form input[aria-label="Name"]')?.value).toBe("Mira Holt");
+    expect(document.activeElement).toBe(input("Role"));
+    expect(inspector().contains(document.activeElement)).toBe(true);
+    // The binder lists it, and its name field is gone.
+    expect(binder().querySelector('input[aria-label="Name of the new character"]')).toBeNull();
+    expect([...binder().querySelectorAll(".binder-row-title")].map((t) => t.textContent)).toContain("Mira Holt");
+  });
+
+  it("on a phone, the binder makes way for the inspector, with the sheet's form", async () => {
+    await mountWorkspace();
+    await click(container.querySelector<HTMLButtonElement>('button[aria-controls="binder"]')!);
+    expect(binder().classList.contains("is-open")).toBe(true);
+
+    await makeInBinder("Mira Holt");
+    expect(createSheet).toHaveBeenCalledExactlyOnceWith("characters", "Mira Holt");
+    expect(binder().classList.contains("is-open")).toBe(false);
+    expect(inspector().classList.contains("is-open")).toBe(true);
+    expect(inspector().querySelector<HTMLInputElement>('.sheet-form input[aria-label="Name"]')?.value).toBe("Mira Holt");
+    expect(document.activeElement).toBe(input("Role"));
+    expect(inspector().contains(document.activeElement)).toBe(true);
   });
 });

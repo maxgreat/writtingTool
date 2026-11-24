@@ -166,6 +166,12 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     [focusMode, isPhone, settings.binderOpen, settings.inspectorOpen, update],
   );
 
+  /** Shows the inspector if it is hidden; on a phone it slides in, in place of the binder. */
+  const revealInspector = useCallback(() => {
+    if (isPhone) setPhonePanel("inspector");
+    else if (!settings.inspectorOpen) update({ inspectorOpen: true });
+  }, [isPhone, settings.inspectorOpen, update]);
+
   /**
    * Opens a sheet in the inspector, showing the inspector if it is hidden:
    * as it reads, or in its form with `editing`. A sheet already open in its
@@ -177,13 +183,21 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
       setInspectorView((view) =>
         sheetView(id, editing || (view.kind === "sheet" && view.id === id && view.editing === true), occurrence),
       );
-      if (isPhone) setPhonePanel("inspector");
-      else if (!settings.inspectorOpen) update({ inspectorOpen: true });
+      revealInspector();
     },
-    [isPhone, settings.inspectorOpen, update],
+    [revealInspector],
   );
 
   const openSheet = useCallback((id: string) => showSheet(id, false), [showSheet]);
+
+  /** A sheet made in the binder: its form opens in the inspector, with the caret in its first field. */
+  const sheetCreated = useCallback(
+    (id: string) => {
+      setInspectorView({ kind: "sheet", id, editing: true, created: true });
+      revealInspector();
+    },
+    [revealInspector],
+  );
 
   /**
    * A clicked name: the inspector on desktop, with the caret kept in the
@@ -446,6 +460,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
               projects={projects}
               onChange={api.changeBinder}
               onChapterDetails={api.updateChapterDetails}
+              onCreateSheet={api.createSheet}
+              onSheetCreated={sheetCreated}
               busy={api.switching}
               onChapterCreated={chapterCreated}
               newChapterRequest={newChapterRequest}

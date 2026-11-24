@@ -20,10 +20,12 @@ export type InspectorView =
   | { kind: "type"; folder: string }
   /**
    * `editing`: the sheet's form, in place of the sheet as it reads.
+   * `created`: the sheet was just made (here or in the binder): its form
+   * opens with the caret in its first field. Done drops it.
    * `occurrence`: the name in the text it was opened from, if it was, for
    * Ignore here. It belongs to that opening only.
    */
-  | { kind: "sheet"; id: string; editing?: boolean; occurrence?: IgnoredName };
+  | { kind: "sheet"; id: string; editing?: boolean; created?: boolean; occurrence?: IgnoredName };
 
 export interface InspectorProps {
   project: Project;
@@ -91,27 +93,21 @@ export function Inspector({
   const headingId = useId();
   const bodyRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
-  /** The sheet just made, if any: its form opens with the caret in its first field. */
-  const fillIn = useRef<string | null>(null);
+  /** A sheet just made: its form opens with the caret in its first field. */
+  const fillIn = editing && shown.created === true;
 
   // Focus follows the form as it opens. Edit becomes Done where it was, so
   // focus stays there; from elsewhere (the phone's preview) it goes to Done,
   // and a new sheet starts in its first field.
-  const formId = editing ? sheet.id : null;
-  const formKey = formId === null ? null : `${project.root}\n${formId}`;
+  const formKey = editing ? `${project.root}\n${sheet.id}` : null;
   useEffect(() => {
     if (formKey === null) return;
-    const fill = fillIn.current === formId;
-    fillIn.current = null;
     const body = bodyRef.current;
-    if (fill) body?.querySelector<HTMLElement>(".sheet-form .fields input, .sheet-form textarea")?.focus();
+    if (fillIn) body?.querySelector<HTMLElement>(".sheet-form .fields input, .sheet-form textarea")?.focus();
     else if (!body?.contains(document.activeElement)) toggleRef.current?.focus({ preventScroll: true });
   }, [formKey]);
 
-  const sheetCreated = (id: string) => {
-    fillIn.current = id;
-    onViewChange({ kind: "sheet", id, editing: true });
-  };
+  const sheetCreated = (id: string) => onViewChange({ kind: "sheet", id, editing: true, created: true });
 
   const appearances: AppearancesSource = {
     index,
@@ -192,7 +188,11 @@ export function Inspector({
                   type="button"
                   className={cx("btn edit-toggle", editing ? "btn--primary" : "btn--quiet")}
                   // The opening stays the same, so the name it came from is kept for Done.
-                  onClick={() => onViewChange({ ...shown, editing: !editing })}
+                  // The sheet is only new once: Edit after Done goes back to Done.
+                  onClick={() => {
+                    const { created: _created, ...opening } = shown;
+                    onViewChange({ ...opening, editing: !editing });
+                  }}
                 >
                   {editing ? "Done" : "Edit"}
                 </button>

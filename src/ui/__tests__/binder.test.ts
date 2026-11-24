@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { planMoveChapter, planNewChapter, planRestore, type ChapterDetails, type Plan } from "../../core/binder";
-import { buildProject, type Project } from "../../core/project";
+import { buildProject, type Project, type SheetType } from "../../core/project";
 import { Binder, type BinderProps } from "../Binder";
 
 const P1 = "manuscript/Part 1";
@@ -61,6 +61,8 @@ beforeEach(() => {
       plans.push(makePlan(props.project));
     }),
     onChapterDetails: vi.fn<(id: string, details: ChapterDetails) => void>(),
+    onCreateSheet: vi.fn(async (kind: string, name: string) => `sheets/${kind}/${name}.md`),
+    onSheetCreated: vi.fn<(id: string) => void>(),
     busy: false,
     onChapterCreated: vi.fn(),
   };
@@ -209,7 +211,7 @@ describe("a part's menu", () => {
 
 describe("titles typed in the binder", () => {
   async function startNewChapter() {
-    await click(button("New chapter or part"));
+    await click(button("New chapter, part or sheet"));
     await click(menuItem("New chapter"));
     const input = container.querySelector<HTMLInputElement>('input[aria-label="Title of the new chapter"]');
     if (!input) throw new Error("No title input");
@@ -253,7 +255,7 @@ describe("titles typed in the binder", () => {
     await type(input, "Never mind");
     await press(input, "Escape");
     expect(container.querySelector("input")).toBeNull();
-    expect(document.activeElement).toBe(button("New chapter or part"));
+    expect(document.activeElement).toBe(button("New chapter, part or sheet"));
   });
 
   it("renames a chapter in place, its title selected first", async () => {
@@ -296,8 +298,234 @@ describe("while the project is busy", () => {
   it("binder actions wait", async () => {
     await render({ busy: true });
     expect(button("Actions for One")?.disabled).toBe(true);
-    expect(button("New chapter or part")?.disabled).toBe(true);
+    expect(button("New chapter, part or sheet")?.disabled).toBe(true);
     await rightClick(row("chapter", ONE));
     expect(menu()).toBeNull();
+  });
+});
+
+/** A promise to resolve by hand, to control when the core answers. */
+function deferred<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  let reject: (reason: unknown) => void = () => undefined;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+describe("new sheets in the binder", () => {
+  /** A sheet type's New button, in its group's row (menus are outside the container). */
+  const groupAdd = (label: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+  /** A group's row, and what it folds. */
+  const group = (label: string) => button(label)!;
+  const groupContent = (label: string) => document.getElementById(group(label).getAttribute("aria-controls")!)!;
+  const nameInput = (noun: string) =>
+    container.querySelector<HTMLInputElement>(`input[aria-label="Name of the new ${noun}"]`);
+
+  it("each sheet type has a New button on its row, labelled with its noun", async () => {
+    await render();
+    for (const [label, add] of [
+      ["Characters", "New character"],
+      ["Places", "New place"],
+      ["Notes", "New note"],
+    ]) {
+      const plus = groupAdd(add);
+      expect(plus.title).toBe(add);
+      expect(plus.closest(".binder-item")?.contains(group(label))).toBe(true);
+    }
+    expect(groupContent("Characters").textContent).toBe("No characters yet.");
+  });
+
+  it("a type without its own word names its group", async () => {
+    const creatures: SheetType = { folder: "creatures", label: "Creatures", fields: [] };
+    const project = makeProject();
+    await render({ project: { ...project, sheetTypes: [...project.sheetTypes, creatures] } });
+    expect(groupAdd("New sheet in Creatures")).not.toBeNull();
+    expect(groupContent("Creatures").textContent).toBe("No creatures yet.");
+    await click(groupAdd("New sheet in Creatures"));
+    expect(document.activeElement).toBe(nameInput("sheet"));
+  });
+
+  it("asks for the name in its group, opening the group if it was folded", async () => {
+    await render();
+    await click(group("Characters"));
+    expect(groupContent("Characters").hidden).toBe(true);
+
+    await click(groupAdd("New character"));
+    const input = nameInput("character")!;
+    expect(group("Characters").getAttribute("aria-expanded")).toBe("true");
+    expect(groupContent("Characters").hidden).toBe(false);
+    expect(groupContent("Characters").contains(input)).toBe(true);
+    expect(input.placeholder).toBe("Name");
+    expect(document.activeElement).toBe(input);
+    // The group's empty note makes way for the name.
+    expect(groupContent("Characters").querySelector(".empty-note")).toBeNull();
+  });
+
+  it("comes back to a name left typed, opening its group again if it was folded meanwhile", async () => {
+    await render();
+    await click(groupAdd("New character"));
+    await type(nameInput("character")!, "Mira");
+    await act(async () => nameInput("character")!.blur());
+    await click(group("Characters"));
+    expect(groupContent("Characters").hidden).toBe(true);
+
+    await click(groupAdd("New character"));
+    expect(groupContent("Characters").hidden).toBe(false);
+    expect(document.activeElement).toBe(nameInput("character"));
+    expect(nameInput("character")!.value).toBe("Mira");
+
+    await act(async () => nameInput("character")!.blur());
+    await click(group("Characters"));
+    await click(button("New chapter, part or sheet"));
+    await click(menuItem("New character"));
+    expect(groupContent("Characters").hidden).toBe(false);
+    expect(document.activeElement).toBe(nameInput("character"));
+    expect(nameInput("character")!.value).toBe("Mira");
+  });
+
+  it("is offered in the add menu too, after chapters and parts, in its own group", async () => {
+    await render();
+    await click(group("Places"));
+    expect(groupContent("Places").hidden).toBe(true);
+    await click(button("New chapter, part or sheet"));
+    expect(menu()?.getAttribute("aria-label")).toBe("Add to the project");
+    expect(menuItems().map((item) => item.textContent)).toEqual([
+      "New chapter",
+      "New part",
+      "New character",
+      "New place",
+      "New note",
+    ]);
+    expect(menuItem("New character")?.previousElementSibling?.className).toBe("popover-gap");
+
+    await click(menuItem("New place"));
+    expect(menu()).toBeNull();
+    const input = nameInput("place")!;
+    expect(groupContent("Places").hidden).toBe(false);
+    expect(groupContent("Places").contains(input)).toBe(true);
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("Enter makes the sheet with its type and name, and opens it", async () => {
+    await render();
+    await click(groupAdd("New character"));
+    const input = nameInput("character")!;
+    await type(input, "  Mira Holt ");
+    await press(input, "Enter");
+    expect(props.onCreateSheet).toHaveBeenCalledExactlyOnceWith("characters", "Mira Holt");
+    expect(props.onSheetCreated).toHaveBeenCalledExactlyOnceWith("sheets/characters/Mira Holt.md");
+    expect(nameInput("character")).toBeNull();
+    expect(plans).toEqual([]);
+  });
+
+  it("asks for a name before making the sheet", async () => {
+    await render();
+    await click(groupAdd("New place"));
+    const input = nameInput("place")!;
+    await press(input, "Enter");
+    expect(alertText()).toBe("Give the place a name.");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(props.onCreateSheet).not.toHaveBeenCalled();
+  });
+
+  it("Escape drops the name and gives focus back to the button it came from", async () => {
+    await render();
+    await click(groupAdd("New character"));
+    let input = nameInput("character")!;
+    await type(input, "Never mind");
+    await press(input, "Escape");
+    expect(nameInput("character")).toBeNull();
+    expect(document.activeElement).toBe(groupAdd("New character"));
+
+    await click(button("New chapter, part or sheet"));
+    await click(menuItem("New note"));
+    input = nameInput("note")!;
+    await press(input, "Escape");
+    expect(nameInput("note")).toBeNull();
+    expect(document.activeElement).toBe(button("New chapter, part or sheet"));
+    expect(props.onCreateSheet).not.toHaveBeenCalled();
+  });
+
+  it("shows a refusal below the name, which stays as typed for Enter to try again", async () => {
+    vi.mocked(props.onCreateSheet).mockRejectedValueOnce(new Error("sheets/characters/Mira Holt.md already exists"));
+    await render();
+    await click(groupAdd("New character"));
+    const input = nameInput("character")!;
+    await type(input, "Mira Holt");
+    await press(input, "Enter");
+    expect(alertText()).toBe("sheets/characters/Mira Holt.md already exists");
+    expect(input.isConnected).toBe(true);
+    expect(input.value).toBe("Mira Holt");
+    expect(input.readOnly).toBe(false);
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(props.onSheetCreated).not.toHaveBeenCalled();
+
+    // Typing clears the message; Enter tries again.
+    await type(input, "Mira Holt 2");
+    expect(alertText()).toBeNull();
+    await press(input, "Enter");
+    expect(props.onSheetCreated).toHaveBeenCalledExactlyOnceWith("sheets/characters/Mira Holt 2.md");
+  });
+
+  it("leaving the field drops an empty name and keeps a typed one for Enter", async () => {
+    await render();
+    await click(groupAdd("New character"));
+    await act(async () => nameInput("character")!.blur());
+    expect(nameInput("character")).toBeNull();
+
+    await click(groupAdd("New character"));
+    await type(nameInput("character")!, "Mira");
+    await act(async () => nameInput("character")!.blur());
+    expect(nameInput("character")?.value).toBe("Mira");
+    expect(props.onCreateSheet).not.toHaveBeenCalled();
+
+    // Its button again goes back to the name, as typed.
+    await click(groupAdd("New character"));
+    expect(document.activeElement).toBe(nameInput("character"));
+    expect(nameInput("character")?.value).toBe("Mira");
+  });
+
+  it("waits while the project changes on disk, and while the sheet is being made", async () => {
+    await render({ busy: true });
+    expect(groupAdd("New character").disabled).toBe(true);
+    expect(groupAdd("New note").disabled).toBe(true);
+
+    await render({ busy: false });
+    const answer = deferred<string>();
+    vi.mocked(props.onCreateSheet).mockReturnValueOnce(answer.promise);
+    await click(groupAdd("New character"));
+    const input = nameInput("character")!;
+    await type(input, "Tomas");
+    await press(input, "Enter");
+    expect(input.readOnly).toBe(true);
+    expect(input.getAttribute("aria-busy")).toBe("true");
+    expect(groupAdd("New character").disabled).toBe(true);
+    expect(button("New chapter, part or sheet")?.disabled).toBe(true);
+    await press(input, "Enter");
+    await press(input, "Escape");
+    expect(props.onCreateSheet).toHaveBeenCalledOnce();
+    expect(input.isConnected).toBe(true);
+
+    await act(async () => answer.resolve("sheets/characters/Tomas.md"));
+    expect(props.onSheetCreated).toHaveBeenCalledExactlyOnceWith("sheets/characters/Tomas.md");
+    expect(input.isConnected).toBe(false);
+    expect(groupAdd("New character").disabled).toBe(false);
+  });
+
+  it("doesn't open a sheet made after another project opened", async () => {
+    const answer = deferred<string>();
+    vi.mocked(props.onCreateSheet).mockReturnValueOnce(answer.promise);
+    await render();
+    await click(groupAdd("New character"));
+    const input = nameInput("character")!;
+    await type(input, "Tomas");
+    await press(input, "Enter");
+    await render({ project: { ...makeProject(), root: "/other" } });
+    await act(async () => answer.resolve("sheets/characters/Tomas.md"));
+    expect(props.onSheetCreated).not.toHaveBeenCalled();
+    expect(nameInput("character")).toBeNull();
   });
 });

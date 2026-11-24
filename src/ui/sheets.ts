@@ -23,6 +23,16 @@ export function sheetNoun(folder: string): string {
 }
 
 /**
+ * The binder's action for a new sheet of a type: "New character". Types
+ * without their own word name their group, so two of them in one menu
+ * don't both read "New sheet".
+ */
+export function newSheetLabel(type: SheetType): string {
+  const noun = sheetNoun(type.folder);
+  return NOUNS.has(type.folder) ? `New ${noun}` : `New ${noun} in ${type.label}`;
+}
+
+/**
  * Removes Markdown markers from one line so it reads as plain text. As in
  * Notes, underscores only count at word edges, so "Smith_and_Sons" stays.
  */

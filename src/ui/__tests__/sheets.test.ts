@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { plainLine, sheetNoun } from "../sheets";
+import { newSheetLabel, plainLine, sheetNoun } from "../sheets";
 
 describe("plainLine", () => {
   it("removes Markdown markers", () => {
@@ -20,5 +20,15 @@ describe("sheetNoun", () => {
       "sheet",
       "sheet",
     ]);
+  });
+});
+
+describe("newSheetLabel", () => {
+  it("names the default types' sheets, and the group of others", () => {
+    const type = (folder: string, label: string) => ({ folder, label, fields: [] });
+    expect(newSheetLabel(type("characters", "Characters"))).toBe("New character");
+    expect(newSheetLabel(type("notes", "Research"))).toBe("New note");
+    expect(newSheetLabel(type("creatures", "Creatures"))).toBe("New sheet in Creatures");
+    expect(newSheetLabel(type("constructor", "Constructor"))).toBe("New sheet in Constructor");
   });
 });

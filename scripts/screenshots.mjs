@@ -108,9 +108,9 @@ const SCENES = [
     ...DESKTOP,
     colorScheme: "light",
     setup: async (page) => {
-      // A new character's name, typed in place at the top of the Characters list (Enter would make the sheet).
-      await inspectorTab(page, "Characters").click();
-      await page.locator(".inspector").getByRole("button", { name: "New character" }).click();
+      // A new character's name, typed in place at the top of the binder's Characters group after its New
+      // button (Enter would make the sheet and open its form in the inspector).
+      await page.getByRole("navigation", { name: "Binder" }).getByRole("button", { name: "New character", exact: true }).click();
       await page.keyboard.type("Mira Holt");
     },
   },

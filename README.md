@@ -40,7 +40,7 @@ These are refreshed with every push, so they always show the app as it is on `ma
 
 | Projects | A new character |
 | --- | --- |
-| ![The Projects view, open under the project title at the top of the binder: the open project is checked. The browser preview has only the sample project, so it says so instead of offering a new project. The last line has the app's version and a link to the privacy policy](docs/screenshots/desktop-projects.png) | ![The inspector's Characters list, with a new character's name, Mira Holt, typed in place at the top, above Arno Kell and Elena Voss. Enter makes the sheet and opens its form](docs/screenshots/desktop-sheet-new.png) |
+| ![The Projects view, open under the project title at the top of the binder: the open project is checked. The browser preview has only the sample project, so it says so instead of offering a new project. The last line has the app's version and a link to the privacy policy](docs/screenshots/desktop-projects.png) | ![The binder's Characters group, with a + at the end of its row for a new character. Pressed, it asks for the name in place: Mira Holt is typed at the top of the group, above Arno Kell and Elena Voss. Enter makes the sheet and opens its form in the inspector](docs/screenshots/desktop-sheet-new.png) |
 
 | A character's sheet | Editing it |
 | --- | --- |

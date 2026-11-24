@@ -64,6 +64,12 @@
   color: var(--color-text);
 }
 
+/* While the project changes on disk, the binder's add buttons show they wait. */
+.binder-add .btn:disabled,
+.binder-action:disabled {
+  color: var(--color-text-disabled);
+}
+
 /* The insertion line of a drag is placed in the manuscript's coordinates. */
 .binder-manuscript {
   position: relative;
@@ -172,7 +178,7 @@
   color: var(--color-accent);
 }
 
-/* Chapters and parts: the row, and its More button at the end. -------- */
+/* Chapters, parts and sheet types: the row, and its button at the end. -- */
 
 .binder-item {
   display: flex;
@@ -205,19 +211,24 @@
   background: transparent;
 }
 
-.binder-more {
+/* A chapter's or part's More button, a sheet type's New button. */
+.binder-action {
   color: var(--color-text-muted);
   transition:
     background-color var(--duration-fast) var(--ease-standard),
     opacity var(--duration-fast) var(--ease-standard);
 }
 
-.binder-more:hover:not(:disabled),
-.binder-more[aria-expanded="true"] {
+.binder-action:hover:not(:disabled),
+.binder-action[aria-expanded="true"] {
   color: var(--color-text);
 }
 
-/* With a mouse, the More button shows on hover or focus; on touch it is always there. */
+/*
+ * With a mouse, the More button shows on hover or focus; on touch it is
+ * always there. A sheet type's New button always shows: it is where sheets
+ * are added.
+ */
 @media (hover: hover) and (pointer: fine) {
   .binder-more {
     opacity: 0;
