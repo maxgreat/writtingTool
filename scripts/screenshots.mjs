@@ -60,6 +60,20 @@ const SCENES = [
       await page.getByRole("dialog", { name: "Projects" }).locator(".project-row.is-open").waitFor();
     },
   },
+  {
+    name: "desktop-sheet",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // Elena Voss's sheet, from the inspector's Characters list: her fields, Appears in, then her notes.
+      await page.getByRole("navigation", { name: "Inspector sections" }).getByRole("button", { name: "Characters" }).click();
+      await page
+        .locator(".inspector .list-row")
+        .filter({ has: page.locator(".list-row-title", { hasText: "Elena Voss" }) })
+        .click();
+      await page.locator('.inspector section[aria-label="Appears in"] .list-row').first().waitFor();
+    },
+  },
   { name: "phone", ...PHONE, colorScheme: "light" },
   {
     name: "phone-binder",

@@ -1,12 +1,14 @@
 import { ChevronLeft } from "lucide-react";
 import { useId, useMemo } from "react";
 import type { ChapterDetails as Details } from "../core/binder";
+import type { NameIndex } from "../core/nameIndex";
 import type { NameMatcher } from "../core/names";
 import type { Chapter, Project, Sheet } from "../core/project";
+import type { AppearancesSource } from "./AppearsIn";
 import { ChapterDetails } from "./ChapterDetails";
 import { formatCount } from "./dom";
 import { SheetView } from "./SheetView";
-import { groupByType, namesInText, sheetSummary } from "./sheets";
+import { groupByType, namesFromCounts, sheetSummary } from "./sheets";
 import { Versions, type VersionSource } from "./Versions";
 
 export type InspectorView = { kind: "chapter" } | { kind: "type"; folder: string } | { kind: "sheet"; id: string };
@@ -15,13 +17,17 @@ export interface InspectorProps {
   project: Project;
   chapter: Chapter | null;
   matcher: NameMatcher;
+  /** The project's name index: the names in this chapter, and the chapters a sheet appears in. */
+  index: NameIndex;
   sheetsById: Map<string, Sheet>;
   view: InspectorView;
   onViewChange(view: InspectorView): void;
   onOpenSheet(id: string): void;
+  /** Opens a chapter from a sheet's Appears in list; the inspector keeps showing the sheet. */
+  onOpenChapter(id: string): void;
   /** Sets the open chapter's synopsis, status or point of view. Throws when project.json can't be written. */
   onChapterDetails(id: string, details: Details): void;
-  /** The project on disk is changing: the chapter's details wait until it has. */
+  /** The project on disk is changing: the chapter's details and Appears in wait until it has. */
   busy: boolean;
   /** The open chapter's earlier versions, listed under This chapter. */
   versions: VersionSource;
@@ -31,17 +37,20 @@ export interface InspectorProps {
 
 /**
  * The right panel: a menu with This chapter and one entry per sheet type,
- * and the sheet of a clicked name. Sheets are read-only in this prototype;
- * a chapter's details can be edited and its earlier versions restored.
+ * and the sheet of a clicked name, with the chapters it appears in. Sheets
+ * are read-only in this prototype; a chapter's details can be edited and
+ * its earlier versions restored.
  */
 export function Inspector({
   project,
   chapter,
   matcher,
+  index,
   sheetsById,
   view,
   onViewChange,
   onOpenSheet,
+  onOpenChapter,
   onChapterDetails,
   busy,
   versions,
@@ -52,6 +61,14 @@ export function Inspector({
   const shown: InspectorView = view.kind === "sheet" && !sheet ? { kind: "chapter" } : view;
   const activeTab = shown.kind === "chapter" ? "chapter" : shown.kind === "type" ? shown.folder : sheet!.kind;
   const headingId = useId();
+  const appearances: AppearancesSource = {
+    index,
+    project,
+    matcher,
+    openChapterId: chapter?.id ?? null,
+    onOpenChapter,
+    busy,
+  };
 
   return (
     <aside className="inspector" aria-label="Inspector">
@@ -83,6 +100,7 @@ export function Inspector({
             project={project}
             chapter={chapter}
             matcher={matcher}
+            index={index}
             sheetsById={sheetsById}
             onOpenSheet={onOpenSheet}
             onChapterDetails={onChapterDetails}
@@ -102,7 +120,7 @@ export function Inspector({
               <ChevronLeft aria-hidden />
               {project.sheetTypes.find((t) => t.folder === sheet.kind)?.label ?? sheet.kind}
             </button>
-            <SheetView key={sheet.id} sheet={sheet} headingId={headingId} />
+            <SheetView key={sheet.id} sheet={sheet} headingId={headingId} appearances={appearances} />
           </>
         )}
       </div>
@@ -114,6 +132,7 @@ function ChapterInfo({
   project,
   chapter,
   matcher,
+  index,
   sheetsById,
   onOpenSheet,
   onChapterDetails,
@@ -122,10 +141,23 @@ function ChapterInfo({
   visible,
 }: Pick<
   InspectorProps,
-  "project" | "chapter" | "matcher" | "sheetsById" | "onOpenSheet" | "onChapterDetails" | "busy" | "versions" | "visible"
+  | "project"
+  | "chapter"
+  | "matcher"
+  | "index"
+  | "sheetsById"
+  | "onOpenSheet"
+  | "onChapterDetails"
+  | "busy"
+  | "versions"
+  | "visible"
 >) {
+  const id = chapter?.id ?? null;
   const text = chapter?.text ?? "";
-  const found = useMemo(() => namesInText(text, matcher, sheetsById), [text, matcher, sheetsById]);
+  const found = useMemo(
+    () => (id === null ? [] : namesFromCounts(index.counts({ id, text }, matcher), sheetsById)),
+    [id, text, index, matcher, sheetsById],
+  );
   if (!chapter) return <p className="empty-note">No chapter is open.</p>;
 
   const groups = groupByType(found, project.sheetTypes, (item) => item.sheet.kind);

@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Sheet } from "../core/project";
+import type { AppearancesSource } from "./AppearsIn";
 import { cx } from "./dom";
 import { SheetView } from "./SheetView";
 
@@ -71,9 +72,24 @@ export function BottomSheet({ open, onClose, labelledBy, closeLabel, children, i
   );
 }
 
+export interface SheetPreviewProps {
+  sheet: Sheet | null;
+  open: boolean;
+  onClose(): void;
+  /** For the sheet's Appears in list. A tapped chapter closes the preview before it is opened. */
+  appearances: AppearancesSource;
+}
+
 /** Phones: a tapped name opens its sheet in a half-height sheet from the bottom. */
-export function SheetPreview({ sheet, open, onClose }: { sheet: Sheet | null; open: boolean; onClose(): void }) {
+export function SheetPreview({ sheet, open, onClose, appearances }: SheetPreviewProps) {
   const headingId = useId();
+  const source: AppearancesSource = {
+    ...appearances,
+    onOpenChapter: (id) => {
+      onClose();
+      appearances.onOpenChapter(id);
+    },
+  };
   return (
     <BottomSheet open={open} onClose={onClose} labelledBy={headingId} closeLabel="Close sheet">
       {sheet && (
@@ -81,6 +97,7 @@ export function SheetPreview({ sheet, open, onClose }: { sheet: Sheet | null; op
           key={sheet.id}
           sheet={sheet}
           headingId={headingId}
+          appearances={source}
           actions={
             <button type="button" className="btn btn--icon" aria-label="Close" data-autofocus onClick={onClose}>
               <X aria-hidden />

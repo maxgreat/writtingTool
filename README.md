@@ -38,9 +38,9 @@ These are refreshed with every push, so they always show the app as it is on `ma
 | --- | --- |
 | ![A chapter's menu in the binder: rename, status, move up or down, move to a part, new chapter, Trash](docs/screenshots/desktop-binder-menu.png) | ![The binder after a chapter went to the Trash: its part is empty, and the open Trash lists it with Restore](docs/screenshots/desktop-binder-trash.png) |
 
-| Projects |
-| --- |
-| ![The Projects view, open under the project title at the top of the binder: the open project is checked. The browser preview has only the sample project, so it says so instead of offering a new project. The last line has the app's version and a link to the privacy policy](docs/screenshots/desktop-projects.png) |
+| Projects | A character's sheet |
+| --- | --- |
+| ![The Projects view, open under the project title at the top of the binder: the open project is checked. The browser preview has only the sample project, so it says so instead of offering a new project. The last line has the app's version and a link to the privacy policy](docs/screenshots/desktop-projects.png) | ![Elena Voss's sheet in the inspector: her aliases, role and age, then Appears in, which lists the chapters that mention her under their parts with how many times (The arrival, open in the editor, 3; The ferryman, 2; Upstream, 1), then her notes](docs/screenshots/desktop-sheet.png) |
 
 | Phone | Binder | Inspector |
 | --- | --- | --- |
@@ -102,6 +102,7 @@ Built so far (phases 0 and 1 of the guide):
 - This chapter's synopsis, status and point of view, edited in the inspector.
 - Two editing modes on the same Markdown: Formatted (Tiptap) and Plain (CodeMirror 6). Switching keeps the caret in place, and the chapter files round-trip byte for byte.
 - Character and place names highlighted as you type: whole words, longest match wins, apostrophes and accents handled, and case rules set per alias. Clicking a name opens its sheet.
+- Every sheet but notes lists the chapters that mention it, under their parts, with how many times; clicking one opens that chapter.
 - Autosave about a second after typing stops, with atomic writes, and word counts for the chapter, the book and today.
 - Earlier versions of each chapter: the last 20 are kept in `snapshots/` (one at most every ten minutes of editing) and can be restored from the inspector.
 

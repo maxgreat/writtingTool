@@ -1,4 +1,3 @@
-import type { NameMatcher } from "../core/names";
 import type { Sheet, SheetType } from "../core/project";
 
 /** "first_name" or "first-name" becomes "First name". */
@@ -41,18 +40,8 @@ export interface NameCount {
   count: number;
 }
 
-/**
- * Every sheet whose name or alias appears in the text, with how often. Each
- * paragraph is one line, which is what the matcher expects. An alias shared
- * by several sheets counts for each of them.
- */
-export function namesInText(text: string, matcher: NameMatcher, sheetsById: Map<string, Sheet>): NameCount[] {
-  const counts = new Map<string, number>();
-  for (const line of text.split("\n")) {
-    for (const match of matcher.find(line)) {
-      for (const id of match.sheetIds) counts.set(id, (counts.get(id) ?? 0) + 1);
-    }
-  }
+/** The sheets in a chapter's name counts, most mentioned first. Counts for sheets that are gone are left out. */
+export function namesFromCounts(counts: ReadonlyMap<string, number>, sheetsById: Map<string, Sheet>): NameCount[] {
   const found: NameCount[] = [];
   for (const [id, count] of counts) {
     const sheet = sheetsById.get(id);

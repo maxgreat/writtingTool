@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } fr
 import type { Backend } from "../core/backend";
 import type { TextPosition } from "../core/caret";
 import type { BlockStyle, EditorHandle, FormatState } from "../core/editor/types";
+import { NameIndex } from "../core/nameIndex";
 import type { Project } from "../core/project";
 import type { EditorMode, ViewSettings } from "../core/settings";
 import type { useProject } from "../core/useProject";
@@ -46,6 +47,10 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   const chapter = openChapterId ? (project.chapters[openChapterId] ?? null) : null;
   const sheetsById = useMemo(() => new Map(project.sheets.map((s) => [s.id, s])), [project.sheets]);
   const canHover = useMediaQuery(HOVER_QUERY);
+  // How often each sheet's names appear in each chapter, for the inspector and the sheet
+  // preview. Kept as long as the workspace is: a new matcher (a sheet added, renamed or
+  // removed, another project) starts it afresh.
+  const [nameIndex] = useState(() => new NameIndex());
 
   const editorRef = useRef<EditorHandle>(null);
   const [format, setFormat] = useState<FormatState>(NO_FORMAT);
@@ -451,10 +456,12 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
               project={project}
               chapter={chapter}
               matcher={matcher}
+              index={nameIndex}
               sheetsById={sheetsById}
               view={inspectorView}
               onViewChange={setInspectorView}
               onOpenSheet={openSheet}
+              onOpenChapter={openChapter}
               onChapterDetails={api.updateChapterDetails}
               busy={api.switching}
               versions={{
@@ -500,6 +507,14 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           sheet={preview.id ? (sheetsById.get(preview.id) ?? null) : null}
           open={preview.open}
           onClose={closePreview}
+          appearances={{
+            index: nameIndex,
+            project,
+            matcher,
+            openChapterId,
+            onOpenChapter: openChapter,
+            busy: api.switching,
+          }}
         />
       )}
 

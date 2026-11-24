@@ -51,6 +51,7 @@
 .chapter-info,
 .chapter-details,
 .names-found,
+.sheet-appearances,
 .versions {
   display: flex;
   flex-direction: column;
@@ -80,7 +81,8 @@
   font-weight: var(--weight-medium);
 }
 
-.name-group + .name-group {
+.name-group + .name-group,
+.chapter-group + .chapter-group {
   margin-top: var(--space-2);
 }
 
@@ -131,7 +133,7 @@
   margin-inline-end: calc((var(--size-control) - var(--size-icon)) / -2);
 }
 
-/* Rows that open a sheet. Pulled out by their padding so the text lines up with the content. */
+/* Rows that open a sheet or a chapter. Pulled out by their padding so the text lines up with the content. */
 .list-row {
   display: flex;
   align-items: center;
@@ -147,8 +149,27 @@
   transition: background-color var(--duration-fast) var(--ease-standard);
 }
 
-.list-row:hover {
+.list-row:hover:not(:disabled) {
   background: var(--color-hover);
+}
+
+/* The chapter open in the editor, marked as in the binder, hovered or not. */
+.list-row[aria-current="page"],
+.list-row[aria-current="page"]:hover {
+  background: var(--color-active-bg);
+}
+
+.list-row[aria-current="page"] .list-row-title {
+  font-weight: var(--weight-medium);
+}
+
+.list-row[aria-current="page"] .num {
+  color: var(--color-accent);
+}
+
+/* While the project changes on disk, chapter rows wait. */
+.list-row:disabled {
+  color: var(--color-text-muted);
 }
 
 .list-row-title {

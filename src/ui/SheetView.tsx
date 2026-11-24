@@ -1,12 +1,21 @@
 import type { ReactNode } from "react";
 import type { Sheet } from "../core/project";
+import { AppearsIn, type AppearancesSource } from "./AppearsIn";
 import { Notes } from "./Notes";
 import { fieldLabel } from "./sheets";
 
 const NUMERIC = /^[\d\s.,:/+−-]+$/u;
 
-/** A sheet, read-only: name, aliases, typed fields and notes. */
-export function SheetView({ sheet, actions, headingId }: { sheet: Sheet; actions?: ReactNode; headingId?: string }) {
+export interface SheetViewProps {
+  sheet: Sheet;
+  actions?: ReactNode;
+  headingId?: string;
+  /** Where the chapters it appears in come from; without it, the sheet has no Appears in list. */
+  appearances?: AppearancesSource;
+}
+
+/** A sheet, read-only: name, aliases, typed fields, the chapters it appears in, and notes. */
+export function SheetView({ sheet, actions, headingId, appearances }: SheetViewProps) {
   return (
     <article className="sheet" aria-labelledby={headingId}>
       <header className="sheet-header">
@@ -33,6 +42,8 @@ export function SheetView({ sheet, actions, headingId }: { sheet: Sheet; actions
           ))}
         </dl>
       )}
+
+      {appearances && <AppearsIn sheet={sheet} source={appearances} />}
 
       <section className="sheet-notes" aria-label="Notes">
         <h3 className="section-label">Notes</h3>

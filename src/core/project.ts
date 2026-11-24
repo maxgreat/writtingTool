@@ -100,6 +100,11 @@ export const DEFAULT_STATUSES = ["Idea", "Draft", "Revised", "Final"];
 /** Sheet types that are notes, not names, and are never highlighted. */
 const UNMATCHED_KINDS = new Set(["notes"]);
 
+/** Whether the sheets of this type name something, so the text is searched for them. */
+export function holdsNames(kind: string): boolean {
+  return !UNMATCHED_KINDS.has(kind);
+}
+
 export const DEFAULT_SHEET_TYPES: SheetType[] = [
   { folder: "characters", label: "Characters" },
   { folder: "places", label: "Places" },
@@ -361,7 +366,7 @@ export function buildProject(snapshot: ProjectSnapshot): Project {
 export function buildNameMatcher(sheets: Sheet[]): NameMatcher {
   const patterns: NamePattern[] = [];
   for (const sheet of sheets) {
-    if (UNMATCHED_KINDS.has(sheet.kind)) continue;
+    if (!holdsNames(sheet.kind)) continue;
     patterns.push({ text: sheet.name, sheetId: sheet.id, kind: sheet.kind, ignoreCase: false });
     for (const alias of sheet.aliases) {
       patterns.push({ text: alias.text, sheetId: sheet.id, kind: sheet.kind, ignoreCase: alias.ignoreCase });
