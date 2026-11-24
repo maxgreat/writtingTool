@@ -1,9 +1,10 @@
 import { Extension } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import type { TextPosition } from "../caret";
 import { NameMatcher } from "../names";
+import { nameFromSelection, wordAround } from "../possibleNames";
 import { paragraphMarks } from "./nameMarks";
 
 export const nameHighlightKey = new PluginKey<DecorationSet>("nameHighlight");
@@ -22,8 +23,13 @@ interface Sources {
 /** Leaf inline nodes count as one character, as they take one position. */
 const LEAF_TEXT = "￼";
 
+/** A text block's text, one character per position, so offsets into it are offsets into the block. */
+export function blockText(block: PMNode): string {
+  return block.textBetween(0, block.content.size, undefined, LEAF_TEXT);
+}
+
 function decorateBlock(sources: Sources, block: PMNode, pos: number): Decoration[] {
-  const text = block.textBetween(0, block.content.size, undefined, LEAF_TEXT);
+  const text = blockText(block);
   const heading = block.type.name === "heading";
   return paragraphMarks(text, sources.getMatcher(), sources.getSuggestions(), heading).map((m) =>
     Decoration.inline(pos + 1 + m.from, pos + 1 + m.to, m.attributes),
@@ -132,4 +138,28 @@ export function textToPmPosition(doc: PMNode, position: TextPosition): number {
   const { pos, node } = list[Math.max(0, Math.min(position.block, list.length - 1))];
   if (!node.isTextblock) return pos;
   return pos + 1 + Math.max(0, Math.min(position.offset, node.content.size));
+}
+
+/** The word at a point on screen (client coordinates), as a name would be written; null if none. */
+export function wordAtPoint(view: EditorView, x: number, y: number): string | null {
+  const hit = view.posAtCoords({ left: x, top: y });
+  if (!hit) return null;
+  const $pos = view.state.doc.resolve(hit.pos);
+  if (!$pos.parent.isTextblock) return null;
+  return wordAround(blockText($pos.parent), $pos.parentOffset);
+}
+
+/** The selection as a name to add; empty when nothing is selected or it spans blocks. */
+export function selectedNameIn(state: EditorState): string {
+  const { from, to, $from, $to } = state.selection;
+  if (from === to || !$from.sameParent($to)) return "";
+  return nameFromSelection(state.doc.textBetween(from, to, " "));
+}
+
+/** Whether a point on screen (client coordinates) is on the selected text. */
+export function selectionContainsPoint(view: EditorView, x: number, y: number): boolean {
+  const { from, to, empty } = view.state.selection;
+  if (empty) return false;
+  const hit = view.posAtCoords({ left: x, top: y });
+  return hit !== null && hit.pos >= from && hit.pos <= to;
 }

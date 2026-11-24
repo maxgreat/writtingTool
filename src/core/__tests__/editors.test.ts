@@ -5,9 +5,17 @@ import { EditorView } from "@codemirror/view";
 import { Editor } from "@tiptap/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { markdownOffsetToPosition, positionToMarkdownOffset } from "../caret";
-import { insertSceneBreak, nameHighlight, plainFormat, setLineStyle, toggleMarker } from "../editor/codemirror";
+import {
+  insertSceneBreak,
+  nameHighlight,
+  plainFormat,
+  plainSelectedName,
+  plainSelectionContains,
+  setLineStyle,
+  toggleMarker,
+} from "../editor/codemirror";
 import { nameMarkAt, nameMarkAttributes, suggestionMarkAt, suggestionMarkAttributes } from "../editor/nameMarks";
-import { NameHighlight, REFRESH_NAMES, nameHighlightKey, pmPositionToText, textToPmPosition } from "../editor/prosemirror";
+import { NameHighlight, REFRESH_NAMES, nameHighlightKey, pmPositionToText, selectedNameIn, textToPmPosition } from "../editor/prosemirror";
 import { chapterExtensions } from "../markdown";
 import { NameMatcher } from "../names";
 
@@ -338,5 +346,38 @@ describe("possible names in the text", () => {
     for (const [k, v] of Object.entries(suggestionMarkAttributes("Mara"))) span.setAttribute(k, v);
     expect(suggestionMarkAt(span.appendChild(document.createTextNode("Mara")).parentElement)?.word).toBe("Mara");
     expect(suggestionMarkAt(document.createElement("p"))).toBeNull();
+  });
+});
+
+describe("the selection as a name to add", () => {
+  const doc = "# The arrival\n\nThey met *Mara Holt* at dusk.\n\nThen Ida.\n";
+
+  it("gives the same name in both editors", () => {
+    const editor = formatted(doc);
+    const para = editor.state.doc.child(1);
+    const start = editor.state.doc.child(0).nodeSize + 1;
+    const at = (word: string) => start + para.textContent.indexOf(word);
+    editor.commands.setTextSelection({ from: at("Mara"), to: at(" at") });
+    expect(selectedNameIn(editor.state)).toBe("Mara Holt");
+
+    const from = doc.indexOf("*Mara");
+    const view = plain(doc, from, doc.indexOf(" at dusk"));
+    expect(plainSelectedName(view.state)).toBe("Mara Holt");
+  });
+
+  it("is empty for no selection or one across paragraphs", () => {
+    const editor = formatted(doc);
+    expect(selectedNameIn(editor.state)).toBe("");
+    editor.commands.setTextSelection({ from: 20, to: editor.state.doc.content.size - 2 });
+    expect(selectedNameIn(editor.state)).toBe("");
+    expect(plainSelectedName(plain(doc, doc.indexOf("Mara"), doc.indexOf("Ida")).state)).toBe("");
+    expect(plainSelectedName(plain(doc, 3).state)).toBe("");
+  });
+});
+
+describe("a point on the selection", () => {
+  it("is never on it when nothing is selected", () => {
+    const view = plain("Mara came.\n", 2);
+    expect(plainSelectionContains(view, 0, 0)).toBe(false);
   });
 });

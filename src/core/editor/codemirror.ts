@@ -3,6 +3,7 @@ import { EditorSelection, RangeSetBuilder, StateEffect, type EditorState, type T
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import type { NameMatcher } from "../names";
+import { nameFromSelection, wordAround } from "../possibleNames";
 import { paragraphMarks } from "./nameMarks";
 import type { BlockStyle, FormatState } from "./types";
 
@@ -279,4 +280,27 @@ export function plainFormat(state: EditorState): FormatState {
     node = node.parent;
   }
   return { bold, italic, block };
+}
+
+/** The word at a point on screen (client coordinates), as a name would be written; null if none. */
+export function plainWordAt(view: EditorView, x: number, y: number): string | null {
+  const pos = view.posAtCoords({ x, y });
+  if (pos == null) return null;
+  const line = view.state.doc.lineAt(pos);
+  return wordAround(line.text, pos - line.from);
+}
+
+/** The main selection as a name to add; empty when nothing is selected or it spans lines (paragraphs). */
+export function plainSelectedName(state: EditorState): string {
+  const { from, to, empty } = state.selection.main;
+  if (empty || state.doc.lineAt(from).number !== state.doc.lineAt(to).number) return "";
+  return nameFromSelection(state.sliceDoc(from, to));
+}
+
+/** Whether a point on screen (client coordinates) is on the main selection. */
+export function plainSelectionContains(view: EditorView, x: number, y: number): boolean {
+  const { from, to, empty } = view.state.selection.main;
+  if (empty) return false;
+  const pos = view.posAtCoords({ x, y });
+  return pos != null && pos >= from && pos <= to;
 }

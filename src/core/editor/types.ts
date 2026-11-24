@@ -40,6 +40,12 @@ export interface EditorHandle {
   insertSceneBreak(): void;
   /** The caret as a position the other editor can restore. */
   getCaret(): TextPosition;
+  /** The word at a point on screen (client coordinates), as a name would be written (see wordAround); null if none. */
+  wordAt(x: number, y: number): string | null;
+  /** The selection as a name to add (see nameFromSelection): empty when nothing is selected, it spans paragraphs, or it is too long. */
+  selectedName(): string;
+  /** Whether a point on screen (client coordinates) is on the selected text; false when nothing is selected. */
+  selectionContains(x: number, y: number): boolean;
 }
 
 /**

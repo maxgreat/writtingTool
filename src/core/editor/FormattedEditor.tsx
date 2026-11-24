@@ -4,7 +4,16 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { useEffect, useImperativeHandle, useRef } from "react";
 import { chapterExtensions, keepsChapterExactly } from "../markdown";
 import { nameMarkAt, suggestionMarkAt } from "./nameMarks";
-import { NameHighlight, REFRESH_NAMES, nameHighlightKey, pmPositionToText, textToPmPosition } from "./prosemirror";
+import {
+  NameHighlight,
+  REFRESH_NAMES,
+  nameHighlightKey,
+  pmPositionToText,
+  selectedNameIn,
+  selectionContainsPoint,
+  textToPmPosition,
+  wordAtPoint,
+} from "./prosemirror";
 import { sameFormat, shouldFocusOnMount, type ChapterEditorProps, type FormatState } from "./types";
 
 const NO_WORDS: ReadonlySet<string> = new Set();
@@ -161,6 +170,9 @@ export function FormattedEditor({
       },
       getCaret: () =>
         editor ? pmPositionToText(editor.state.doc, editor.state.selection.head) : { block: 0, offset: 0 },
+      wordAt: (x, y) => (editor && !editor.isDestroyed ? wordAtPoint(editor.view, x, y) : null),
+      selectedName: () => (editor && !editor.isDestroyed ? selectedNameIn(editor.state) : ""),
+      selectionContains: (x, y) => (editor && !editor.isDestroyed ? selectionContainsPoint(editor.view, x, y) : false),
     }),
     [editor],
   );

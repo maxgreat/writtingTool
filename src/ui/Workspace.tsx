@@ -208,12 +208,13 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   );
 
   /**
-   * A clicked name: the inspector on desktop, with the caret kept in the
-   * text; a half-height preview on phones, which takes focus itself. Either
-   * shows where the name was clicked, with Ignore here.
+   * A clicked name, or one chosen in the text's menu: the inspector on
+   * desktop, with the caret kept in the text; a half-height preview on
+   * phones, which takes focus itself. Either shows where the name was
+   * clicked, with Ignore here, when there is such a place.
    */
   const openSheetFromText = useCallback(
-    (id: string, occurrence: IgnoredName) => {
+    (id: string, occurrence?: IgnoredName) => {
       if (isPhone) {
         setPreview((p) => ({ id, open: true, occurrence, opening: p.opening + 1 }));
         return;
@@ -246,7 +247,10 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     [project.ignoredNames, api.ignoreName, api.switching],
   );
 
-  /** Add to and Not a name, on a possible name clicked in the text. */
+  /** The desktop app's native menu for the text, with the backend it belongs to. */
+  const popupTextMenu = useMemo(() => backend.popupTextMenu?.bind(backend), [backend]);
+
+  /** Add to and Not a name, on a possible name clicked in the text; Add to, on any text chosen by hand. */
   const suggesting = useMemo<SuggestionSource>(
     () => ({
       types: project.sheetTypes.filter((type) => holdsNames(type.folder)),
@@ -519,6 +523,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           // Focus mode is for writing without distractions: no marks, no menu.
           suggestions={focusMode ? NO_WORDS : suggestions.words}
           suggesting={focusMode ? null : suggesting}
+          popupTextMenu={popupTextMenu}
+          touch={!canHover}
           sheetsById={sheetsById}
           hoverCards={canHover && !isPhone}
           empty={empty}

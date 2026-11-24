@@ -71,10 +71,24 @@ export interface Backend {
    */
   ordinaryWords?(language: string, words: string[]): Promise<boolean[] | null>;
   /**
+   * Desktop app only: shows the text's context menu, native, at a point in
+   * the window (client coordinates): `items` first, then Cut, Copy, Paste
+   * and Select All, which the system carries out on the text. Absent on
+   * phones and in the browser preview, where the page shows its own menu.
+   */
+  popupTextMenu?(items: TextMenuItem[], x: number, y: number): Promise<void>;
+  /**
    * Runs before the window closes, so pending saves can finish. The window
    * stays open if the handler resolves to false. Resolves to an unsubscribe.
    */
   onCloseRequested(handler: () => Promise<boolean>): Promise<() => void>;
+}
+
+/** An item of the app's own entries in the text's context menu. */
+export interface TextMenuItem {
+  text: string;
+  enabled?: boolean;
+  action(): void;
 }
 
 /** Tauri rejects commands with the string the Rust side returned. */
@@ -88,6 +102,32 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   } catch (error) {
     throw asError(error);
   }
+}
+
+/**
+ * The text menu shown last: the menu and its items. They live in the core
+ * until closed (Tauri resources), so each new menu closes the last one's
+ * first; closing an item also drops its action. At most one stays open.
+ */
+let shownTextMenu: { close(): Promise<void> }[] = [];
+let textMenus: Promise<void> = Promise.resolve();
+
+async function showTextMenu(items: TextMenuItem[], x: number, y: number): Promise<void> {
+  const { Menu, MenuItem, PredefinedMenuItem } = await import("@tauri-apps/api/menu");
+  const { LogicalPosition } = await import("@tauri-apps/api/dpi");
+  const previous = shownTextMenu;
+  shownTextMenu = [];
+  await Promise.allSettled(previous.map((resource) => resource.close()));
+  const own = await Promise.all(
+    items.map((item) => MenuItem.new({ text: item.text, enabled: item.enabled ?? true, action: () => item.action() })),
+  );
+  const separator = own.length > 0 ? [await PredefinedMenuItem.new({ item: "Separator" })] : [];
+  const edit = await Promise.all(
+    (["Cut", "Copy", "Paste", "Separator", "SelectAll"] as const).map((item) => PredefinedMenuItem.new({ item })),
+  );
+  const menu = await Menu.new({ items: [...own, ...separator, ...edit] });
+  shownTextMenu = [menu, ...own, ...separator, ...edit];
+  await menu.popup(new LogicalPosition(x, y));
 }
 
 const appBackend: Omit<Backend, "canOpenFolders"> = {
@@ -115,6 +155,12 @@ const appBackend: Omit<Backend, "canOpenFolders"> = {
   listVersions: (root, chapter) => call<Version[]>("list_versions", { root, chapter }),
   restoreVersion: (root, chapter, savedAt) => call<string>("restore_version", { root, chapter, savedAt }),
   ordinaryWords: (language, words) => call<boolean[] | null>("ordinary_words", { language, words }),
+  popupTextMenu(items, x, y) {
+    // One at a time, so each menu frees the one before it.
+    const shown = textMenus.then(() => showTextMenu(items, x, y));
+    textMenus = shown.catch(() => undefined);
+    return shown;
+  },
   async onCloseRequested(handler) {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     return getCurrentWindow().onCloseRequested(async (event) => {
@@ -126,7 +172,9 @@ const appBackend: Omit<Backend, "canOpenFolders"> = {
 export async function loadBackend(): Promise<Backend> {
   if (isTauri()) {
     const info = await call<{ canOpenFolders: boolean }>("app_info");
-    return { ...appBackend, canOpenFolders: info.canOpenFolders };
+    // A native context menu exists on desktops only, the same ones that can open folders.
+    const popupTextMenu = info.canOpenFolders ? appBackend.popupTextMenu : undefined;
+    return { ...appBackend, canOpenFolders: info.canOpenFolders, popupTextMenu };
   }
   const { browserBackend } = await import("./browserBackend");
   return browserBackend;

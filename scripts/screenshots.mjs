@@ -115,6 +115,17 @@ const SCENES = [
     },
   },
   {
+    name: "desktop-add-name-menu",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // The arrival: "river" is an ordinary word, so it is never offered as a possible name. A right-click on it
+      // offers to add it by hand; the browser preview has no native menu, so the page shows its own.
+      await rightClickWord(page, "river");
+      await page.getByRole("menu", { name: "Add as name: river" }).waitFor();
+    },
+  },
+  {
     name: "desktop-sheet-new",
     ...DESKTOP,
     colorScheme: "light",
@@ -159,6 +170,26 @@ function chapterRow(page, title) {
 /** One of the inspector's sections: This chapter, or a sheet type. */
 function inspectorTab(page, label) {
   return page.getByRole("navigation", { name: "Inspector sections" }).getByRole("button", { name: label });
+}
+
+/** Right-clicks the first use of a word in the open chapter, in Formatted mode. */
+async function rightClickWord(page, word) {
+  const point = await page.evaluate((target) => {
+    const pattern = new RegExp(`\\b${target}\\b`, "u");
+    const walker = document.createTreeWalker(document.querySelector(".ProseMirror"), NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const at = node.data.search(pattern);
+      if (at === -1) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + target.length);
+      const box = range.getBoundingClientRect();
+      return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    }
+    return null;
+  }, word);
+  if (!point) throw new Error(`"${word}" is not in the open chapter.`);
+  await page.mouse.click(point.x, point.y, { button: "right" });
 }
 
 /** Elena Voss's sheet in the inspector, from its Characters list. */

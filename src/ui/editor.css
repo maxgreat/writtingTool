@@ -233,8 +233,12 @@
   }
 }
 
-/* Summary card on hover (desktop). */
-.name-card {
+/*
+ * Summary card on hover (desktop), and a refusal from the native text menu,
+ * shown where the menu was (AddName.tsx). Neither takes the pointer.
+ */
+.name-card,
+.text-note {
   position: fixed;
   z-index: var(--z-popover);
   width: max-content;
@@ -280,8 +284,50 @@
   font-size: var(--text-xs);
 }
 
+.text-note-title {
+  font-weight: var(--weight-medium);
+}
+
+.text-note-message {
+  margin-top: var(--space-0-5);
+}
+
+/* The menu for text chosen by hand is titled with that text, which may be long. */
+.add-name-title {
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Touch screens: Add as name, floating under a selection that could be a
+ * name, past the system's selection handles (AddName.tsx places it). A
+ * raised surface, like the menu it opens.
+ */
+.add-name-button {
+  position: fixed;
+  z-index: var(--z-popover);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-height: var(--size-control);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-popover);
+  outline: var(--size-hairline) solid var(--color-separator);
+  white-space: nowrap;
+  animation: popover-in var(--duration-fast) var(--ease-standard);
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.add-name-button:active {
+  background: var(--color-surface);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .name-card {
+  .name-card,
+  .text-note,
+  .add-name-button {
     animation: none;
   }
 }

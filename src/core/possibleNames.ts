@@ -109,3 +109,42 @@ export function possibleNames(
     .filter((p) => p.count >= min && !isTaken(p.word))
     .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word));
 }
+
+/**
+ * The word around `offset` in a paragraph's text, as a name would be
+ * written: letters, digits and inner hyphens ("Jean-Luc"); an apostrophe
+ * ends a word, as it does for names ("d'Arwen" gives "Arwen"). An offset just
+ * after a word counts as in it. Null between words.
+ */
+export function wordAround(text: string, offset: number): string | null {
+  for (const match of text.matchAll(WORD)) {
+    const from = match.index;
+    const to = from + match[0].length;
+    if (from <= offset && offset <= to) return match[0].normalize("NFC");
+    if (from > offset) break;
+  }
+  return null;
+}
+
+/** Longest selection taken as a name. */
+const MAX_NAME_CHARACTERS = 60;
+const MAX_NAME_WORDS = 6;
+
+/**
+ * Selected text as a name to add: on one line, spaces collapsed, without
+ * Markdown emphasis markers or escapes, and without the punctuation around
+ * it ("“Harbor Inn,” " gives "Harbor Inn"). Empty when nothing is left, or
+ * when it is too long to be a name.
+ */
+export function nameFromSelection(text: string): string {
+  // Composed first, and marks kept with their letters, so "Zoë" typed as
+  // e + ¨, or a Devanagari vowel sign at the end, stays whole.
+  const name = text
+    .normalize("NFC")
+    .replace(/\\(?=[^\p{L}\p{N}\s])/gu, "")
+    .replace(/\*+/gu, "")
+    .replace(/\s+/gu, " ")
+    .replace(/^[^\p{L}\p{N}\p{M}]+|[^\p{L}\p{N}\p{M}]+$/gu, "");
+  if (name.length > MAX_NAME_CHARACTERS || name.split(" ").length > MAX_NAME_WORDS) return "";
+  return name;
+}

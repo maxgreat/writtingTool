@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NameMatcher } from "../names";
-import { capitalizedWords, possibleNames } from "../possibleNames";
+import { capitalizedWords, nameFromSelection, possibleNames, wordAround } from "../possibleNames";
 
 const matcher = new NameMatcher([{ text: "Elena", sheetId: "elena", kind: "characters", ignoreCase: false }]);
 const words = (text: string) => Object.fromEntries(capitalizedWords(text, matcher));
@@ -47,5 +47,37 @@ describe("possibleNames", () => {
   it("leaves out words already settled", () => {
     expect(possibleNames(chapters, (w) => w === "Monday").map((p) => p.word)).toEqual(["Tomas"]);
     expect(possibleNames(chapters, () => false, 2).map((p) => p.word)).toEqual(["Monday", "Tomas", "Ida"]);
+  });
+});
+
+describe("wordAround", () => {
+  const text = "Then Jean-Luc met d’Arwen.";
+  it("finds the word an offset is in or just after", () => {
+    expect(wordAround(text, 0)).toBe("Then");
+    expect(wordAround(text, 7)).toBe("Jean-Luc");
+    expect(wordAround(text, 13)).toBe("Jean-Luc");
+    expect(wordAround(text, text.indexOf("Arwen") + 2)).toBe("Arwen");
+  });
+  it("finds nothing between words", () => {
+    expect(wordAround("a  b", 2)).toBeNull();
+    expect(wordAround("", 0)).toBeNull();
+  });
+});
+
+describe("nameFromSelection", () => {
+  it("keeps the name, without punctuation, emphasis or escapes around it", () => {
+    expect(nameFromSelection("“Harbor Inn,” ")).toBe("Harbor Inn");
+    expect(nameFromSelection(" **Mara**  Holt. ")).toBe("Mara Holt");
+    expect(nameFromSelection("\\[St. Ives\\]")).toBe("St. Ives");
+  });
+  it("keeps marks with their letters, composed", () => {
+    expect(nameFromSelection("Zoe\u0308.")).toBe("Zoë");
+    expect(nameFromSelection("“सीता”")).toBe("सीता");
+  });
+
+  it("is empty for nothing, or for something too long to be a name", () => {
+    expect(nameFromSelection(" … ")).toBe("");
+    expect(nameFromSelection("one two three four five six seven")).toBe("");
+    expect(nameFromSelection("x".repeat(61))).toBe("");
   });
 });

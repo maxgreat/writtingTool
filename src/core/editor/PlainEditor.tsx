@@ -10,6 +10,9 @@ import {
   markdownClasses,
   nameHighlight,
   plainFormat,
+  plainSelectedName,
+  plainSelectionContains,
+  plainWordAt,
   refreshNames,
   setLineStyle,
   toggleMarker,
@@ -141,6 +144,9 @@ export function PlainEditor({
         const v = view.current;
         return v ? markdownOffsetToPosition(v.state.doc.toString(), v.state.selection.main.head) : { block: 0, offset: 0 };
       },
+      wordAt: (x, y) => (view.current ? plainWordAt(view.current, x, y) : null),
+      selectedName: () => (view.current ? plainSelectedName(view.current.state) : ""),
+      selectionContains: (x, y) => (view.current ? plainSelectionContains(view.current, x, y) : false),
     }),
     [],
   );

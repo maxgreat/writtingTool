@@ -89,6 +89,8 @@
   --size-swipe-slop: 8px;
   /* A swipe opens or closes a panel once it has travelled this far. */
   --size-swipe-distance: 32px;
+  /* Android's selection handles hang about this far below a selection: Add as name sits past them. */
+  --size-selection-handle: 28px;
   --size-card: 18rem;
   /* A text field sharing its line with other controls keeps this width; in a narrower panel they wrap below it. */
   --size-input-min: 8rem;
