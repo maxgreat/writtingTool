@@ -93,3 +93,28 @@ describe("NameIndex", () => {
     expect(index.counts(one, matcher)).toBe(counts);
   });
 });
+
+describe("NameIndex possible names", () => {
+  const tomas = (n: number) => Array.from({ length: n }, () => "Then Tomas came.").join(" ");
+  const a = { id: "a", text: `# A\n\n${tomas(2)} Elena too.\n` };
+  const b = { id: "b", text: `# B\n\n${tomas(1)}\n` };
+
+  it("offers words found often enough across the book, leaving out settled ones", () => {
+    const index = new NameIndex();
+    expect(index.possibleNames([a, b], matcher, () => false)).toEqual([{ word: "Tomas", count: 3, chapterIds: ["a", "b"] }]);
+    expect(index.possibleNames([a, b], matcher, (w) => w === "Tomas")).toEqual([]);
+    expect(index.possibleNames([a], matcher, () => false)).toEqual([]);
+  });
+
+  it("scans again only the chapter whose text changed", () => {
+    const index = new NameIndex();
+    index.possibleNames([a, b], matcher, () => false);
+    const find = vi.spyOn(matcher, "find");
+    const edited = { ...b, text: `# B\n\n${tomas(2)}\n` };
+    expect(index.possibleNames([a, edited], matcher, () => false)[0].count).toBe(4);
+    const scanned = find.mock.calls.map(([line]) => line);
+    expect(scanned).toContain(tomas(2));
+    expect(scanned.every((line) => edited.text.split("\n").includes(line))).toBe(true);
+    find.mockRestore();
+  });
+});

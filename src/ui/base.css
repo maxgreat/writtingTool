@@ -219,6 +219,13 @@ button:disabled {
   height: var(--space-1);
 }
 
+/* A line of text in a menu, such as why an action was refused. */
+.popover-note {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  white-space: normal;
+}
+
 .menu-item {
   display: flex;
   align-items: center;

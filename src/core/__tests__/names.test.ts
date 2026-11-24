@@ -107,3 +107,29 @@ describe("NameMatcher", () => {
     expect(found(m, "Annabel and Anna")).toEqual(["Annabel", "Anna"]);
   });
 });
+
+describe("ignored occurrences", () => {
+  const rose = [pattern("Rose", "rose"), pattern("rose", "rose", { ignoreCase: true })];
+
+  it("leaves out an occurrence ignored in its sentence, and only there", () => {
+    const m = new NameMatcher(rose, [{ name: "rose", sentence: "She smelled the rose." }]);
+    const text = "Rose left. She smelled the rose. Then a rose fell.";
+    expect(found(m, text)).toEqual(["Rose", "rose"]);
+    expect(m.find(text).map((x) => x.text)).toEqual(["Rose", "rose"]);
+    expect(found(m, "She smelled the *rose*. ")).toEqual([]);
+  });
+
+  it("matches ignored names with curly or straight apostrophes alike", () => {
+    const m = new NameMatcher([pattern("d'Arwen", "arwen")], [{ name: "d’Arwen", sentence: "Le livre d'Arwen." }]);
+    expect(found(m, "Le livre d’Arwen.")).toEqual([]);
+    expect(found(m, "Le livre d’Arwen est là.")).toEqual(["d’Arwen"]);
+  });
+
+  it("knows its names, with their case rules", () => {
+    const m = new NameMatcher(rose.slice(0, 1).concat([pattern("the Captain", "c", { ignoreCase: true })]));
+    expect(m.knows("Rose")).toBe(true);
+    expect(m.knows("rose")).toBe(false);
+    expect(m.knows("THE CAPTAIN")).toBe(true);
+    expect(m.knows("Tomas")).toBe(false);
+  });
+});

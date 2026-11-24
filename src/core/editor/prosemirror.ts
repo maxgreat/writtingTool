@@ -4,6 +4,7 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { TextPosition } from "../caret";
 import { NameMatcher } from "../names";
+import { sentenceKeyFinder } from "../sentences";
 import { nameMarkAttributes } from "./nameMarks";
 
 export const nameHighlightKey = new PluginKey<DecorationSet>("nameHighlight");
@@ -16,9 +17,12 @@ const LEAF_TEXT = "￼";
 
 function decorateBlock(matcher: NameMatcher, block: PMNode, pos: number): Decoration[] {
   const text = block.textBetween(0, block.content.size, undefined, LEAF_TEXT);
-  return matcher
-    .find(text)
-    .map((m) => Decoration.inline(pos + 1 + m.from, pos + 1 + m.to, nameMarkAttributes(m)));
+  const matches = matcher.find(text);
+  if (matches.length === 0) return [];
+  const sentenceAt = sentenceKeyFinder(text);
+  return matches.map((m) =>
+    Decoration.inline(pos + 1 + m.from, pos + 1 + m.to, nameMarkAttributes(m, sentenceAt(m.from))),
+  );
 }
 
 function decorateAll(matcher: NameMatcher, doc: PMNode): DecorationSet {

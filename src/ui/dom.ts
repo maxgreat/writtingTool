@@ -122,6 +122,11 @@ export function languageName(code: string): string {
   }
 }
 
+/** Focus went with a button that was removed or disabled: nothing has it now, so it can be put somewhere useful. */
+export function focusLost(): boolean {
+  return document.activeElement === null || document.activeElement === document.body;
+}
+
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

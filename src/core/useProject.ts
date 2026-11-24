@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadBackend, type Backend, type Version } from "./backend";
 import { withChapterDetails, type ChapterDetails, type Plan } from "./binder";
 import { withFinalNewline } from "./markdown";
+import { withIgnoredName, withNotName, type ProjectJsonWrite } from "./nameChoices";
+import type { IgnoredName } from "./names";
 import { buildNameMatcher, buildProject, withChapterText, withSheetText, type Project, type ProjectSnapshot } from "./project";
 import { editSheetText, newSheetPath, newSheetText, type SheetEdit } from "./sheetFile";
 import { newProject, readRecentProjects, rememberRecentProject, type ProjectEntry } from "./projects";
@@ -291,6 +293,37 @@ export function useProject() {
     return id;
   }, []);
 
+  /** Saves a change to project.json like an edit; nothing when there is no change. */
+  const changeJson = useCallback(
+    (make: (project: Project) => ProjectJsonWrite | null) => {
+      const current = projectRef.current;
+      if (!current || switchingRef.current) return;
+      const change = make(current);
+      if (change) changeLater(change.project, "project.json", change.text);
+    },
+    [changeLater],
+  );
+
+  /**
+   * "Ignore here": stops highlighting one occurrence of a name, remembered
+   * in project.json by its sentence; with `ignore` false, highlights it
+   * again. Throws, changing nothing, when project.json could not be read.
+   */
+  const ignoreName = useCallback(
+    (entry: IgnoredName, ignore = true) => changeJson((p) => withIgnoredName(p, entry, ignore)),
+    [changeJson],
+  );
+
+  /**
+   * Marks a word as not a name, so it is no longer offered as a possible
+   * name; with `notName` false, takes the mark away. Throws, changing
+   * nothing, when project.json could not be read.
+   */
+  const markNotName = useCallback(
+    (word: string, notName = true) => changeJson((p) => withNotName(p, word, notName)),
+    [changeJson],
+  );
+
   const openChapter = useCallback((id: string) => {
     const current = projectRef.current;
     if (!current?.chapters[id]) return;
@@ -437,8 +470,10 @@ export function useProject() {
     () => JSON.stringify((sheets ?? []).map((s) => [s.id, s.kind, s.name, s.aliases])),
     [sheets],
   );
-  // Runs in the render where namesKey changed, so `sheets` is that render's.
-  const matcher = useMemo(() => buildNameMatcher(sheets ?? []), [namesKey]);
+  // Runs in the render where namesKey or the ignored occurrences changed,
+  // so `sheets` is that render's.
+  const ignoredNames = project?.ignoredNames;
+  const matcher = useMemo(() => buildNameMatcher(sheets ?? [], ignoredNames), [namesKey, ignoredNames]);
 
   const chapters = project?.chapters;
   const bookWords = useMemo(
@@ -465,6 +500,8 @@ export function useProject() {
     updateChapterDetails,
     createSheet,
     updateSheet,
+    ignoreName,
+    markNotName,
     changeBinder,
     listVersions,
     restoreVersion,

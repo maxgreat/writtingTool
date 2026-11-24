@@ -1,5 +1,5 @@
 import { isMap, isScalar, parseDocument, type Document, type Pair, type Scalar, type YAMLMap } from "yaml";
-import { NameMatcher, type NamePattern } from "./names";
+import { NameMatcher, normalizeName, type IgnoredName, type NamePattern } from "./names";
 import { countWords } from "./words";
 
 /** What the Rust core returns when it opens a project folder. */
@@ -93,6 +93,10 @@ export interface Project {
   json: Record<string, unknown>;
   /** Set when project.json exists but could not be read: it must not be overwritten then. */
   jsonProblem: string | null;
+  /** Occurrences of names the writer chose not to highlight ("Ignore here"), from project.json. */
+  ignoredNames: IgnoredName[];
+  /** Words the writer marked as not names, so they are never offered as possible names. */
+  notNames: string[];
   /** Problems found while reading, for the interface to report. */
   problems: string[];
 }
@@ -139,6 +143,10 @@ interface ProjectJson {
   binder?: unknown;
   /** Where each item in trash/ came from: { "<trash path>": { "from": "<path>" } }. */
   trash?: unknown;
+  /** "Ignore here": [{ "name": "Rose", "sentence": "She smelled the Rose." }]. */
+  ignoredNames?: unknown;
+  /** Words that are not names: ["Monday"]. */
+  notNames?: unknown;
 }
 
 const asString = (value: unknown): string => (typeof value === "string" ? value : "");
@@ -462,6 +470,10 @@ export function buildProject(snapshot: ProjectSnapshot): Project {
     sheets,
     sheetTypes: parseSheetTypes(json.sheetTypes, sheets),
     statuses: parseStatuses(json.statuses, Object.values(chapters)),
+    ignoredNames: parseIgnoredNames(json.ignoredNames),
+    notNames: Array.isArray(json.notNames)
+      ? [...new Set(json.notNames.filter((w): w is string => typeof w === "string" && w.trim() !== "").map(normalizeName))]
+      : [],
     trash: [...trash.values()].sort((a, b) => byPath(a.id, b.id)),
     entries,
     json: json as Record<string, unknown>,
@@ -470,8 +482,18 @@ export function buildProject(snapshot: ProjectSnapshot): Project {
   };
 }
 
-/** One matcher from every name and alias of the sheets that hold names. */
-export function buildNameMatcher(sheets: Sheet[]): NameMatcher {
+/** project.json's "Ignore here" list; entries that aren't a name and a sentence are left out. */
+function parseIgnoredNames(value: unknown): IgnoredName[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) =>
+    isRecord(item) && typeof item.name === "string" && typeof item.sentence === "string" && item.name.trim() !== ""
+      ? [{ name: normalizeName(item.name), sentence: item.sentence }]
+      : [],
+  );
+}
+
+/** One matcher from every name and alias of the sheets that hold names, leaving out the ignored occurrences. */
+export function buildNameMatcher(sheets: Sheet[], ignored: IgnoredName[] = []): NameMatcher {
   const patterns: NamePattern[] = [];
   for (const sheet of sheets) {
     if (!holdsNames(sheet.kind)) continue;
@@ -480,7 +502,7 @@ export function buildNameMatcher(sheets: Sheet[]): NameMatcher {
       patterns.push({ text: alias.text, sheetId: sheet.id, kind: sheet.kind, ignoreCase: alias.ignoreCase });
     }
   }
-  return new NameMatcher(patterns);
+  return new NameMatcher(patterns, ignored);
 }
 
 /**

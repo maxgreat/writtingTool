@@ -118,6 +118,8 @@ function Harness({ initialView, busy }: { initialView: InspectorView; busy: bool
     onChapterDetails: () => undefined,
     onCreateSheet: createSheet,
     onUpdateSheet: updateSheet,
+    ignoring: { ignored: project.ignoredNames, setIgnored: () => undefined, busy },
+    onMarkNotName: () => undefined,
     busy,
     versions: { list: async () => [], restore: async () => undefined, saveStatus: "saved", loads: 1, busy: false },
     visible: true,
@@ -542,6 +544,7 @@ describe("the phone's name preview", () => {
           open: true,
           onClose: () => undefined,
           onEdit: () => undefined,
+          ignoring: { ignored: [], setIgnored: () => undefined, busy: false },
           appearances: {
             index: new NameIndex(),
             project: START,

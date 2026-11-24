@@ -82,6 +82,28 @@ const SCENES = [
     },
   },
   {
+    name: "desktop-ignore-here",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // Elena clicked in the text: her sheet, with the sentence she was clicked in and Ignore here.
+      await page.locator(".ProseMirror .name-mark", { hasText: "Elena" }).first().click();
+      await page.locator('.inspector section[aria-label="Opened from the text"]').waitFor();
+    },
+  },
+  {
+    name: "desktop-possible-names",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // Upstream, where Mara is found three times with no sheet: This chapter offers her as a possible name.
+      await chapterRow(page, "Upstream").locator(".binder-row--chapter").click();
+      const section = page.locator('.inspector section[aria-label="Possible names"]');
+      await section.waitFor();
+      await section.scrollIntoViewIfNeeded();
+    },
+  },
+  {
     name: "desktop-sheet-new",
     ...DESKTOP,
     colorScheme: "light",

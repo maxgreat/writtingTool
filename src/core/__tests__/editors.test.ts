@@ -5,7 +5,7 @@ import { EditorView } from "@codemirror/view";
 import { Editor } from "@tiptap/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { markdownOffsetToPosition, positionToMarkdownOffset } from "../caret";
-import { insertSceneBreak, plainFormat, setLineStyle, toggleMarker } from "../editor/codemirror";
+import { insertSceneBreak, nameHighlight, plainFormat, setLineStyle, toggleMarker } from "../editor/codemirror";
 import { nameMarkAt, nameMarkAttributes } from "../editor/nameMarks";
 import { NameHighlight, REFRESH_NAMES, nameHighlightKey, pmPositionToText, textToPmPosition } from "../editor/prosemirror";
 import { chapterExtensions } from "../markdown";
@@ -70,6 +70,48 @@ describe("formatted editor name highlights", () => {
     current = matcher;
     editor.view.dispatch(editor.state.tr.setMeta(nameHighlightKey, REFRESH_NAMES));
     expect(highlighted(editor)).toHaveLength(3);
+  });
+});
+
+describe("ignored occurrences", () => {
+  const ignoring = new NameMatcher(
+    [
+      { text: "Elena", sheetId: "elena", kind: "characters", ignoreCase: false },
+      { text: "Harbor Inn", sheetId: "inn", kind: "places", ignoreCase: false },
+    ],
+    [{ name: "Elena", sentence: "Morning came grey for Elena." }],
+  );
+
+  function plainMarks(doc: string, m: NameMatcher) {
+    const view = new EditorView({
+      state: EditorState.create({ doc, extensions: [markdownLanguage(), nameHighlight(() => m)] }),
+      parent: document.body,
+    });
+    cleanups.push(() => view.destroy());
+    return [...view.dom.querySelectorAll<HTMLElement>(".name-mark")].map((el) => nameMarkAt(el)!.occurrence);
+  }
+
+  function formattedMarks(editor: Editor) {
+    const set = nameHighlightKey.getState(editor.state)!;
+    return set.find().map((d) => {
+      const attrs = (d as unknown as { type: { attrs: Record<string, string> } }).type.attrs;
+      return { name: attrs["data-name"], sentence: attrs["data-sentence"] };
+    });
+  }
+
+  it("gives each highlight the same occurrence in both editors, Markdown or not", () => {
+    const expected = [
+      { name: "Elena", sentence: "Elena reached the Harbor Inn at dusk." },
+      { name: "Harbor Inn", sentence: "Elena reached the Harbor Inn at dusk." },
+      { name: "Elena", sentence: "Morning came grey for Elena." },
+    ];
+    expect(formattedMarks(formatted(chapter))).toEqual(expected);
+    expect(plainMarks(chapter, matcher)).toEqual(expected);
+  });
+
+  it("leaves out an ignored occurrence in both editors, and only that one", () => {
+    expect(highlighted(formatted(chapter, () => ignoring))).toEqual(["Elena", "Harbor Inn"]);
+    expect(plainMarks(chapter, ignoring).map((o) => o.name)).toEqual(["Elena", "Harbor Inn"]);
   });
 });
 
@@ -248,11 +290,12 @@ describe("name marks", () => {
       { text: "Marie", sheetId: "c.md", kind: "characters", ignoreCase: false },
     ]).find("Marie");
     const span = document.createElement("span");
-    for (const [k, v] of Object.entries(nameMarkAttributes(match))) span.setAttribute(k, v);
+    for (const [k, v] of Object.entries(nameMarkAttributes(match, "Marie came."))) span.setAttribute(k, v);
     expect(span.className).toBe("name-mark name-mark--characters name-mark--ambiguous");
     const hit = nameMarkAt(span.appendChild(document.createTextNode("Marie")).parentElement);
     expect(hit?.sheetIds).toEqual(["a|b.md", "c.md"]);
     expect(hit?.ambiguous).toBe(true);
+    expect(hit?.occurrence).toEqual({ name: "Marie", sentence: "Marie came." });
   });
 
   it("ignores elements that are not names", () => {

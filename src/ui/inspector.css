@@ -51,7 +51,9 @@
 .chapter-info,
 .chapter-details,
 .names-found,
+.possible-names,
 .sheet-appearances,
+.sheet-ignored,
 .versions {
   display: flex;
   flex-direction: column;
@@ -84,6 +86,13 @@
 .name-group + .name-group,
 .chapter-group + .chapter-group {
   margin-top: var(--space-2);
+}
+
+/* A line under a section's label saying what its list holds. */
+.section-intro {
+  margin-top: calc(var(--space-2) * -1);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
 }
 
 /* Label and value side by side. */
@@ -248,6 +257,53 @@
   margin-inline-end: calc(var(--space-2) * -1);
 }
 
+/* Possible names: the word and how often the book has it, then Add to and Not a name, which wrap
+   under the word in a narrow panel. The buttons are pulled out by their padding, so their labels
+   line up with the content's edges: the end on the word's line, the start once wrapped. */
+.possible-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: var(--space-2);
+  min-height: var(--size-control);
+}
+
+.possible-word {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.possible-word-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Marked as not a name here: the word steps back, and Undo takes the button's place. */
+.possible-row.is-dismissed .possible-word-text {
+  color: var(--color-text-muted);
+}
+
+.possible-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-inline: calc(var(--space-2) * -1);
+}
+
+/* Where Add to was: a status, smaller than the Undo beside it, lined up as a button's label would be. */
+.possible-note {
+  padding-inline: var(--space-2) var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.possible-error {
+  flex-basis: 100%;
+}
+
 /* Earlier versions of the chapter: when each was kept, its length, and Restore. */
 
 /* The note's live region is always there; empty, it gives back the gap before it. */
@@ -359,6 +415,79 @@
   align-items: center;
   margin-block-start: calc(var(--space-1) * -1);
   margin-inline-end: calc((var(--size-control) - var(--size-icon)) / -2);
+}
+
+/* A sentence of the chapter around a name, the name marked as the editor marks it while it is
+   highlighted, plainly once it is ignored. The highlight fades as it goes or comes back. */
+.excerpt {
+  color: var(--color-text-muted);
+  overflow-wrap: break-word;
+}
+
+.excerpt-name {
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+  text-decoration-thickness: var(--size-underline);
+  text-underline-offset: var(--name-underline-offset);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition:
+    background-color var(--duration-base) var(--ease-standard),
+    text-decoration-color var(--duration-base) var(--ease-standard);
+}
+
+.excerpt-name--characters {
+  background: var(--color-name-character);
+}
+
+.excerpt-name--places {
+  text-decoration-line: underline;
+  text-decoration-color: var(--color-name-place);
+}
+
+.excerpt-name--other {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--color-name-other);
+}
+
+/* A sheet opened from a name in the text: where, then the sentence with Ignore here, laid out as
+   a row of its ignored mentions. */
+.sheet-occurrence {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* The sheet's ignored mentions: each sentence, and Highlight again, which wraps under it in a
+   narrow panel. The button is pulled out by its padding, so its label lines up with the content's
+   edges: the end beside the sentence, the start once wrapped. */
+.mention-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.mention-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-4);
+}
+
+.mention-row .excerpt {
+  flex: 1 1 var(--size-input-min);
+  min-width: 0;
+}
+
+.mention-action {
+  margin-inline: calc(var(--space-2) * -1);
+}
+
+.mention-error {
+  flex-basis: 100%;
 }
 
 /* Under the name: why the sheet can't be edited here. */

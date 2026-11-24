@@ -3,6 +3,7 @@ import { EditorSelection, RangeSetBuilder, StateEffect, type EditorState, type T
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import type { NameMatcher } from "../names";
+import { sentenceKeyFinder } from "../sentences";
 import { nameMarkAttributes } from "./nameMarks";
 import type { BlockStyle, FormatState } from "./types";
 
@@ -30,8 +31,11 @@ function decorateVisible(view: EditorView, matcher: NameMatcher): DecorationSet 
       const line = view.state.doc.lineAt(pos);
       if (line.number > lastLine) {
         lastLine = line.number;
-        for (const m of matcher.find(line.text)) {
-          builder.add(line.from + m.from, line.from + m.to, Decoration.mark({ attributes: nameMarkAttributes(m) }));
+        const matches = matcher.find(line.text);
+        const sentenceAt = matches.length > 0 ? sentenceKeyFinder(line.text) : null;
+        for (const m of matches) {
+          const attributes = nameMarkAttributes(m, sentenceAt!(m.from));
+          builder.add(line.from + m.from, line.from + m.to, Decoration.mark({ attributes }));
         }
       }
       pos = line.to + 1;

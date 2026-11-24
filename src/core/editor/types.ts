@@ -1,3 +1,4 @@
+import type { IgnoredName } from "../names";
 import type { Ref } from "react";
 import type { TextPosition } from "../caret";
 import type { NameMatcher } from "../names";
@@ -19,6 +20,8 @@ export interface NameHit {
   ambiguous: boolean;
   /** Where the name is on screen, to anchor a card or menu. */
   rect: DOMRect;
+  /** This occurrence, as "Ignore here" remembers it: the name as written and its sentence's key. */
+  occurrence: IgnoredName;
 }
 
 /** Commands the formatting bar and the mode switch use; both editors implement them. */

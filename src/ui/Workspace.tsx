@@ -3,6 +3,7 @@ import type { Backend } from "../core/backend";
 import type { TextPosition } from "../core/caret";
 import type { BlockStyle, EditorHandle, FormatState } from "../core/editor/types";
 import { NameIndex } from "../core/nameIndex";
+import type { IgnoredName } from "../core/names";
 import type { Project } from "../core/project";
 import type { EditorMode, ViewSettings } from "../core/settings";
 import type { useProject } from "../core/useProject";
@@ -12,6 +13,7 @@ import { cx, hasMod, shortcut } from "./dom";
 import { EditorPane } from "./EditorPane";
 import { FormatBar } from "./FormatBar";
 import { HOVER_QUERY, useMediaQuery } from "./hooks";
+import type { IgnoreSource } from "./IgnoreHere";
 import { Inspector, type InspectorView } from "./Inspector";
 import { panelStyle } from "./layoutStyle";
 import type { ProjectsSource } from "./Projects";
@@ -33,6 +35,22 @@ export interface WorkspaceProps {
 }
 
 const NO_FORMAT: FormatState = { bold: false, italic: false, block: "body" };
+
+/**
+ * The phone's name preview: which sheet, whether it is up, the name tapped
+ * in the text, and a count of taps, so each one starts the preview afresh.
+ */
+interface Preview {
+  id: string | null;
+  open: boolean;
+  occurrence?: IgnoredName;
+  opening: number;
+}
+
+/** A sheet in the inspector, as it reads or in its form, with the name in the text it was opened from, if any. */
+function sheetView(id: string, editing: boolean, occurrence: IgnoredName | undefined): InspectorView {
+  return { kind: "sheet", id, ...(editing && { editing: true }), ...(occurrence && { occurrence }) };
+}
 
 /** Where focus must be for the on-screen keyboard to dock the formatting bar: the chapter text. */
 const KEYBOARD_SCOPE = ".editor-pane";
@@ -58,7 +76,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   const [focusMode, setFocusMode] = useState(false);
   const [barRevealed, setBarRevealed] = useState(false);
   const [phonePanel, setPhonePanel] = useState<"binder" | "inspector" | null>(null);
-  const [preview, setPreview] = useState<{ id: string | null; open: boolean }>({ id: null, open: false });
+  const [preview, setPreview] = useState<Preview>({ id: null, open: false, opening: 0 });
   const [drag, setDrag] = useState<{ binder?: number; inspector?: number }>({});
   /** Goes up when the empty project's button asks the binder for a new chapter. */
   const [newChapterRequest, setNewChapterRequest] = useState(0);
@@ -84,7 +102,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     setMountCaret(null);
     setPlainOnlyId(null);
     setInspectorView({ kind: "chapter" });
-    setPreview({ id: null, open: false });
+    setPreview((p) => ({ id: null, open: false, opening: p.opening }));
   }
 
   const plainOnly = chapter !== null && plainOnlyId === chapter.id;
@@ -151,16 +169,13 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   /**
    * Opens a sheet in the inspector, showing the inspector if it is hidden:
    * as it reads, or in its form with `editing`. A sheet already open in its
-   * form stays there.
+   * form stays there. `occurrence` is the name in the text it was opened
+   * from; opened from anywhere else, it has none.
    */
   const showSheet = useCallback(
-    (id: string, editing: boolean) => {
+    (id: string, editing: boolean, occurrence?: IgnoredName) => {
       setInspectorView((view) =>
-        editing
-          ? { kind: "sheet", id, editing: true }
-          : view.kind === "sheet" && view.id === id
-            ? view
-            : { kind: "sheet", id },
+        sheetView(id, editing || (view.kind === "sheet" && view.id === id && view.editing === true), occurrence),
       );
       if (isPhone) setPhonePanel("inspector");
       else if (!settings.inspectorOpen) update({ inspectorOpen: true });
@@ -172,29 +187,41 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
 
   /**
    * A clicked name: the inspector on desktop, with the caret kept in the
-   * text; a half-height preview on phones, which takes focus itself.
+   * text; a half-height preview on phones, which takes focus itself. Either
+   * shows where the name was clicked, with Ignore here.
    */
   const openSheetFromText = useCallback(
-    (id: string) => {
+    (id: string, occurrence: IgnoredName) => {
       if (isPhone) {
-        setPreview({ id, open: true });
+        setPreview((p) => ({ id, open: true, occurrence, opening: p.opening + 1 }));
         return;
       }
-      openSheet(id);
+      showSheet(id, false, occurrence);
       editorRef.current?.focus();
     },
-    [isPhone, openSheet],
+    [isPhone, showSheet],
   );
 
   const closePreview = useCallback(() => setPreview((p) => ({ ...p, open: false })), []);
 
-  /** The phone preview's Edit: the preview makes way for the inspector, with the sheet's form. */
+  /**
+   * The phone preview's Edit: the preview makes way for the inspector, with
+   * the sheet's form. It is the same opening, so Done shows where the name
+   * was tapped.
+   */
+  const previewOccurrence = preview.occurrence;
   const editFromPreview = useCallback(
     (id: string) => {
       closePreview();
-      showSheet(id, true);
+      showSheet(id, true, previewOccurrence);
     },
-    [closePreview, showSheet],
+    [closePreview, showSheet, previewOccurrence],
+  );
+
+  /** Ignore here, wherever a name opened from the text offers it. */
+  const ignoring = useMemo<IgnoreSource>(
+    () => ({ ignored: project.ignoredNames, setIgnored: api.ignoreName, busy: api.switching }),
+    [project.ignoredNames, api.ignoreName, api.switching],
   );
 
   /* Chapters and modes ----------------------------------------------------- */
@@ -453,6 +480,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           onChange={api.updateChapter}
           onFormatChange={setFormat}
           onOpenSheet={focusMode ? null : openSheetFromText}
+          ignoring={ignoring}
           sheetsById={sheetsById}
           hoverCards={canHover && !isPhone}
           empty={empty}
@@ -486,6 +514,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
               onChapterDetails={api.updateChapterDetails}
               onCreateSheet={api.createSheet}
               onUpdateSheet={api.updateSheet}
+              ignoring={ignoring}
+              onMarkNotName={api.markNotName}
               busy={api.switching}
               versions={{
                 list: api.listVersions,
@@ -531,6 +561,9 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           open={preview.open}
           onClose={closePreview}
           onEdit={editFromPreview}
+          occurrence={preview.occurrence}
+          ignoring={ignoring}
+          opening={preview.opening}
           appearances={{
             index: nameIndex,
             project,

@@ -93,6 +93,8 @@ describe("Appears in, in the inspector", () => {
       onChapterDetails: vi.fn(),
       onCreateSheet: vi.fn(),
       onUpdateSheet: vi.fn(),
+      ignoring: { ignored: [], setIgnored: vi.fn(), busy: false },
+      onMarkNotName: vi.fn(),
       busy: false,
       versions: { list: async () => [], restore: async () => undefined, saveStatus: "saved", loads: 1, busy: false },
       visible: true,
@@ -192,6 +194,7 @@ describe("Appears in, in the phone preview", () => {
       onClose: vi.fn(),
       appearances: source,
       onEdit: vi.fn(),
+      ignoring: { ignored: [], setIgnored: vi.fn(), busy: false },
     };
   });
 

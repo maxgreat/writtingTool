@@ -2,12 +2,14 @@ import { ChevronLeft, Plus } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ChapterDetails as Details } from "../core/binder";
 import type { NameIndex } from "../core/nameIndex";
-import type { NameMatcher } from "../core/names";
+import type { IgnoredName, NameMatcher } from "../core/names";
 import type { Chapter, Project, Sheet } from "../core/project";
 import type { SheetEdit } from "../core/sheetFile";
 import type { AppearancesSource } from "./AppearsIn";
 import { ChapterDetails } from "./ChapterDetails";
-import { cx, errorMessage, formatCount } from "./dom";
+import { cx, errorMessage, focusLost, formatCount } from "./dom";
+import type { IgnoreSource } from "./IgnoreHere";
+import { PossibleNames } from "./PossibleNames";
 import { SheetForm } from "./SheetForm";
 import { SheetView } from "./SheetView";
 import { groupByType, namesFromCounts, sheetNoun, sheetSummary } from "./sheets";
@@ -16,8 +18,12 @@ import { Versions, type VersionSource } from "./Versions";
 export type InspectorView =
   | { kind: "chapter" }
   | { kind: "type"; folder: string }
-  /** `editing`: the sheet's form, in place of the sheet as it reads. */
-  | { kind: "sheet"; id: string; editing?: boolean };
+  /**
+   * `editing`: the sheet's form, in place of the sheet as it reads.
+   * `occurrence`: the name in the text it was opened from, if it was, for
+   * Ignore here. It belongs to that opening only.
+   */
+  | { kind: "sheet"; id: string; editing?: boolean; occurrence?: IgnoredName };
 
 export interface InspectorProps {
   project: Project;
@@ -37,6 +43,10 @@ export interface InspectorProps {
   onCreateSheet(kind: string, name: string): Promise<string>;
   /** useProject's updateSheet: saved like an edit. Throws, changing nothing, when the edit is refused. */
   onUpdateSheet(id: string, edit: SheetEdit): void;
+  /** Ignore here, under a sheet opened from the text, and each sheet's ignored mentions. */
+  ignoring: IgnoreSource;
+  /** useProject's markNotName, for possible names. Throws, changing nothing, when project.json can't be read. */
+  onMarkNotName(word: string, notName: boolean): void;
   /** The project on disk is changing: the chapter's details, sheets and Appears in wait until it has. */
   busy: boolean;
   /** The open chapter's earlier versions, listed under This chapter. */
@@ -47,9 +57,10 @@ export interface InspectorProps {
 
 /**
  * The right panel: a menu with This chapter and one entry per sheet type,
- * and the sheet of a clicked name, with the chapters it appears in. A type's
- * list makes new sheets; a sheet's Edit shows its form, Done the sheet again.
- * A chapter's details can be edited and its earlier versions restored.
+ * and the sheet of a clicked name, with the chapters it appears in and
+ * Ignore here. A type's list makes new sheets; a sheet's Edit shows its
+ * form, Done the sheet again. A chapter's details can be edited, its
+ * possible names made into sheets, and its earlier versions restored.
  */
 export function Inspector({
   project,
@@ -64,6 +75,8 @@ export function Inspector({
   onChapterDetails,
   onCreateSheet,
   onUpdateSheet,
+  ignoring,
+  onMarkNotName,
   busy,
   versions,
   visible,
@@ -143,6 +156,8 @@ export function Inspector({
             sheetsById={sheetsById}
             onOpenSheet={onOpenSheet}
             onChapterDetails={onChapterDetails}
+            onCreateSheet={onCreateSheet}
+            onMarkNotName={onMarkNotName}
             busy={busy}
             versions={versions}
             visible={visible}
@@ -176,7 +191,8 @@ export function Inspector({
                   ref={toggleRef}
                   type="button"
                   className={cx("btn edit-toggle", editing ? "btn--primary" : "btn--quiet")}
-                  onClick={() => onViewChange({ kind: "sheet", id: sheet.id, editing: !editing })}
+                  // The opening stays the same, so the name it came from is kept for Done.
+                  onClick={() => onViewChange({ ...shown, editing: !editing })}
                 >
                   {editing ? "Done" : "Edit"}
                 </button>
@@ -192,7 +208,14 @@ export function Inspector({
                 busy={busy}
               />
             ) : (
-              <SheetView key={sheet.id} sheet={sheet} headingId={headingId} appearances={appearances} />
+              <SheetView
+                key={sheet.id}
+                sheet={sheet}
+                headingId={headingId}
+                appearances={appearances}
+                occurrence={shown.occurrence}
+                ignoring={ignoring}
+              />
             )}
           </>
         )}
@@ -209,6 +232,8 @@ function ChapterInfo({
   sheetsById,
   onOpenSheet,
   onChapterDetails,
+  onCreateSheet,
+  onMarkNotName,
   busy,
   versions,
   visible,
@@ -221,6 +246,8 @@ function ChapterInfo({
   | "sheetsById"
   | "onOpenSheet"
   | "onChapterDetails"
+  | "onCreateSheet"
+  | "onMarkNotName"
   | "busy"
   | "versions"
   | "visible"
@@ -231,6 +258,20 @@ function ChapterInfo({
     () => (id === null ? [] : namesFromCounts(index.counts({ id, text }, matcher), sheetsById)),
     [id, text, index, matcher, sheetsById],
   );
+
+  /** Said to screen readers: what a possible name became. */
+  const [note, setNote] = useState("");
+  /** A sheet just made from a possible name: its row here takes focus once it shows. */
+  const [focusSheet, setFocusSheet] = useState<string | null>(null);
+  const nameRows = useRef(new Map<string, HTMLButtonElement>());
+  useEffect(() => {
+    if (focusSheet === null) return;
+    const row = nameRows.current.get(focusSheet);
+    if (!row) return;
+    setFocusSheet(null);
+    if (focusLost()) row.focus();
+  }, [focusSheet, found]);
+
   if (!chapter) return <p className="empty-note">No chapter is open.</p>;
 
   const groups = groupByType(found, project.sheetTypes, (item) => item.sheet.kind);
@@ -259,7 +300,15 @@ function ChapterInfo({
               <ul>
                 {items.map(({ sheet, count }) => (
                   <li key={sheet.id}>
-                    <button type="button" className="list-row" onClick={() => onOpenSheet(sheet.id)}>
+                    <button
+                      ref={(el) => {
+                        if (el) nameRows.current.set(sheet.id, el);
+                        else nameRows.current.delete(sheet.id);
+                      }}
+                      type="button"
+                      className="list-row"
+                      onClick={() => onOpenSheet(sheet.id)}
+                    >
                       <span className="list-row-title">{sheet.name}</span>
                       <span className="num muted" aria-label={`${count} ${count === 1 ? "mention" : "mentions"}`}>
                         {formatCount(count)}
@@ -272,6 +321,24 @@ function ChapterInfo({
           ))
         )}
       </section>
+
+      {/* Keyed by project and chapter: what was marked here belongs to this chapter's list. */}
+      <PossibleNames
+        key={`possible\n${project.root}\n${chapter.id}`}
+        project={project}
+        chapterId={chapter.id}
+        matcher={matcher}
+        index={index}
+        visible={visible}
+        busy={busy}
+        onCreateSheet={onCreateSheet}
+        onMarkNotName={onMarkNotName}
+        onCreated={setFocusSheet}
+        announce={setNote}
+      />
+      <p className="visually-hidden" role="status">
+        {note}
+      </p>
 
       {/* Keyed by project and chapter: chapter ids are paths, so another project can reuse one. */}
       <Versions key={`${project.root}\n${chapter.id}`} chapterId={chapter.id} visible={visible} {...versions} />

@@ -147,6 +147,8 @@ interface MenuButtonProps {
   role?: "menu" | "dialog";
   title?: string;
   ariaLabel?: string;
+  /** The id of what the trigger acts on, for screen readers: a row's name, say. */
+  describedBy?: string;
   disabled?: boolean;
   className?: string;
   popoverClassName?: string;
@@ -162,6 +164,7 @@ export function MenuButton({
   role = "menu",
   title,
   ariaLabel,
+  describedBy,
   disabled,
   className,
   popoverClassName,
@@ -178,6 +181,7 @@ export function MenuButton({
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         aria-label={ariaLabel}
+        aria-describedby={describedBy}
         title={title}
         disabled={disabled}
         onClick={() => onOpenChange(!open)}

@@ -1,9 +1,11 @@
 import { X } from "lucide-react";
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import type { IgnoredName } from "../core/names";
 import type { Sheet } from "../core/project";
 import type { AppearancesSource } from "./AppearsIn";
 import { cx } from "./dom";
+import type { IgnoreSource } from "./IgnoreHere";
 import { SheetView } from "./SheetView";
 
 export interface BottomSheetProps {
@@ -83,10 +85,25 @@ export interface SheetPreviewProps {
    * read-only). Not offered for a sheet whose header can't be read.
    */
   onEdit(id: string): void;
+  /** The name tapped in the text, shown under the sheet's name with Ignore here. */
+  occurrence?: IgnoredName;
+  /** For Ignore here and the sheet's ignored mentions. */
+  ignoring: IgnoreSource;
+  /** Goes up each time a name is tapped: what the preview showed for an earlier tap is put away. */
+  opening?: number;
 }
 
 /** Phones: a tapped name opens its sheet in a half-height sheet from the bottom. */
-export function SheetPreview({ sheet, open, onClose, appearances, onEdit }: SheetPreviewProps) {
+export function SheetPreview({
+  sheet,
+  open,
+  onClose,
+  appearances,
+  onEdit,
+  occurrence,
+  ignoring,
+  opening = 0,
+}: SheetPreviewProps) {
   const headingId = useId();
   const source: AppearancesSource = {
     ...appearances,
@@ -99,10 +116,12 @@ export function SheetPreview({ sheet, open, onClose, appearances, onEdit }: Shee
     <BottomSheet open={open} onClose={onClose} labelledBy={headingId} closeLabel="Close sheet">
       {sheet && (
         <SheetView
-          key={sheet.id}
+          key={`${sheet.id}\n${opening}`}
           sheet={sheet}
           headingId={headingId}
           appearances={source}
+          occurrence={occurrence}
+          ignoring={ignoring}
           actions={
             <div className="sheet-actions">
               {sheet.editable && (

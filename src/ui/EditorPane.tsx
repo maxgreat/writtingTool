@@ -5,10 +5,11 @@ import { FormattedEditor } from "../core/editor/FormattedEditor";
 import { nameMarkAt, NAME_MARK_CLASS } from "../core/editor/nameMarks";
 import { PlainEditor } from "../core/editor/PlainEditor";
 import type { EditorHandle, FormatState, NameHit } from "../core/editor/types";
-import type { NameMatcher } from "../core/names";
+import type { IgnoredName, NameMatcher } from "../core/names";
 import type { Chapter, Sheet } from "../core/project";
 import type { EditorMode, ViewSettings } from "../core/settings";
 import { tokenMs } from "./dom";
+import type { IgnoreSource } from "./IgnoreHere";
 import { editorStyle } from "./layoutStyle";
 import { NameCard, NameChoice } from "./NameCard";
 
@@ -32,8 +33,13 @@ export interface EditorPaneProps {
   initialCaret: TextPosition | null;
   onChange(chapterId: string, markdown: string): void;
   onFormatChange(state: FormatState): void;
-  /** Opens a sheet for a clicked name; null in focus mode, where a click only places the caret. */
-  onOpenSheet: ((id: string) => void) | null;
+  /**
+   * Opens a sheet for a clicked name, with the occurrence clicked (for
+   * Ignore here); null in focus mode, where a click only places the caret.
+   */
+  onOpenSheet: ((id: string, occurrence: IgnoredName) => void) | null;
+  /** Ignore here, in the choice offered for a name shared by several sheets. */
+  ignoring: IgnoreSource;
   sheetsById: Map<string, Sheet>;
   /** Hover summary cards, for devices with a real pointer. */
   hoverCards: boolean;
@@ -55,6 +61,7 @@ export function EditorPane({
   onChange,
   onFormatChange,
   onOpenSheet,
+  ignoring,
   sheetsById,
   hoverCards,
   empty,
@@ -101,7 +108,7 @@ export function EditorPane({
     hideCard();
     if (!onOpenSheet) return;
     if (hit.ambiguous) setChoice(hit);
-    else onOpenSheet(hit.sheetIds[0]);
+    else onOpenSheet(hit.sheetIds[0], hit.occurrence);
   };
 
   // A press in the empty space around the text puts the caret back in it.
@@ -167,13 +174,14 @@ export function EditorPane({
         <NameChoice
           hit={choice}
           sheets={sheetsFor(choice)}
+          ignoring={ignoring}
           onClose={() => {
             setChoice(null);
             editorRef.current?.focus();
           }}
           onChoose={(id) => {
             setChoice(null);
-            onOpenSheet?.(id);
+            onOpenSheet?.(id, choice.occurrence);
           }}
         />
       )}

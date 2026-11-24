@@ -2,7 +2,7 @@
 
 A writing app for novels, in the spirit of Scrivener and novelWriter: a binder of parts and chapters, the chapter in the middle, an inspector with character and place sheets. Chapters are plain Markdown files. The design and the plan are in [Writing App — Development Guide.md](Writing%20App%20—%20Development%20Guide.md).
 
-Phase 1 of the guide, the writing core, is built: the desktop app (tested on Linux) and the Android app, reading and writing project folders on the device. Cloud sync, spelling and export come in later phases.
+Phase 1 of the guide, the writing core, is built, with sheet forms from phase 2 and name detection from phase 3: the desktop app (tested on Linux) and the Android app, reading and writing project folders on the device. Cloud sync, spelling and export come in later phases.
 
 ## Download
 
@@ -45,6 +45,10 @@ These are refreshed with every push, so they always show the app as it is on `ma
 | A character's sheet | Editing it |
 | --- | --- |
 | ![Elena Voss's sheet in the inspector, with Edit at the top: her aliases, role and age, then Appears in, which lists the chapters that mention her under their parts with how many times (The arrival, open in the editor, 3; The ferryman, 2; Upstream, 1), then her notes](docs/screenshots/desktop-sheet.png) | ![Elena Voss's sheet in its form, after Edit, with Done at the top: her name; her other names, Elena and Voss, each with an Any case option and a remove button, then Add another name; her role and age, then Add a field; her notes as Markdown in a box that grows with the text](docs/screenshots/desktop-sheet-edit.png) |
+
+| Opened from a name in the text | Possible names |
+| --- | --- |
+| ![Elena Voss's sheet in the inspector after a click on her name at the start of The arrival. Under her other names, Opened from the text shows the sentence she was clicked in, "Elena reached the Harbor Inn at dusk, soaked to the bone.", her name highlighted as in the chapter, with Ignore here beside it, which would stop highlighting her in that sentence only. Below, her role and age, Appears in and her notes](docs/screenshots/desktop-ignore-here.png) | ![The chapter Upstream open, with the inspector on This chapter. Under Names in this chapter (Arno Kell 2 and Elena Voss 1 under Characters, Sel 1 under Places), Possible names says its words were found 3 or more times in the book with no sheet yet, and lists Mara, 3, with Add to, a menu of Characters and Places, and Not a name. In the text, Mara is not highlighted](docs/screenshots/desktop-possible-names.png) |
 
 | Phone | Binder | Inspector |
 | --- | --- | --- |
@@ -97,7 +101,7 @@ npm run screenshots               # retakes the pictures in docs/screenshots (ne
 
 ## What the app has, and what comes next
 
-Built so far (phases 0 and 1 of the guide, and sheet forms from phase 2):
+Built so far (phases 0 and 1 of the guide, sheet forms from phase 2, and name detection from phase 3):
 
 - The binder, the editor and the inspector, with hide buttons, resizable panels, focus mode, a phone layout, and light and dark themes. On phones the panels also slide in with a swipe from the screen edge (on Android with gesture navigation, from the middle of the edge: above and below it the edge stays the system's Back gesture), and the formatting bar docks above the on-screen keyboard while you type.
 - Projects: the project title opens the list of projects on this device, to switch to another or create one with its title and language. On desktop, "Open folder…" opens a project folder from anywhere, and the ones opened recently are listed too.
@@ -105,7 +109,9 @@ Built so far (phases 0 and 1 of the guide, and sheet forms from phase 2):
 - Binder editing: a menu on each chapter and part (right-click, long-press, or its ⋯ button) to rename, set a status, move, add and trash; drag to reorder with a mouse or pen; part word counts; a Trash with Restore. Chapter files are renumbered to follow the binder order.
 - This chapter's synopsis, status and point of view, edited in the inspector.
 - Two editing modes on the same Markdown: Formatted (Tiptap) and Plain (CodeMirror 6). Switching keeps the caret in place, and the chapter files round-trip byte for byte.
-- Character and place names highlighted as you type: whole words, longest match wins, apostrophes and accents handled, and case rules set per alias. Clicking a name opens its sheet.
+- Character and place names highlighted as you type: whole words, longest match wins, apostrophes and accents handled, and case rules set per alias. Clicking a name opens its sheet; a name shared by two sheets (two characters called Marie) has a dashed highlight and asks which one.
+- Ignore here, for a name that isn't the character there (the character Rose, not a rose on the table). A sheet opened from a name in the text shows the sentence it was clicked in, with Ignore here: the highlight goes at once, and Highlight again in the same place undoes it. The choice for a shared name offers it too, for when the name means neither sheet. It is remembered in `project.json` by its sentence, so the chapter file stays as it is, and each sheet lists its ignored mentions, each with Highlight again.
+- Possible names: This chapter, in the inspector, lists the chapter's capitalized words that aren't at the start of a sentence, are found 3 or more times in the book and have no sheet yet, with how often. Add to makes one a character, a place or a sheet of any other type that holds names, highlighted everywhere at once; Not a name stops offering it, with Undo in the same place. Words marked as not names are kept in `project.json`.
 - Every sheet but notes lists the chapters that mention it, under their parts, with how many times; clicking one opens that chapter.
 - Sheets made and edited in the app. "New character" (or place, note) at the top of a type's list in the inspector asks for the name, makes `sheets/<type>/<name>.md` and opens its form. A sheet's Edit shows its form: the name, other names (each can match in any case, so the alias "the ferryman" also finds "The ferryman"), the type's fields (characters have a role and an age, places a type; `fields` in a sheet type in `project.json` changes them) plus any you add, and the notes in Markdown. Changes save as you go; a name is saved when you leave its field, and the highlights follow at once. On phones, the name preview has Edit too, which opens the form in the inspector. A sheet whose header can't be read says so and stays read-only.
 - Autosave about a second after typing stops, with atomic writes, and word counts for the chapter, the book and today.
@@ -117,4 +123,3 @@ Still to build, following the guide's phases:
 - Spelling (spellbook with Hunspell dictionaries) and grammar
 - Export: the Typst PDF preview, then EPUB, Word and Markdown
 - Testing the Windows and macOS builds on real machines (CI builds them, but only the Linux and Android apps have been run so far), and code-signing them
-- The "Possible names" list

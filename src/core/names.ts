@@ -1,10 +1,13 @@
+import { sentenceKeyFinder } from "./sentences";
+
 /**
  * Name detection: one Aho-Corasick automaton built from every sheet name and
  * alias, run over a paragraph at a time. The rules come from the development
  * guide: whole words only, longest match wins, apostrophes are word edges and
  * straight and curly ones match alike, text is Unicode-normalized, names are
- * case-sensitive unless an alias opts out, and an alias shared by two sheets
- * is reported as ambiguous.
+ * case-sensitive unless an alias opts out, an alias shared by two sheets is
+ * reported as ambiguous, and an occurrence the writer chose to ignore ("Ignore
+ * here", remembered by its sentence) is not reported.
  */
 
 export interface NamePattern {
@@ -14,10 +17,25 @@ export interface NamePattern {
   ignoreCase: boolean;
 }
 
+/**
+ * An occurrence the writer chose not to highlight: the name as found, in
+ * that sentence (see sentences.ts). It covers that name everywhere the same
+ * sentence appears, every time it is in it, and for every sheet the name
+ * belongs to.
+ */
+export interface IgnoredName {
+  /** The name as it is written there, composed, with straight apostrophes. */
+  name: string;
+  /** The sentence's key (`sentenceKey`). */
+  sentence: string;
+}
+
 export interface NameMatch {
   /** Offsets into the text passed to `find`, in UTF-16 code units. */
   from: number;
   to: number;
+  /** The name as written there, composed, with straight apostrophes: what "Ignore here" remembers. */
+  text: string;
   sheetIds: string[];
   /** Kind of the first sheet (for example "characters" or "places"). */
   kind: string;
@@ -29,7 +47,7 @@ const COMBINING_MARK = /\p{M}/u;
 const APOSTROPHES = /[’ʼ]/gu;
 
 /** NFC with all apostrophes made straight. */
-function normalizePattern(text: string): string {
+export function normalizeName(text: string): string {
   return text.trim().normalize("NFC").replace(APOSTROPHES, "'");
 }
 
@@ -167,20 +185,44 @@ export class NameMatcher {
   private readonly exact = new Automaton();
   private readonly folded = new Automaton();
   private readonly patterns: NamePattern[] = [];
+  /** Ignored occurrences: sentence keys by name. */
+  private readonly ignored = new Map<string, Set<string>>();
+  private readonly exactTexts = new Set<string>();
+  private readonly foldedTexts = new Set<string>();
   readonly size: number;
 
-  constructor(patterns: NamePattern[]) {
+  constructor(patterns: NamePattern[], ignored: IgnoredName[] = []) {
     for (const p of patterns) {
-      const text = normalizePattern(p.text);
+      const text = normalizeName(p.text);
       if (text === "") continue;
       const id = this.patterns.length;
       this.patterns.push({ ...p, text });
-      if (p.ignoreCase) this.folded.add(foldCase(text), id);
-      else this.exact.add(text, id);
+      if (p.ignoreCase) {
+        this.folded.add(foldCase(text), id);
+        this.foldedTexts.add(foldCase(text));
+      } else {
+        this.exact.add(text, id);
+        this.exactTexts.add(text);
+      }
+    }
+    for (const { name, sentence } of ignored) {
+      const key = normalizeName(name);
+      let sentences = this.ignored.get(key);
+      if (!sentences) {
+        sentences = new Set();
+        this.ignored.set(key, sentences);
+      }
+      sentences.add(sentence);
     }
     this.exact.build();
     this.folded.build();
     this.size = this.patterns.length;
+  }
+
+  /** Whether a word is a sheet's name or alias, as the matcher would find it (case rules included). */
+  knows(word: string): boolean {
+    const text = normalizeName(word);
+    return this.exactTexts.has(text) || this.foldedTexts.has(foldCase(text));
   }
 
   find(input: string): NameMatch[] {
@@ -214,11 +256,14 @@ export class NameMatcher {
       result.push({
         from: start[c.from],
         to: end[c.to - 1],
+        text: text.slice(c.from, c.to),
         sheetIds: c.sheetIds,
         kind: c.kind,
         ambiguous: c.sheetIds.length > 1,
       });
     }
-    return result;
+    if (this.ignored.size === 0 || !result.some((m) => this.ignored.has(m.text))) return result;
+    const keyAt = sentenceKeyFinder(input);
+    return result.filter((m) => !this.ignored.get(m.text)?.has(keyAt(m.from)));
   }
 }
