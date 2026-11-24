@@ -437,3 +437,69 @@ describe("reopening the last project", () => {
     }
   });
 });
+
+describe("sheets", () => {
+  const ELENA = "sheets/characters/Elena.md";
+  const sheet = (id: string) => api.project?.sheets.find((s) => s.id === id);
+
+  it("saves a sheet's changes like an edit, and rebuilds the matcher only for names", async () => {
+    const matcher = api.matcher;
+    act(() => api.updateSheet(ELENA, { fields: [["role", "Lead"]], body: "Notes." }));
+    expect(sheet(ELENA)?.fields).toEqual([["role", "Lead"]]);
+    expect(api.matcher).toBe(matcher);
+    await settle(AUTOSAVE_DELAY_MS);
+    expect(writeFile).toHaveBeenCalledWith(snapshot.root, ELENA, "---\nname: Elena\nrole: Lead\n---\nNotes.\n");
+
+    act(() => api.updateSheet(ELENA, { aliases: [{ text: "Lena", ignoreCase: false }] }));
+    expect(api.matcher).not.toBe(matcher);
+    expect(api.matcher.find("Lena waits.")).toHaveLength(1);
+  });
+
+  it("refuses an empty name, changing nothing", () => {
+    expect(() => api.updateSheet(ELENA, { name: " " })).toThrow("A sheet needs a name.");
+    expect(sheet(ELENA)?.name).toBe("Elena");
+    expect(api.save.status).toBe("saved");
+  });
+
+  it("creates a sheet as a new file in its type's folder, without reloading the project", async () => {
+    const loads = api.loads;
+    let id = "";
+    await act(async () => {
+      id = await api.createSheet("places", "Old Mill");
+    });
+    expect(id).toBe("sheets/places/Old Mill.md");
+    expect(applyChanges).toHaveBeenCalledWith(snapshot.root, {
+      folders: [],
+      sheetFolders: ["sheets", "sheets/places"],
+      moves: [],
+      writes: [{ path: id, text: "---\nname: Old Mill\n---\n", mustBeNew: true }],
+    });
+    expect(sheet(id)?.name).toBe("Old Mill");
+    expect(api.loads).toBe(loads);
+    expect(api.matcher.find("By the Old Mill.")).toHaveLength(1);
+  });
+
+  it("keeps edits typed while a sheet is created", async () => {
+    let finish: (s: ProjectSnapshot) => void = () => undefined;
+    applyChanges.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    let created: Promise<string> = Promise.resolve("");
+    act(() => {
+      created = api.createSheet("characters", "Tomas");
+    });
+    act(() => api.updateChapter(CHAPTER, "# One\n\nTomas waits.\n"));
+    await act(async () => {
+      finish(snapshot);
+      await created;
+    });
+    expect(api.project?.chapters[CHAPTER].text).toBe("# One\n\nTomas waits.\n");
+    expect(sheet("sheets/characters/Tomas.md")?.name).toBe("Tomas");
+  });
+
+  it("passes on the core's refusal and adds nothing", async () => {
+    applyChanges.mockRejectedValue(new Error("sheets/characters/Elena.md already exists"));
+    await act(async () => {
+      await expect(api.createSheet("characters", "Elena 2")).rejects.toThrow("already exists");
+    });
+    expect(api.project?.sheets).toHaveLength(1);
+  });
+});

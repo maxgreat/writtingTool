@@ -2,9 +2,7 @@ import type { ReactNode } from "react";
 import type { Sheet } from "../core/project";
 import { AppearsIn, type AppearancesSource } from "./AppearsIn";
 import { Notes } from "./Notes";
-import { fieldLabel } from "./sheets";
-
-const NUMERIC = /^[\d\s.,:/+−-]+$/u;
+import { fieldLabel, looksNumeric } from "./sheets";
 
 export interface SheetViewProps {
   sheet: Sheet;
@@ -14,7 +12,11 @@ export interface SheetViewProps {
   appearances?: AppearancesSource;
 }
 
-/** A sheet, read-only: name, aliases, typed fields, the chapters it appears in, and notes. */
+/**
+ * A sheet, read-only: name, aliases, typed fields, the chapters it appears
+ * in, and notes. A sheet whose header can't be read says why it can't be
+ * edited in the app.
+ */
 export function SheetView({ sheet, actions, headingId, appearances }: SheetViewProps) {
   return (
     <article className="sheet" aria-labelledby={headingId}>
@@ -24,6 +26,13 @@ export function SheetView({ sheet, actions, headingId, appearances }: SheetViewP
         </h2>
         {actions}
       </header>
+
+      {!sheet.editable && (
+        <p className="sheet-locked muted">
+          The header of <span className="path">{sheet.id}</span> can’t be read, so this sheet can’t be edited here. Fix
+          the header in the file.
+        </p>
+      )}
 
       {sheet.aliases.length > 0 && (
         <p className="sheet-aliases">
@@ -37,7 +46,7 @@ export function SheetView({ sheet, actions, headingId, appearances }: SheetViewP
           {sheet.fields.map(([key, value]) => (
             <div key={key} className="field">
               <dt>{fieldLabel(key)}</dt>
-              <dd className={NUMERIC.test(value) ? "num" : undefined}>{value}</dd>
+              <dd className={looksNumeric(value) ? "num" : undefined}>{value}</dd>
             </div>
           ))}
         </dl>

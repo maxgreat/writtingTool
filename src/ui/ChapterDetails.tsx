@@ -1,8 +1,9 @@
 import { ArrowRight, ChevronDown } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { ChapterDetails as Details } from "../core/binder";
 import type { Chapter, Project } from "../core/project";
 import { errorMessage } from "./dom";
+import { useFitHeight } from "./hooks";
 import { sheetNamed } from "./sheets";
 
 type Field = "synopsis" | "status" | "pov";
@@ -33,12 +34,6 @@ export function povChoices(project: Project, current: string): string[] {
 /** The statuses to choose from, plus the current value if the list leaves it out. */
 export function statusChoices(project: Project, current: string): string[] {
   return current !== "" && !project.statuses.includes(current) ? [...project.statuses, current] : project.statuses;
-}
-
-/** Sets a textarea's height to its text's, so it grows and shrinks as the writer types. */
-function fitHeight(el: HTMLTextAreaElement): void {
-  el.style.height = "auto";
-  el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
 }
 
 /**
@@ -76,23 +71,7 @@ export function ChapterDetails({ project, chapter, onChange, busy, onOpenSheet }
   };
 
   const synopsisRef = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => {
-    if (synopsisRef.current) fitHeight(synopsisRef.current);
-  }, [values.synopsis]);
-
-  // A wider or narrower panel rewraps the text.
-  useEffect(() => {
-    const el = synopsisRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    let width = el.clientWidth;
-    const observer = new ResizeObserver(() => {
-      if (el.clientWidth === width) return;
-      width = el.clientWidth;
-      fitHeight(el);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  useFitHeight(synopsisRef, values.synopsis);
 
   const ids = useId();
   const errorId = (field: Field) => `${ids}-${field}-error`;

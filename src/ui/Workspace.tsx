@@ -148,15 +148,27 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     [focusMode, isPhone, settings.binderOpen, settings.inspectorOpen, update],
   );
 
-  /** Opens a sheet in the inspector, showing the inspector if it is hidden. */
-  const openSheet = useCallback(
-    (id: string) => {
-      setInspectorView({ kind: "sheet", id });
+  /**
+   * Opens a sheet in the inspector, showing the inspector if it is hidden:
+   * as it reads, or in its form with `editing`. A sheet already open in its
+   * form stays there.
+   */
+  const showSheet = useCallback(
+    (id: string, editing: boolean) => {
+      setInspectorView((view) =>
+        editing
+          ? { kind: "sheet", id, editing: true }
+          : view.kind === "sheet" && view.id === id
+            ? view
+            : { kind: "sheet", id },
+      );
       if (isPhone) setPhonePanel("inspector");
       else if (!settings.inspectorOpen) update({ inspectorOpen: true });
     },
     [isPhone, settings.inspectorOpen, update],
   );
+
+  const openSheet = useCallback((id: string) => showSheet(id, false), [showSheet]);
 
   /**
    * A clicked name: the inspector on desktop, with the caret kept in the
@@ -175,6 +187,15 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   );
 
   const closePreview = useCallback(() => setPreview((p) => ({ ...p, open: false })), []);
+
+  /** The phone preview's Edit: the preview makes way for the inspector, with the sheet's form. */
+  const editFromPreview = useCallback(
+    (id: string) => {
+      closePreview();
+      showSheet(id, true);
+    },
+    [closePreview, showSheet],
+  );
 
   /* Chapters and modes ----------------------------------------------------- */
 
@@ -463,6 +484,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
               onOpenSheet={openSheet}
               onOpenChapter={openChapter}
               onChapterDetails={api.updateChapterDetails}
+              onCreateSheet={api.createSheet}
+              onUpdateSheet={api.updateSheet}
               busy={api.switching}
               versions={{
                 list: api.listVersions,
@@ -507,6 +530,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           sheet={preview.id ? (sheetsById.get(preview.id) ?? null) : null}
           open={preview.open}
           onClose={closePreview}
+          onEdit={editFromPreview}
           appearances={{
             index: nameIndex,
             project,

@@ -8,6 +8,7 @@ import {
   parseSheet,
   splitFrontMatter,
   withChapterText,
+  withSheetText,
   type ProjectSnapshot,
 } from "../project";
 import { countWords } from "../words";
@@ -161,5 +162,58 @@ describe("chapterTitle and countWords", () => {
 
   it("does not count character references such as the &nbsp; of an empty paragraph", () => {
     expect(countWords("A\n\n\n\n&nbsp;\n\nB&#32;C\n")).toBe(3);
+  });
+});
+
+describe("sheet templates and edits", () => {
+  const base = {
+    root: "/p",
+    folderName: "P",
+    files: [{ path: "sheets/creatures/Wyrm.md", text: "---\nname: Wyrm\n---\n" }],
+    skipped: [],
+  };
+
+  it("gives the default types their templates, and reads templates from project.json", () => {
+    const defaults = buildProject({ ...base, projectJson: null });
+    expect(defaults.sheetTypes.map((t) => [t.folder, t.fields])).toEqual([
+      ["characters", ["role", "age"]],
+      ["places", ["type"]],
+      ["notes", []],
+      ["creatures", []],
+    ]);
+    const json = JSON.stringify({
+      sheetTypes: [
+        { folder: "characters", label: "People" },
+        { folder: "creatures", label: "Creatures", fields: ["habitat", " habitat ", 3, "name", " aliases", "", "diet "] },
+      ],
+    });
+    const custom = buildProject({ ...base, projectJson: json });
+    expect(custom.sheetTypes.map((t) => [t.folder, t.fields])).toEqual([
+      ["characters", ["role", "age"]],
+      ["creatures", ["habitat", "diet"]],
+    ]);
+  });
+
+  it("keeps each sheet's file text, and marks a header it can't read", () => {
+    const project = buildProject({
+      ...base,
+      projectJson: null,
+      files: [...base.files, { path: "sheets/places/Bad.md", text: "---\nname: [x\n---\n" }],
+    });
+    expect(project.sheets.map((s) => [s.name, s.editable, s.text])).toEqual([
+      ["Wyrm", true, "---\nname: Wyrm\n---\n"],
+      ["Bad", false, "---\nname: [x\n---\n"],
+    ]);
+  });
+
+  it("replaces or adds a sheet, in path order, with a type for a new folder", () => {
+    const project = buildProject({ ...base, projectJson: null });
+    expect(withSheetText(project, "sheets/creatures/Wyrm.md", "---\nname: Wyrm\n---\n")).toBe(project);
+    const renamed = withSheetText(project, "sheets/creatures/Wyrm.md", "---\nname: Great Wyrm\n---\n");
+    expect(renamed.sheets.map((s) => s.name)).toEqual(["Great Wyrm"]);
+    const added = withSheetText(renamed, "sheets/beasts/Ox.md", "---\nname: Ox\n---\n");
+    expect(added.sheets.map((s) => s.id)).toEqual(["sheets/beasts/Ox.md", "sheets/creatures/Wyrm.md"]);
+    expect(added.sheetTypes.at(-1)).toEqual({ folder: "beasts", label: "Beasts", fields: [] });
+    expect(added.chapters).toBe(project.chapters);
   });
 });

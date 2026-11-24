@@ -91,6 +91,8 @@ describe("Appears in, in the inspector", () => {
       onOpenSheet: vi.fn(),
       onOpenChapter: vi.fn(),
       onChapterDetails: vi.fn(),
+      onCreateSheet: vi.fn(),
+      onUpdateSheet: vi.fn(),
       busy: false,
       versions: { list: async () => [], restore: async () => undefined, saveStatus: "saved", loads: 1, busy: false },
       visible: true,
@@ -184,7 +186,13 @@ describe("Appears in, in the phone preview", () => {
       onOpenChapter: vi.fn(),
       busy: false,
     };
-    props = { sheet: project.sheets.find((s) => s.id === ELENA)!, open: true, onClose: vi.fn(), appearances: source };
+    props = {
+      sheet: project.sheets.find((s) => s.id === ELENA)!,
+      open: true,
+      onClose: vi.fn(),
+      appearances: source,
+      onEdit: vi.fn(),
+    };
   });
 
   async function render(patch: Partial<SheetPreviewProps> = {}) {

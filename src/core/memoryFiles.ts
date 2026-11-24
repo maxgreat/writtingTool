@@ -26,8 +26,8 @@ function folderExists(tree: MemoryTree, path: string): boolean {
 }
 
 /**
- * Applies one change: creates the folders, makes every move at once, then
- * writes the files. Throws, leaving the tree as it was, if any part of it
+ * Applies one change: creates the folders (sheet folders only if missing),
+ * makes every move at once, then writes the files. Throws, leaving the tree as it was, if any part of it
  * can't be done.
  */
 export function applyChange(tree: MemoryTree, change: Change): void {
@@ -39,6 +39,16 @@ export function applyChange(tree: MemoryTree, change: Change): void {
     const allowed = folder === "manuscript" || folder === "trash" || MOVABLE.some((p) => folder.startsWith(p));
     if (!allowed) throw new Error(`${folder}: not a folder the binder uses`);
     if (exists(next, folder)) throw new Error(`${folder} already exists`);
+    if (!folderExists(next, parentOf(folder))) throw new Error(`${folder}: its parent folder is missing`);
+    folders.add(folder);
+  }
+
+  for (const folder of change.sheetFolders ?? []) {
+    const parts = folder.split("/");
+    if (parts[0] !== "sheets" || parts.length > 2 || parts.some((p) => p === "" || p.startsWith("."))) {
+      throw new Error(`${folder}: not sheets/ or a sheet type folder in it`);
+    }
+    if (files.has(folder)) throw new Error(`${folder} is not a folder`);
     if (!folderExists(next, parentOf(folder))) throw new Error(`${folder}: its parent folder is missing`);
     folders.add(folder);
   }

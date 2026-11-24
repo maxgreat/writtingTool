@@ -153,13 +153,13 @@ async fn restore_version(
     })
 }
 
-/// Makes a change to the binder as a whole or not at all, then returns the
-/// project as it is on disk afterwards.
+/// Makes a change to the binder or the sheets as a whole or not at all, then
+/// returns the project as it is on disk afterwards.
 #[tauri::command]
 async fn apply_changes(root: String, change: Change, state: State<'_, AppState>) -> Result<ProjectSnapshot, String> {
-    with_open(&state, &root, "change the binder", |open| {
-        open.apply(&change).map_err(|e| format!("Cannot change the binder: {e}. Nothing was changed."))?;
-        open.snapshot().map_err(|e| format!("The binder was changed, but the project could not be read again: {e}"))
+    with_open(&state, &root, "change the project", |open| {
+        open.apply(&change).map_err(|e| format!("Cannot make that change: {e}. Nothing was changed."))?;
+        open.snapshot().map_err(|e| format!("The change was made, but the project could not be read again: {e}"))
     })
 }
 

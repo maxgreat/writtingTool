@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadBackend, type Backend, type Version } from "./backend";
 import { withChapterDetails, type ChapterDetails, type Plan } from "./binder";
 import { withFinalNewline } from "./markdown";
-import { buildNameMatcher, buildProject, withChapterText, type Project, type ProjectSnapshot } from "./project";
+import { buildNameMatcher, buildProject, withChapterText, withSheetText, type Project, type ProjectSnapshot } from "./project";
+import { editSheetText, newSheetPath, newSheetText, type SheetEdit } from "./sheetFile";
 import { newProject, readRecentProjects, rememberRecentProject, type ProjectEntry } from "./projects";
 
 export type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
@@ -243,6 +244,53 @@ export function useProject() {
     changeLater(next, write.path, write.text);
   }, [changeLater]);
 
+  /**
+   * Changes a sheet from the inspector's form, saved like an edit. Throws,
+   * changing nothing, when the sheet's header can't be read (rewriting it
+   * could lose what is there) or the edit is refused (an empty name).
+   */
+  const updateSheet = useCallback((id: string, edit: SheetEdit) => {
+    const current = projectRef.current;
+    if (!current || switchingRef.current) return;
+    const sheet = current.sheets.find((s) => s.id === id);
+    if (!sheet) throw new Error("That sheet is no longer in the project.");
+    if (!sheet.editable) throw new Error("This sheet's header could not be read. Fix it in the file first.");
+    const text = editSheetText(sheet.text, edit);
+    const next = withSheetText(current, id, text);
+    if (next === current) return;
+    changeLater(next, id, text);
+  }, [changeLater]);
+
+  /**
+   * Creates a sheet of type `kind` named `name`, as sheets/<kind>/<name>.md,
+   * and resolves to its id. The core makes the type's folder if it is
+   * missing and never replaces a file. The sheet joins the project as it is
+   * in memory, so the open chapter and its caret stay as they are. Rejects
+   * with a message for the writer if the file can't be made.
+   */
+  const createSheet = useCallback(async (kind: string, name: string): Promise<string> => {
+    const target = backendRef.current;
+    const current = projectRef.current;
+    if (!target || !current) throw new Error("No project is open.");
+    if (switchingRef.current) throw new Error("The project is changing on disk. Try again in a moment.");
+    const text = newSheetText(name);
+    const id = newSheetPath(current, kind, name);
+    await target.applyChanges(current.root, {
+      folders: [],
+      sheetFolders: ["sheets", `sheets/${kind}`],
+      moves: [],
+      writes: [{ path: id, text, mustBeNew: true }],
+    });
+    // Typing may have changed the project meanwhile; another project may be open now.
+    const latest = projectRef.current;
+    if (latest?.root === current.root) {
+      const next = withSheetText(latest, id, text);
+      projectRef.current = next;
+      setProject(next);
+    }
+    return id;
+  }, []);
+
   const openChapter = useCallback((id: string) => {
     const current = projectRef.current;
     if (!current?.chapters[id]) return;
@@ -381,8 +429,16 @@ export function useProject() {
     }
   }, [flush]);
 
+  // The matcher only depends on each sheet's id, type, name and aliases, so
+  // editing a sheet's fields or notes doesn't rebuild it (and with it the
+  // name index and every highlight).
   const sheets = project?.sheets;
-  const matcher = useMemo(() => buildNameMatcher(sheets ?? []), [sheets]);
+  const namesKey = useMemo(
+    () => JSON.stringify((sheets ?? []).map((s) => [s.id, s.kind, s.name, s.aliases])),
+    [sheets],
+  );
+  // Runs in the render where namesKey changed, so `sheets` is that render's.
+  const matcher = useMemo(() => buildNameMatcher(sheets ?? []), [namesKey]);
 
   const chapters = project?.chapters;
   const bookWords = useMemo(
@@ -407,6 +463,8 @@ export function useProject() {
     createProject,
     listProjects,
     updateChapterDetails,
+    createSheet,
+    updateSheet,
     changeBinder,
     listVersions,
     restoreVersion,

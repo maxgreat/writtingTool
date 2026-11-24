@@ -1,4 +1,4 @@
-import { parse as parseYaml } from "yaml";
+import { isMap, isScalar, parseDocument, type Document, type Pair, type Scalar, type YAMLMap } from "yaml";
 import { NameMatcher, type NamePattern } from "./names";
 import { countWords } from "./words";
 
@@ -33,11 +33,17 @@ export interface Sheet {
   fields: [string, string][];
   /** Free notes after the header, as Markdown. */
   body: string;
+  /** The file as read or last written, so an edit can keep what the form doesn't show. */
+  text: string;
+  /** False when the header could not be read: rewriting it could lose what the writer put there. */
+  editable: boolean;
 }
 
 export interface SheetType {
   folder: string;
   label: string;
+  /** The template: fields every sheet of this type offers, as YAML keys, in order. */
+  fields: string[];
 }
 
 export interface Chapter {
@@ -106,10 +112,15 @@ export function holdsNames(kind: string): boolean {
 }
 
 export const DEFAULT_SHEET_TYPES: SheetType[] = [
-  { folder: "characters", label: "Characters" },
-  { folder: "places", label: "Places" },
-  { folder: "notes", label: "Notes" },
+  { folder: "characters", label: "Characters", fields: ["role", "age"] },
+  { folder: "places", label: "Places", fields: ["type"] },
+  { folder: "notes", label: "Notes", fields: [] },
 ];
+
+/** A default type's template, for a type project.json lists without one. */
+function defaultFields(folder: string): string[] {
+  return DEFAULT_SHEET_TYPES.find((t) => t.folder === folder)?.fields ?? [];
+}
 
 interface ChapterMeta {
   status?: unknown;
@@ -180,26 +191,108 @@ function parseAliases(value: unknown): Alias[] {
   return aliases.filter((a) => a.text.trim() !== "");
 }
 
+/** Header keys that are not fields: the name and other names have their own place on a sheet. */
+export const RESERVED_KEYS = new Set(["name", "aliases"]);
+
+/** A header with nothing in it (no line, or only `~`): it is an empty list of fields. */
+export function isEmptyHeader(contents: Document["contents"]): boolean {
+  return contents === null || (isScalar(contents) && contents.value == null);
+}
+
+/**
+ * A header entry's key as a field's key: its text, for a key written as
+ * text, a number or true/false (`1990:` is the field "1990"). Null for a
+ * key the form can't show (missing, blank, a list), which is left as it is.
+ */
+export function headerKey(pair: Pair<unknown, unknown>): string | null {
+  if (!isScalar(pair.key) || pair.key.value == null) return null;
+  const key = String(pair.key.value);
+  return key.trim() === "" ? null : key;
+}
+
+/**
+ * Whether a header value is one a form field shows and may change: text, a
+ * number, true/false, or nothing (`role:`). Anything else (a list, nested
+ * fields, a value tagged as a date or as binary data) is left as written.
+ */
+export function isFieldValue(value: unknown): value is Scalar {
+  if (!isScalar(value)) return false;
+  const v = value.value;
+  return v == null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+}
+
+/**
+ * Field keys that more than one header entry stands for, such as `1:` and
+ * `"1":` (two keys to YAML, one field key to the form). Neither is shown,
+ * and edits leave both alone.
+ */
+export function sharedHeaderKeys(map: YAMLMap<unknown, unknown>): Set<string> {
+  const seen = new Set<string>();
+  const shared = new Set<string>();
+  for (const pair of map.items) {
+    const key = headerKey(pair);
+    if (key === null) continue;
+    if (seen.has(key)) shared.add(key);
+    else seen.add(key);
+  }
+  return shared;
+}
+
+/**
+ * The typed fields a sheet's form shows, in file order: entries whose key
+ * is a field's key, held by no other entry, and whose value is text, a
+ * number or true/false. The same rules decide what an edit may change (see
+ * sheetFile.ts), so each field stands for exactly one entry.
+ */
+export function headerFields(map: YAMLMap<unknown, unknown>): [string, string][] {
+  const shared = sharedHeaderKeys(map);
+  const fields: [string, string][] = [];
+  for (const pair of map.items) {
+    const key = headerKey(pair);
+    if (key === null || RESERVED_KEYS.has(key) || shared.has(key) || !isFieldValue(pair.value)) continue;
+    const value = pair.value.value;
+    if (value != null) fields.push([key, String(value)]);
+  }
+  return fields;
+}
+
 export function parseSheet(path: string, text: string, problems: string[]): Sheet {
   const kind = path.slice(SHEETS.length).split("/")[0];
   const { header, body } = splitFrontMatter(text);
   let data: Record<string, unknown> = {};
+  let fields: [string, string][] = [];
+  let editable = true;
   if (header !== null) {
-    try {
-      const parsed: unknown = parseYaml(header);
-      if (isRecord(parsed)) data = parsed;
-      else if (parsed != null) problems.push(`${path}: the header is not a list of fields.`);
-    } catch (error) {
-      problems.push(`${path}: the header could not be read (${(error as Error).message}).`);
+    const doc = parseDocument(header);
+    const unreadable = (message: string) => {
+      editable = false;
+      problems.push(`${path}: the header could not be read (${message}).`);
+    };
+    if (doc.errors.length > 0) unreadable(doc.errors[0].message);
+    else if (isMap(doc.contents)) {
+      try {
+        const parsed: unknown = doc.toJS();
+        if (isRecord(parsed)) data = parsed;
+        fields = headerFields(doc.contents);
+      } catch (error) {
+        unreadable((error as Error).message);
+      }
+    } else if (!isEmptyHeader(doc.contents)) {
+      editable = false;
+      problems.push(`${path}: the header is not a list of fields.`);
     }
   }
-  const fields: [string, string][] = [];
-  for (const [key, value] of Object.entries(data)) {
-    if (key === "name" || key === "aliases") continue;
-    if (["string", "number", "boolean"].includes(typeof value)) fields.push([key, String(value)]);
-  }
   const name = typeof data.name === "string" && data.name.trim() !== "" ? data.name.trim() : stem(path);
-  return { id: path, kind, name, aliases: parseAliases(data.aliases), fields, body: body.replace(/^\s+/u, "") };
+  return {
+    id: path,
+    kind,
+    name,
+    aliases: parseAliases(data.aliases),
+    fields,
+    body: body.replace(/^\s+/u, ""),
+    text,
+    editable,
+  };
 }
 
 function parseProjectJson(text: string | null): { json: ProjectJson; problem: string | null } {
@@ -223,22 +316,37 @@ function parseStatuses(value: unknown, chapters: Chapter[]): string[] {
   return statuses;
 }
 
+/** The types, plus one for each folder under sheets/ that holds a sheet but has none. */
+function withSheetKinds(types: SheetType[], sheets: Sheet[]): SheetType[] {
+  const missing = [...new Set(sheets.map((s) => s.kind))].filter((kind) => !types.some((t) => t.folder === kind));
+  if (missing.length === 0) return types;
+  return [...types, ...missing.map((kind) => ({ folder: kind, label: capitalize(kind), fields: defaultFields(kind) }))];
+}
+
 function parseSheetTypes(value: unknown, sheets: Sheet[]): SheetType[] {
   const types: SheetType[] = [];
   if (Array.isArray(value)) {
     for (const item of value) {
       if (isRecord(item) && typeof item.folder === "string" && item.folder !== "") {
-        types.push({ folder: item.folder, label: asString(item.label) || capitalize(item.folder) });
+        // Keys as a sheet's header would hold them, without spaces around. The
+        // name and other names have their own place on a sheet: they are
+        // never template fields.
+        const fields = Array.isArray(item.fields)
+          ? [
+              ...new Set(
+                item.fields
+                  .filter((f): f is string => typeof f === "string")
+                  .map((f) => f.trim())
+                  .filter((f) => f !== "" && f !== "name" && f !== "aliases"),
+              ),
+            ]
+          : defaultFields(item.folder);
+        types.push({ folder: item.folder, label: asString(item.label) || capitalize(item.folder), fields });
       }
     }
   }
   if (types.length === 0) types.push(...DEFAULT_SHEET_TYPES);
-  for (const sheet of sheets) {
-    if (!types.some((t) => t.folder === sheet.kind)) {
-      types.push({ folder: sheet.kind, label: capitalize(sheet.kind) });
-    }
-  }
-  return types;
+  return withSheetKinds(types, sheets);
 }
 
 const byPath = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
@@ -373,6 +481,21 @@ export function buildNameMatcher(sheets: Sheet[]): NameMatcher {
     }
   }
   return new NameMatcher(patterns);
+}
+
+/**
+ * Returns a copy of the project with one sheet's file text replaced, or with
+ * a new sheet at `id` (a path under sheets/<type>/). Sheets stay in path
+ * order, as when the project is read.
+ */
+export function withSheetText(project: Project, id: string, text: string): Project {
+  const existing = project.sheets.find((s) => s.id === id);
+  if (existing?.text === text) return project;
+  const sheet = parseSheet(id, text, []);
+  const sheets = existing
+    ? project.sheets.map((s) => (s.id === id ? sheet : s))
+    : [...project.sheets, sheet].sort((a, b) => byPath(a.id, b.id));
+  return { ...project, sheets, sheetTypes: withSheetKinds(project.sheetTypes, sheets) };
 }
 
 /** Returns a copy of the project with one chapter's text replaced. */

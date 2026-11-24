@@ -78,10 +78,15 @@ export interface SheetPreviewProps {
   onClose(): void;
   /** For the sheet's Appears in list. A tapped chapter closes the preview before it is opened. */
   appearances: AppearancesSource;
+  /**
+   * Edit: the sheet's form, in the inspector (the preview itself stays
+   * read-only). Not offered for a sheet whose header can't be read.
+   */
+  onEdit(id: string): void;
 }
 
 /** Phones: a tapped name opens its sheet in a half-height sheet from the bottom. */
-export function SheetPreview({ sheet, open, onClose, appearances }: SheetPreviewProps) {
+export function SheetPreview({ sheet, open, onClose, appearances, onEdit }: SheetPreviewProps) {
   const headingId = useId();
   const source: AppearancesSource = {
     ...appearances,
@@ -99,9 +104,16 @@ export function SheetPreview({ sheet, open, onClose, appearances }: SheetPreview
           headingId={headingId}
           appearances={source}
           actions={
-            <button type="button" className="btn btn--icon" aria-label="Close" data-autofocus onClick={onClose}>
-              <X aria-hidden />
-            </button>
+            <div className="sheet-actions">
+              {sheet.editable && (
+                <button type="button" className="btn btn--quiet" onClick={() => onEdit(sheet.id)}>
+                  Edit
+                </button>
+              )}
+              <button type="button" className="btn btn--icon" aria-label="Close" data-autofocus onClick={onClose}>
+                <X aria-hidden />
+              </button>
+            </div>
           }
         />
       )}

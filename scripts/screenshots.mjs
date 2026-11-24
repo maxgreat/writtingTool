@@ -66,12 +66,30 @@ const SCENES = [
     colorScheme: "light",
     setup: async (page) => {
       // Elena Voss's sheet, from the inspector's Characters list: her fields, Appears in, then her notes.
-      await page.getByRole("navigation", { name: "Inspector sections" }).getByRole("button", { name: "Characters" }).click();
-      await page
-        .locator(".inspector .list-row")
-        .filter({ has: page.locator(".list-row-title", { hasText: "Elena Voss" }) })
-        .click();
+      await openElena(page);
       await page.locator('.inspector section[aria-label="Appears in"] .list-row').first().waitFor();
+    },
+  },
+  {
+    name: "desktop-sheet-edit",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // Her sheet's form, from Edit: name, other names, fields, notes, and Done.
+      await openElena(page);
+      await page.locator(".inspector").getByRole("button", { name: "Edit", exact: true }).click();
+      await page.locator(".inspector .sheet-form").waitFor();
+    },
+  },
+  {
+    name: "desktop-sheet-new",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // A new character's name, typed in place at the top of the Characters list (Enter would make the sheet).
+      await inspectorTab(page, "Characters").click();
+      await page.locator(".inspector").getByRole("button", { name: "New character" }).click();
+      await page.keyboard.type("Mira Holt");
     },
   },
   { name: "phone", ...PHONE, colorScheme: "light" },
@@ -103,6 +121,20 @@ const SCENES = [
 /** A chapter's row in the binder, by its title. */
 function chapterRow(page, title) {
   return page.locator(".binder-item").filter({ has: page.locator(".binder-row-title", { hasText: title }) });
+}
+
+/** One of the inspector's sections: This chapter, or a sheet type. */
+function inspectorTab(page, label) {
+  return page.getByRole("navigation", { name: "Inspector sections" }).getByRole("button", { name: label });
+}
+
+/** Elena Voss's sheet in the inspector, from its Characters list. */
+async function openElena(page) {
+  await inspectorTab(page, "Characters").click();
+  await page
+    .locator(".inspector .list-row")
+    .filter({ has: page.locator(".list-row-title", { hasText: "Elena Voss" }) })
+    .click();
 }
 
 /** Carets blink and transitions move: hide and stop them so a screenshot only changes when the interface does. */

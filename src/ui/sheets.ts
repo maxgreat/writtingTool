@@ -6,6 +6,22 @@ export function fieldLabel(key: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/** A value made of digits and separators (an age, a date, a time), shown with tabular figures. */
+export function looksNumeric(value: string): boolean {
+  return /^[\d\s.,:/+−-]+$/u.test(value);
+}
+
+const NOUNS = new Map([
+  ["characters", "character"],
+  ["places", "place"],
+  ["notes", "note"],
+]);
+
+/** One sheet of a type, for "New character": the default types have their own word, others are sheets. */
+export function sheetNoun(folder: string): string {
+  return NOUNS.get(folder) ?? "sheet";
+}
+
 /**
  * Removes Markdown markers from one line so it reads as plain text. As in
  * Notes, underscores only count at word edges, so "Smith_and_Sons" stays.

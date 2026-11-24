@@ -38,9 +38,13 @@ These are refreshed with every push, so they always show the app as it is on `ma
 | --- | --- |
 | ![A chapter's menu in the binder: rename, status, move up or down, move to a part, new chapter, Trash](docs/screenshots/desktop-binder-menu.png) | ![The binder after a chapter went to the Trash: its part is empty, and the open Trash lists it with Restore](docs/screenshots/desktop-binder-trash.png) |
 
-| Projects | A character's sheet |
+| Projects | A new character |
 | --- | --- |
-| ![The Projects view, open under the project title at the top of the binder: the open project is checked. The browser preview has only the sample project, so it says so instead of offering a new project. The last line has the app's version and a link to the privacy policy](docs/screenshots/desktop-projects.png) | ![Elena Voss's sheet in the inspector: her aliases, role and age, then Appears in, which lists the chapters that mention her under their parts with how many times (The arrival, open in the editor, 3; The ferryman, 2; Upstream, 1), then her notes](docs/screenshots/desktop-sheet.png) |
+| ![The Projects view, open under the project title at the top of the binder: the open project is checked. The browser preview has only the sample project, so it says so instead of offering a new project. The last line has the app's version and a link to the privacy policy](docs/screenshots/desktop-projects.png) | ![The inspector's Characters list, with a new character's name, Mira Holt, typed in place at the top, above Arno Kell and Elena Voss. Enter makes the sheet and opens its form](docs/screenshots/desktop-sheet-new.png) |
+
+| A character's sheet | Editing it |
+| --- | --- |
+| ![Elena Voss's sheet in the inspector, with Edit at the top: her aliases, role and age, then Appears in, which lists the chapters that mention her under their parts with how many times (The arrival, open in the editor, 3; The ferryman, 2; Upstream, 1), then her notes](docs/screenshots/desktop-sheet.png) | ![Elena Voss's sheet in its form, after Edit, with Done at the top: her name; her other names, Elena and Voss, each with an Any case option and a remove button, then Add another name; her role and age, then Add a field; her notes as Markdown in a box that grows with the text](docs/screenshots/desktop-sheet-edit.png) |
 
 | Phone | Binder | Inspector |
 | --- | --- | --- |
@@ -93,7 +97,7 @@ npm run screenshots               # retakes the pictures in docs/screenshots (ne
 
 ## What the app has, and what comes next
 
-Built so far (phases 0 and 1 of the guide):
+Built so far (phases 0 and 1 of the guide, and sheet forms from phase 2):
 
 - The binder, the editor and the inspector, with hide buttons, resizable panels, focus mode, a phone layout, and light and dark themes. On phones the panels also slide in with a swipe from the screen edge (on Android with gesture navigation, from the middle of the edge: above and below it the edge stays the system's Back gesture), and the formatting bar docks above the on-screen keyboard while you type.
 - Projects: the project title opens the list of projects on this device, to switch to another or create one with its title and language. On desktop, "Open folder…" opens a project folder from anywhere, and the ones opened recently are listed too.
@@ -103,6 +107,7 @@ Built so far (phases 0 and 1 of the guide):
 - Two editing modes on the same Markdown: Formatted (Tiptap) and Plain (CodeMirror 6). Switching keeps the caret in place, and the chapter files round-trip byte for byte.
 - Character and place names highlighted as you type: whole words, longest match wins, apostrophes and accents handled, and case rules set per alias. Clicking a name opens its sheet.
 - Every sheet but notes lists the chapters that mention it, under their parts, with how many times; clicking one opens that chapter.
+- Sheets made and edited in the app. "New character" (or place, note) at the top of a type's list in the inspector asks for the name, makes `sheets/<type>/<name>.md` and opens its form. A sheet's Edit shows its form: the name, other names (each can match in any case, so the alias "the ferryman" also finds "The ferryman"), the type's fields (characters have a role and an age, places a type; `fields` in a sheet type in `project.json` changes them) plus any you add, and the notes in Markdown. Changes save as you go; a name is saved when you leave its field, and the highlights follow at once. On phones, the name preview has Edit too, which opens the form in the inspector. A sheet whose header can't be read says so and stays read-only.
 - Autosave about a second after typing stops, with atomic writes, and word counts for the chapter, the book and today.
 - Earlier versions of each chapter: the last 20 are kept in `snapshots/` (one at most every ten minutes of editing) and can be restored from the inspector.
 
@@ -112,4 +117,4 @@ Still to build, following the guide's phases:
 - Spelling (spellbook with Hunspell dictionaries) and grammar
 - Export: the Typst PDF preview, then EPUB, Word and Markdown
 - Testing the Windows and macOS builds on real machines (CI builds them, but only the Linux and Android apps have been run so far), and code-signing them
-- Editing sheets, and the "Possible names" list
+- The "Possible names" list

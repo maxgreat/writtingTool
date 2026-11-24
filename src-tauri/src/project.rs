@@ -96,12 +96,17 @@ pub struct FileWrite {
     pub must_be_new: bool,
 }
 
-/// A change to the binder, made as a whole or not at all: folders are
-/// created, then every move is made at once (so two names can be swapped),
-/// then the files are written.
+/// A change to the binder or the sheets, made as a whole or not at all:
+/// folders are created, then every move is made at once (so two names can
+/// be swapped), then the files are written.
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Change {
     pub folders: Vec<String>,
+    /// `sheets` or `sheets/<type>` folders to create if they are missing,
+    /// before the files are written (a project made elsewhere may lack one).
+    #[serde(default)]
+    pub sheet_folders: Vec<String>,
     pub moves: Vec<Move>,
     pub writes: Vec<FileWrite>,
 }
@@ -476,6 +481,19 @@ impl ProjectRoot {
             done.push(Done::CreatedFolder(path));
         }
 
+        for folder in &change.sheet_folders {
+            let path = self.resolve_sheet_folder(folder)?;
+            match fs::symlink_metadata(&path) {
+                Ok(meta) if meta.is_dir() => {}
+                Ok(_) => return Err(invalid(format!("{folder} is not a folder"))),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                    fs::create_dir(&path)?;
+                    done.push(Done::CreatedFolder(path));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
         for m in &change.moves {
             let from = self.resolve_binder_path(&m.from, false)?;
             let meta = fs::symlink_metadata(&from)?;
@@ -609,6 +627,24 @@ impl ProjectRoot {
         let in_binder = BINDER_FOLDERS.contains(&parts[0]) && (top || parts.len() > 1);
         if !in_binder {
             return Err(invalid(format!("{relative} is not inside manuscript/ or trash/")));
+        }
+        let mut full = self.root.clone();
+        for part in &parts {
+            full.push(part);
+        }
+        let parent = fs::canonicalize(full.parent().ok_or_else(|| invalid("no parent folder"))?)?;
+        if !parent.starts_with(&self.root) {
+            return Err(invalid(format!("{relative} is outside the project")));
+        }
+        Ok(parent.join(parts[parts.len() - 1]))
+    }
+
+    /// `sheets` or `sheets/<type>`, through plain segments, whose parent
+    /// folder resolves inside the project.
+    fn resolve_sheet_folder(&self, relative: &str) -> io::Result<PathBuf> {
+        let parts = plain_segments(relative)?;
+        if parts[0] != "sheets" || parts.len() > 2 {
+            return Err(invalid(format!("{relative} is not sheets/ or a sheet type folder in it")));
         }
         let mut full = self.root.clone();
         for part in &parts {
@@ -975,6 +1011,7 @@ mod tests {
     fn change(folders: &[&str], moves: &[(&str, &str)], writes: &[(&str, &str)]) -> Change {
         Change {
             folders: folders.iter().map(|f| f.to_string()).collect(),
+            sheet_folders: Vec::new(),
             moves: moves.iter().map(|(from, to)| Move { from: from.to_string(), to: to.to_string() }).collect(),
             writes: writes
                 .iter()
@@ -1143,4 +1180,59 @@ mod tests {
         let snapshot = root.snapshot().unwrap();
         assert_eq!(snapshot.skipped, vec!["manuscript/bad.md".to_string()]);
     }
+
+    fn new_sheet(folders: &[&str], path: &str) -> Change {
+        Change {
+            folders: Vec::new(),
+            sheet_folders: folders.iter().map(|f| f.to_string()).collect(),
+            moves: Vec::new(),
+            writes: vec![FileWrite { path: path.to_string(), text: "---\nname: Tomas\n---\n".to_string(), must_be_new: true }],
+        }
+    }
+
+    #[test]
+    fn creates_missing_sheet_folders_for_a_new_sheet() {
+        let (_dir, root) = sample();
+        fs::remove_dir_all(root.path().join("sheets")).unwrap();
+        root.apply(&new_sheet(&["sheets", "sheets/creatures"], "sheets/creatures/Tomas.md")).unwrap();
+        assert_eq!(read(&root, "sheets/creatures/Tomas.md"), "---\nname: Tomas\n---\n");
+        // Folders that are there already are left as they are.
+        root.apply(&new_sheet(&["sheets", "sheets/creatures"], "sheets/creatures/Ada.md")).unwrap();
+        assert!(root.path().join("sheets/creatures/Tomas.md").is_file());
+    }
+
+    #[test]
+    fn takes_back_sheet_folders_it_created_when_a_write_fails() {
+        let (_dir, root) = sample();
+        let mut change = new_sheet(&["sheets/creatures"], "sheets/creatures/Tomas.md");
+        change.writes.push(FileWrite {
+            path: "sheets/characters/Elena Voss.md".to_string(),
+            text: String::new(),
+            must_be_new: true,
+        });
+        assert!(root.apply(&change).is_err());
+        assert!(!root.path().join("sheets/creatures").exists());
+        assert!(read(&root, "sheets/characters/Elena Voss.md").contains("name: Elena Voss"));
+    }
+
+    #[test]
+    fn refuses_sheet_folders_elsewhere_or_through_links() {
+        let (dir, root) = sample();
+        for folder in ["manuscript/x", "sheets/a/b", "sheets/../manuscript", "sheets/.hidden", "notes"] {
+            assert!(root.apply(&new_sheet(&[folder], "sheets/characters/Tomas.md")).is_err(), "{folder}");
+        }
+        fs::write(root.path().join("sheets/file"), "").unwrap();
+        assert!(root.apply(&new_sheet(&["sheets/file"], "sheets/characters/Tomas.md")).is_err());
+        #[cfg(unix)]
+        {
+            let outside = dir.path().join("outside");
+            fs::create_dir(&outside).unwrap();
+            fs::remove_dir_all(root.path().join("sheets")).unwrap();
+            std::os::unix::fs::symlink(&outside, root.path().join("sheets")).unwrap();
+            assert!(root.apply(&new_sheet(&["sheets/creatures"], "sheets/creatures/Tomas.md")).is_err());
+            assert!(!outside.join("creatures").exists());
+        }
+        assert!(!root.path().join("sheets/characters/Tomas.md").exists());
+    }
+
 }

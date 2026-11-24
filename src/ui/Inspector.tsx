@@ -1,17 +1,23 @@
-import { ChevronLeft } from "lucide-react";
-import { useId, useMemo } from "react";
+import { ChevronLeft, Plus } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ChapterDetails as Details } from "../core/binder";
 import type { NameIndex } from "../core/nameIndex";
 import type { NameMatcher } from "../core/names";
 import type { Chapter, Project, Sheet } from "../core/project";
+import type { SheetEdit } from "../core/sheetFile";
 import type { AppearancesSource } from "./AppearsIn";
 import { ChapterDetails } from "./ChapterDetails";
-import { formatCount } from "./dom";
+import { cx, errorMessage, formatCount } from "./dom";
+import { SheetForm } from "./SheetForm";
 import { SheetView } from "./SheetView";
-import { groupByType, namesFromCounts, sheetSummary } from "./sheets";
+import { groupByType, namesFromCounts, sheetNoun, sheetSummary } from "./sheets";
 import { Versions, type VersionSource } from "./Versions";
 
-export type InspectorView = { kind: "chapter" } | { kind: "type"; folder: string } | { kind: "sheet"; id: string };
+export type InspectorView =
+  | { kind: "chapter" }
+  | { kind: "type"; folder: string }
+  /** `editing`: the sheet's form, in place of the sheet as it reads. */
+  | { kind: "sheet"; id: string; editing?: boolean };
 
 export interface InspectorProps {
   project: Project;
@@ -27,7 +33,11 @@ export interface InspectorProps {
   onOpenChapter(id: string): void;
   /** Sets the open chapter's synopsis, status or point of view. Throws when project.json can't be written. */
   onChapterDetails(id: string, details: Details): void;
-  /** The project on disk is changing: the chapter's details and Appears in wait until it has. */
+  /** useProject's createSheet: resolves to the new sheet's id, or rejects with a message for the writer. */
+  onCreateSheet(kind: string, name: string): Promise<string>;
+  /** useProject's updateSheet: saved like an edit. Throws, changing nothing, when the edit is refused. */
+  onUpdateSheet(id: string, edit: SheetEdit): void;
+  /** The project on disk is changing: the chapter's details, sheets and Appears in wait until it has. */
   busy: boolean;
   /** The open chapter's earlier versions, listed under This chapter. */
   versions: VersionSource;
@@ -37,9 +47,9 @@ export interface InspectorProps {
 
 /**
  * The right panel: a menu with This chapter and one entry per sheet type,
- * and the sheet of a clicked name, with the chapters it appears in. Sheets
- * are read-only in this prototype; a chapter's details can be edited and
- * its earlier versions restored.
+ * and the sheet of a clicked name, with the chapters it appears in. A type's
+ * list makes new sheets; a sheet's Edit shows its form, Done the sheet again.
+ * A chapter's details can be edited and its earlier versions restored.
  */
 export function Inspector({
   project,
@@ -52,6 +62,8 @@ export function Inspector({
   onOpenSheet,
   onOpenChapter,
   onChapterDetails,
+  onCreateSheet,
+  onUpdateSheet,
   busy,
   versions,
   visible,
@@ -60,7 +72,34 @@ export function Inspector({
   // A sheet that disappeared (another project was opened) falls back to the chapter.
   const shown: InspectorView = view.kind === "sheet" && !sheet ? { kind: "chapter" } : view;
   const activeTab = shown.kind === "chapter" ? "chapter" : shown.kind === "type" ? shown.folder : sheet!.kind;
+  const sheetType = sheet ? project.sheetTypes.find((t) => t.folder === sheet.kind) : undefined;
+  // A sheet whose header can't be read has no form: it says why instead.
+  const editing = shown.kind === "sheet" && shown.editing === true && sheet !== null && sheet.editable;
   const headingId = useId();
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  /** The sheet just made, if any: its form opens with the caret in its first field. */
+  const fillIn = useRef<string | null>(null);
+
+  // Focus follows the form as it opens. Edit becomes Done where it was, so
+  // focus stays there; from elsewhere (the phone's preview) it goes to Done,
+  // and a new sheet starts in its first field.
+  const formId = editing ? sheet.id : null;
+  const formKey = formId === null ? null : `${project.root}\n${formId}`;
+  useEffect(() => {
+    if (formKey === null) return;
+    const fill = fillIn.current === formId;
+    fillIn.current = null;
+    const body = bodyRef.current;
+    if (fill) body?.querySelector<HTMLElement>(".sheet-form .fields input, .sheet-form textarea")?.focus();
+    else if (!body?.contains(document.activeElement)) toggleRef.current?.focus({ preventScroll: true });
+  }, [formKey]);
+
+  const sheetCreated = (id: string) => {
+    fillIn.current = id;
+    onViewChange({ kind: "sheet", id, editing: true });
+  };
+
   const appearances: AppearancesSource = {
     index,
     project,
@@ -94,7 +133,7 @@ export function Inspector({
         ))}
       </nav>
 
-      <div className="inspector-body">
+      <div ref={bodyRef} className="inspector-body">
         {shown.kind === "chapter" && (
           <ChapterInfo
             project={project}
@@ -109,18 +148,52 @@ export function Inspector({
             visible={visible}
           />
         )}
-        {shown.kind === "type" && <SheetList project={project} folder={shown.folder} onOpenSheet={onOpenSheet} />}
+        {shown.kind === "type" && (
+          // Keyed by project and type: a name being typed belongs to that list.
+          <SheetList
+            key={`${project.root}\n${shown.folder}`}
+            project={project}
+            folder={shown.folder}
+            onOpenSheet={onOpenSheet}
+            onCreate={onCreateSheet}
+            onCreated={sheetCreated}
+            busy={busy}
+          />
+        )}
         {shown.kind === "sheet" && sheet && (
           <>
-            <button
-              type="button"
-              className="btn btn--quiet back-link"
-              onClick={() => onViewChange({ kind: "type", folder: sheet.kind })}
-            >
-              <ChevronLeft aria-hidden />
-              {project.sheetTypes.find((t) => t.folder === sheet.kind)?.label ?? sheet.kind}
-            </button>
-            <SheetView key={sheet.id} sheet={sheet} headingId={headingId} appearances={appearances} />
+            <div className="sheet-nav">
+              <button
+                type="button"
+                className="btn btn--quiet back-link"
+                onClick={() => onViewChange({ kind: "type", folder: sheet.kind })}
+              >
+                <ChevronLeft aria-hidden />
+                <span className="back-link-label">{sheetType?.label ?? sheet.kind}</span>
+              </button>
+              {sheet.editable && (
+                <button
+                  ref={toggleRef}
+                  type="button"
+                  className={cx("btn edit-toggle", editing ? "btn--primary" : "btn--quiet")}
+                  onClick={() => onViewChange({ kind: "sheet", id: sheet.id, editing: !editing })}
+                >
+                  {editing ? "Done" : "Edit"}
+                </button>
+              )}
+            </div>
+            {editing ? (
+              // Keyed by project and sheet: sheet ids are paths, so another project can reuse one.
+              <SheetForm
+                key={formKey}
+                sheet={sheet}
+                type={sheetType}
+                onChange={onUpdateSheet}
+                busy={busy}
+              />
+            ) : (
+              <SheetView key={sheet.id} sheet={sheet} headingId={headingId} appearances={appearances} />
+            )}
           </>
         )}
       </div>
@@ -206,32 +279,147 @@ function ChapterInfo({
   );
 }
 
-function SheetList({ project, folder, onOpenSheet }: { project: Project; folder: string; onOpenSheet(id: string): void }) {
+interface SheetListProps {
+  project: Project;
+  folder: string;
+  onOpenSheet(id: string): void;
+  onCreate(kind: string, name: string): Promise<string>;
+  /** A sheet was made: show its form. */
+  onCreated(id: string): void;
+  busy: boolean;
+}
+
+/**
+ * A type's sheets, and New character (or place, note, sheet) at the top,
+ * which asks for the name in place: Enter makes the sheet, Escape cancels,
+ * and a refusal shows below the name, which stays as typed.
+ */
+function SheetList({ project, folder, onOpenSheet, onCreate, onCreated, busy }: SheetListProps) {
   const type = project.sheetTypes.find((t) => t.folder === folder);
   const sheets = project.sheets.filter((s) => s.kind === folder);
   const label = type?.label ?? folder;
-  if (sheets.length === 0) {
-    return (
-      <p className="empty-note">
-        No {label.toLowerCase()} yet. Add a Markdown file to <code className="path">sheets/{folder}/</code> in the project folder.
-      </p>
-    );
-  }
+  const noun = sheetNoun(folder);
+
+  /** The new sheet's name being typed; null while New shows. */
+  const [draft, setDraft] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const locked = busy || creating;
+  const errorId = useId();
+  const newRef = useRef<HTMLButtonElement>(null);
+
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
+
+  /** Set by Escape: focus goes back to New once it is on screen again. */
+  const backToNew = useRef(false);
+  useEffect(() => {
+    if (draft !== null || !backToNew.current) return;
+    backToNew.current = false;
+    newRef.current?.focus();
+  }, [draft]);
+
+  const close = () => {
+    setDraft(null);
+    setFailure(null);
+  };
+
+  const create = async () => {
+    if (draft === null || locked) return;
+    setCreating(true);
+    setFailure(null);
+    try {
+      const id = await onCreate(folder, draft);
+      // The list may be gone by now (another tab, another project): the sheet is made all the same.
+      if (live.current) onCreated(id);
+    } catch (error) {
+      if (live.current) setFailure(errorMessage(error));
+    } finally {
+      if (live.current) setCreating(false);
+    }
+  };
+
   return (
-    <section aria-label={label}>
-      <ul>
-        {sheets.map((sheet) => {
-          const { field } = sheetSummary(sheet);
-          return (
-            <li key={sheet.id}>
-              <button type="button" className="list-row list-row--stacked" onClick={() => onOpenSheet(sheet.id)}>
-                <span className="list-row-title">{sheet.name}</span>
-                {field && <span className="muted">{field[1]}</span>}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+    <section className="sheet-list" aria-label={label} aria-busy={creating}>
+      {draft === null ? (
+        <button
+          ref={newRef}
+          type="button"
+          className="btn btn--quiet add-button"
+          disabled={busy}
+          onClick={() => setDraft("")}
+        >
+          <Plus aria-hidden />
+          New {noun}
+        </button>
+      ) : (
+        <div className="new-sheet">
+          <input
+            className="input"
+            value={draft}
+            aria-label={`Name of the new ${noun}`}
+            placeholder="Name"
+            readOnly={locked}
+            aria-busy={creating}
+            aria-invalid={failure !== null}
+            aria-describedby={failure !== null ? errorId : undefined}
+            enterKeyHint="done"
+            autoComplete="off"
+            spellCheck={false}
+            autoFocus
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setFailure(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return;
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void create();
+              } else if (event.key === "Escape") {
+                // Handled here, so the phone layout doesn't also close the inspector.
+                event.preventDefault();
+                event.stopPropagation();
+                if (creating) return;
+                backToNew.current = true;
+                close();
+              }
+            }}
+            onBlur={() => {
+              // Leaving an empty name drops it; a typed one waits for Enter.
+              if (!creating && draft.trim() === "") close();
+            }}
+          />
+          {failure !== null && (
+            <p id={errorId} className="inline-error" role="alert">
+              {failure}
+            </p>
+          )}
+        </div>
+      )}
+
+      {sheets.length === 0 ? (
+        draft === null && <p className="empty-note">No {label.toLowerCase()} yet.</p>
+      ) : (
+        <ul>
+          {sheets.map((sheet) => {
+            const { field } = sheetSummary(sheet);
+            return (
+              <li key={sheet.id}>
+                <button type="button" className="list-row list-row--stacked" onClick={() => onOpenSheet(sheet.id)}>
+                  <span className="list-row-title">{sheet.name}</span>
+                  {field && <span className="muted">{field[1]}</span>}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }

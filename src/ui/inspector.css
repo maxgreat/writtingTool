@@ -192,10 +192,60 @@
   max-width: 100%;
 }
 
-.back-link {
+/* A type's sheets, with New at the top. */
+.sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* New character, Add another name, Add a field: quiet, pulled out by their padding so the plus starts at the content's edge. */
+.add-button {
   align-self: flex-start;
-  margin: calc(var(--space-2) * -1) 0 calc(var(--space-2) * -1) calc(var(--space-2) * -1);
+  margin-inline-start: calc(var(--space-2) * -1);
+}
+
+/* A name typed in place (a new sheet, a new field), and the reason it was refused. */
+.new-sheet,
+.new-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* While the new sheet's file is being made, its name waits, dimmed. */
+.new-sheet .input[aria-busy="true"] {
+  color: var(--color-text-muted);
+}
+
+/* Above a sheet: back to its type's list, and Edit or Done. Pulled into the padding above and below, so the controls don't push the sheet down. */
+.sheet-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-block: calc(var(--space-2) * -1);
+}
+
+/* In the narrowest panel, the type's name gives way to Edit or Done. */
+.back-link {
+  min-width: 0;
+  margin-inline-start: calc(var(--space-2) * -1);
   padding-inline: var(--space-1) var(--space-2);
+}
+
+.back-link-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Edit is quiet, its label ending with the content (pulled out by its padding); Done is the form's primary action. */
+.edit-toggle {
+  flex: none;
+}
+
+.edit-toggle.btn--quiet {
+  margin-inline-end: calc(var(--space-2) * -1);
 }
 
 /* Earlier versions of the chapter: when each was kept, its length, and Restore. */
@@ -302,9 +352,18 @@
   font-size: var(--text-xl);
 }
 
-/* The close button sits on the name's first line. */
-.sheet-header .btn--icon {
-  margin: calc(var(--space-1) * -1) calc(var(--space-1-5) * -1) 0 0;
+/* The preview's Edit and Close sit on the name's first line; Close is pulled out by its padding. */
+.sheet-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin-block-start: calc(var(--space-1) * -1);
+  margin-inline-end: calc((var(--size-control) - var(--size-icon)) / -2);
+}
+
+/* Under the name: why the sheet can't be edited here. */
+.sheet-locked {
+  margin-top: calc(var(--space-2) * -1);
 }
 
 .sheet-aliases {
@@ -315,6 +374,91 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+/* A sheet's form: name, other names, fields and notes. Each group keeps its Add button close. */
+.sheet-form-group,
+.alias-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sheet-form-name {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.sheet-name-input {
+  padding-block: var(--space-1);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+/* A name, Any case and Remove on one line; in a narrow panel, Any case and Remove go under the name. */
+.alias-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.alias-input {
+  flex: 1 1 var(--size-input-min);
+  min-width: 0;
+}
+
+.alias-case {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-height: var(--size-control);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.alias-case:has(input:disabled) {
+  cursor: default;
+}
+
+.alias-case input {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  margin: 0;
+  accent-color: var(--color-accent-fill);
+  cursor: inherit;
+}
+
+/* A field's value, and Remove for fields the type's template doesn't have. */
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.field-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Remove ends the line, its icon lined up with the content's end (pulled out by its padding). */
+.alias-row .btn--icon,
+.field-row .btn--icon {
+  margin-inline: auto calc((var(--size-control) - var(--size-icon)) / -2);
+}
+
+/* Keeps a template field's value as wide as those with Remove: the room Remove takes, pull included. */
+.field-remove-slot {
+  flex: none;
+  width: calc((var(--size-control) + var(--size-icon)) / 2);
+}
+
+/* The notes grow with their text (set from script), from four lines. */
+.notes-input {
+  font-size: var(--text-md);
 }
 
 .notes {

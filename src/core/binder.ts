@@ -34,6 +34,8 @@ export interface FileWrite {
  */
 export interface Change {
   folders: string[];
+  /** `sheets` or `sheets/<type>` folders to create if they are missing, before the files are written. */
+  sheetFolders?: string[];
   moves: Move[];
   writes: FileWrite[];
 }
