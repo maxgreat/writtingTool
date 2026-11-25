@@ -4,6 +4,7 @@ import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate
 import { tags } from "@lezer/highlight";
 import type { NameMatcher } from "../names";
 import { nameFromSelection, wordAround } from "../possibleNames";
+import { markdownText } from "../readable";
 import { wordToCheckAt } from "../spelling";
 import { paragraphMarks, type MarkSources } from "./nameMarks";
 import type { BlockStyle, EditorWord, FormatState } from "./types";
@@ -300,13 +301,32 @@ export function plainSpellingWordAt(view: EditorView, x: number, y: number): Edi
   return found ? { word: found.word, from: line.from + found.from, to: line.from + found.to } : null;
 }
 
-/** Replaces a word found by plainSpellingWordAt, if the text there is still that word. */
+/** Where a grammar mark is in the Markdown (its data-from and data-to are offsets in its line), with its text. */
+export function plainMarkRange(view: EditorView, mark: Element): EditorWord | null {
+  if (!view.contentDOM.contains(mark)) return null;
+  const from = Number(mark.getAttribute("data-from"));
+  const to = Number(mark.getAttribute("data-to"));
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from >= to) return null;
+  const line = view.state.doc.lineAt(view.posAtDOM(mark));
+  if (to > line.length) return null;
+  const word = line.text.slice(from, to);
+  // Markers or escapes inside: replacing the range would take them away (see paragraphMarks).
+  if (word !== mark.getAttribute("data-text")) return null;
+  return { word, from: line.from + from, to: line.from + to };
+}
+
+/**
+ * Replaces a word found by plainSpellingWordAt (or a grammar mark's range),
+ * if the text there is still that word, with `text` as it reads: written
+ * as Markdown, its markers escaped.
+ */
 export function plainReplaceWord(view: EditorView, word: EditorWord, text: string): boolean {
   const { doc } = view.state;
   if (word.to > doc.length || doc.sliceString(word.from, word.to) !== word.word) return false;
+  const insert = markdownText(text);
   view.dispatch({
-    changes: { from: word.from, to: word.to, insert: text },
-    selection: { anchor: word.from + text.length },
+    changes: { from: word.from, to: word.to, insert },
+    selection: { anchor: word.from + insert.length },
     userEvent: "input.replace",
     scrollIntoView: true,
   });

@@ -151,6 +151,23 @@ const SCENES = [
     },
   },
   {
+    name: "desktop-grammar-menu",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // A sentence with a grammar problem, typed at the end of a paragraph of The arrival. Once typing stops the
+      // dev server checks it (building its copy of the core the first time, hence the long wait), the problem gets
+      // the blue wavy mark, and a right-click on it opens what is wrong, its fixes and Ignore.
+      await page.locator(".ProseMirror p", { hasText: "Morning came grey over the river." }).click();
+      await page.keyboard.press("End");
+      await page.keyboard.type(" She have a skiff by the jetty.");
+      const problem = page.locator(".ProseMirror p", { hasText: "She have a skiff" }).locator(".grammar-mark").last();
+      await problem.waitFor({ timeout: 180_000 });
+      await problem.click({ button: "right" });
+      await page.getByRole("menu", { name: /^Grammar: / }).waitFor();
+    },
+  },
+  {
     name: "desktop-sheet-new",
     ...DESKTOP,
     colorScheme: "light",

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } from "react";
-import type { Backend } from "../core/backend";
+import type { Backend, GrammarProblem, GrammarServer } from "../core/backend";
 import type { TextPosition } from "../core/caret";
 import type { BlockStyle, EditorHandle, FormatState } from "../core/editor/types";
 import { NameIndex } from "../core/nameIndex";
@@ -9,6 +9,7 @@ import type { EditorMode, ViewSettings } from "../core/settings";
 import { addToPersonalDictionary, readPersonalDictionary } from "../core/spelling";
 import { useNameSuggestions } from "../core/useNameSuggestions";
 import type { useProject } from "../core/useProject";
+import { useGrammar } from "../core/useGrammar";
 import { useSpelling } from "../core/useSpelling";
 import { TextNote } from "./AddName";
 import { BACK_AGAIN, BackLayer, useBackLayer, useLeaveOnBack, type Leave } from "./BackStack";
@@ -18,6 +19,7 @@ import { CloseDialog } from "./CloseDialog";
 import { cx, errorMessage, focusLost, hasMod, shortcut } from "./dom";
 import { EditorPane } from "./EditorPane";
 import { FormatBar } from "./FormatBar";
+import type { GrammarSource } from "./GrammarMenu";
 import { HOVER_QUERY, useMediaQuery } from "./hooks";
 import type { IgnoreSource } from "./IgnoreHere";
 import { Inspector, type InspectorView } from "./Inspector";
@@ -47,6 +49,23 @@ const NO_FORMAT: FormatState = { bold: false, italic: false, block: "body" };
 
 /** Focus mode marks no possible names. */
 const NO_WORDS: ReadonlySet<string> = new Set();
+const NO_PROBLEMS: ReadonlyMap<string, readonly GrammarProblem[]> = new Map();
+
+const ignoredKey = (text: string, message: string) => `${text}\u0000${message}`;
+
+/** The grammar problems without those ignored: the same map when none is. */
+function withoutIgnored(
+  problems: ReadonlyMap<string, readonly GrammarProblem[]>,
+  ignored: ReadonlySet<string>,
+): ReadonlyMap<string, readonly GrammarProblem[]> {
+  if (ignored.size === 0 || problems.size === 0) return problems;
+  const out = new Map<string, readonly GrammarProblem[]>();
+  for (const [paragraph, found] of problems) {
+    const kept = found.filter((p) => !ignored.has(ignoredKey(paragraph.slice(p.from, p.to), p.message)));
+    if (kept.length > 0) out.set(paragraph, kept);
+  }
+  return out;
+}
 
 /**
  * The phone's name preview: which sheet, whether it is up, the name tapped
@@ -124,6 +143,23 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
       addToPersonal: (word) => setPersonalWords(addToPersonalDictionary(word)),
     };
   }, [backend, project.language, spelling.available, addToDictionary]);
+
+  // The open chapter's grammar problems: English on this device, or every language on the writer's LanguageTool server.
+  const { mode: toolMode, url: toolUrl, username: toolUser, apiKey: toolKey } = settings.languageTool;
+  const grammarServer = useMemo<GrammarServer | null>(() => {
+    if (toolMode === "public") return { mode: "public" };
+    if (toolMode === "premium") return { mode: "premium", username: toolUser, apiKey: toolKey };
+    if (toolMode === "own") return { mode: "own", url: toolUrl };
+    return null;
+  }, [toolMode, toolUrl, toolUser, toolKey]);
+  const grammar = useGrammar(backend, project.language, chapter?.text ?? null, settings.grammar, grammarServer);
+  /** Problems the writer chose to ignore, as the text they cover and the message: until the app closes. */
+  const [ignoredProblems, setIgnoredProblems] = useState<ReadonlySet<string>>(() => new Set());
+  const problems = useMemo(() => withoutIgnored(grammar.problems, ignoredProblems), [grammar.problems, ignoredProblems]);
+  const grammarSource = useMemo<GrammarSource>(
+    () => ({ ignore: (hit) => setIgnoredProblems((ignored) => new Set(ignored).add(ignoredKey(hit.text, hit.message))) }),
+    [],
+  );
 
   const editorRef = useRef<EditorHandle>(null);
   const [format, setFormat] = useState<FormatState>(NO_FORMAT);
@@ -1082,6 +1118,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           suggesting={focusMode ? null : suggesting}
           misspelled={focusMode ? NO_WORDS : spelling.misspelled}
           spelling={focusMode ? null : spellingSource}
+          grammar={focusMode ? NO_PROBLEMS : problems}
+          grammarSource={focusMode ? null : grammarSource}
           popupTextMenu={popupTextMenu}
           touch={!canHover}
           sheetsById={sheetsById}
@@ -1159,6 +1197,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           confirmed={saveConfirmed}
           backendKind={backend.kind}
           problems={project.problems}
+          grammarError={grammar.error}
           compact={isPhone}
         />
       )}

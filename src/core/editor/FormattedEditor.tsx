@@ -1,15 +1,17 @@
+import type { GrammarProblem } from "../backend";
 import type { Editor } from "@tiptap/core";
 import { Selection } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useEffect, useImperativeHandle, useRef } from "react";
 import { chapterExtensions, keepsChapterExactly } from "../markdown";
-import { nameMarkAt, spellingMarkAt, suggestionMarkAt } from "./nameMarks";
+import { grammarMarkAt, nameMarkAt, spellingMarkAt, suggestionMarkAt } from "./nameMarks";
 import {
   NameHighlight,
   REFRESH_NAMES,
   nameHighlightKey,
   pmPositionToText,
   selectedNameIn,
+  markRangeIn,
   replaceWordIn,
   selectionContainsPoint,
   spellingWordAtPoint,
@@ -19,6 +21,7 @@ import {
 import { sameFormat, shouldFocusOnMount, type ChapterEditorProps, type FormatState } from "./types";
 
 const NO_WORDS: ReadonlySet<string> = new Set();
+const NO_PROBLEMS: ReadonlyMap<string, readonly GrammarProblem[]> = new Map();
 
 function formatOf(editor: Editor): FormatState {
   const block = editor.isActive("blockquote") ? "quote" : editor.isActive("heading") ? "heading" : "body";
@@ -41,6 +44,8 @@ export function FormattedEditor({
   onSuggestionClick,
   misspelled = NO_WORDS,
   onSpellingClick,
+  grammar = NO_PROBLEMS,
+  onGrammarClick,
   onUnsupportedMarkdown,
   readOnly = false,
   className,
@@ -50,11 +55,13 @@ export function FormattedEditor({
     matcher,
     suggestions,
     misspelled,
+    grammar,
     onChange,
     onFormatChange,
     onNameClick,
     onSuggestionClick,
     onSpellingClick,
+    onGrammarClick,
     onUnsupportedMarkdown,
     readOnly,
   });
@@ -62,11 +69,13 @@ export function FormattedEditor({
     matcher,
     suggestions,
     misspelled,
+    grammar,
     onChange,
     onFormatChange,
     onNameClick,
     onSuggestionClick,
     onSpellingClick,
+    onGrammarClick,
     onUnsupportedMarkdown,
     readOnly,
   };
@@ -97,6 +106,7 @@ export function FormattedEditor({
         getMatcher: () => latest.current.matcher,
         getSuggestions: () => latest.current.suggestions,
         getMisspelled: () => latest.current.misspelled,
+        getGrammar: () => latest.current.grammar,
       }),
     ],
     content: markdown,
@@ -116,6 +126,8 @@ export function FormattedEditor({
         if (suggestion) latest.current.onSuggestionClick?.(suggestion);
         const misspelling = hit || suggestion ? null : spellingMarkAt(event.target);
         if (misspelling) latest.current.onSpellingClick?.(misspelling);
+        const problem = hit || suggestion || misspelling ? null : grammarMarkAt(event.target);
+        if (problem) latest.current.onGrammarClick?.(problem);
         return false;
       },
     },
@@ -154,7 +166,7 @@ export function FormattedEditor({
     if (editor && !editor.isDestroyed) {
       editor.view.dispatch(editor.state.tr.setMeta(nameHighlightKey, REFRESH_NAMES));
     }
-  }, [editor, matcher, suggestions, misspelled]);
+  }, [editor, matcher, suggestions, misspelled, grammar]);
 
   useImperativeHandle(
     ref,
@@ -185,6 +197,7 @@ export function FormattedEditor({
       selectedName: () => (editor && !editor.isDestroyed ? selectedNameIn(editor.state) : ""),
       selectionContains: (x, y) => (editor && !editor.isDestroyed ? selectionContainsPoint(editor.view, x, y) : false),
       spellingWordAt: (x, y) => (editor && !editor.isDestroyed ? spellingWordAtPoint(editor.view, x, y) : null),
+      markRange: (mark) => (editor && !editor.isDestroyed ? markRangeIn(editor.view, mark) : null),
       replaceWord: (word, text) => !!editor && !editor.isDestroyed && takesEdits() && replaceWordIn(editor.view, word, text),
     }),
     [editor],

@@ -100,7 +100,7 @@ interface Failure {
 }
 
 /** The two lines of a refusal in the menu: what didn't happen, then why. */
-function MenuNote({ title, message }: { title: string; message: string }) {
+export function MenuNote({ title, message }: { title: string; message: string }) {
   return (
     <div className="popover-note" role="none">
       <span className="inline-error">{title}.</span> <span className="muted">{message}</span>

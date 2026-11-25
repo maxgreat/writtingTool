@@ -16,11 +16,13 @@ export interface StatusBarProps {
   confirmed?: boolean;
   backendKind: Backend["kind"];
   problems: string[];
+  /** Why the last grammar check failed (a LanguageTool server out of reach, say); null when it worked. */
+  grammarError?: string | null;
   /** Phones: the chapter and today's counts and the save state only. */
   compact: boolean;
 }
 
-/** Word counts, the project language, problems reading files, and where the work is saved. */
+/** Word counts, the project language and whether grammar can be checked, problems reading files, and where the work is saved. */
 export function StatusBar({
   chapterWords,
   bookWords,
@@ -31,6 +33,7 @@ export function StatusBar({
   confirmed = false,
   backendKind,
   problems,
+  grammarError = null,
   compact,
 }: StatusBarProps) {
   return (
@@ -52,6 +55,13 @@ export function StatusBar({
         {!compact && (
           <span className="status-item" title={`Project language: ${language}`}>
             {languageName(language)}
+          </span>
+        )}
+        {!compact && grammarError !== null && (
+          // A quiet note: the marks already shown stay; the reason is on hover, and read after the note.
+          <span className="status-item status-grammar" title={grammarError}>
+            <span className="muted">Grammar check unavailable</span>
+            <span className="visually-hidden">. {grammarError}</span>
           </span>
         )}
       </div>

@@ -1,4 +1,6 @@
+import type { GrammarProblem } from "../backend";
 import type { IgnoredName } from "../names";
+import type { GrammarHit } from "./nameMarks";
 import type { Ref } from "react";
 import type { TextPosition } from "../caret";
 import type { NameMatcher } from "../names";
@@ -64,6 +66,12 @@ export interface EditorHandle {
    * when the word is no longer there or the editor takes no edits.
    */
   replaceWord(word: EditorWord, text: string): boolean;
+  /**
+   * Where a grammar mark (see grammarMarkAt) is in the editor, with the
+   * text it covers there, for replaceWord; null when it isn't this
+   * editor's.
+   */
+  markRange(mark: Element): EditorWord | null;
 }
 
 /**
@@ -96,6 +104,13 @@ export interface ChapterEditorProps {
   misspelled?: ReadonlySet<string>;
   /** A word marked as misspelled was clicked; the caret is still placed as usual. */
   onSpellingClick?(hit: SuggestionHit): void;
+  /**
+   * Grammar problems to mark, by each paragraph's text as it reads (see
+   * useGrammar.ts). Give the same map while they don't change.
+   */
+  grammar?: ReadonlyMap<string, readonly GrammarProblem[]>;
+  /** A grammar mark was clicked; the caret is still placed as usual. */
+  onGrammarClick?(hit: GrammarHit): void;
   /**
    * Formatted editor only: the chapter uses Markdown outside the chapter
    * subset, which this editor cannot save without losing it. The editor is

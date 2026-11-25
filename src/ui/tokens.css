@@ -75,10 +75,10 @@
   --size-focus-ring: 2px;
   --size-underline: 2px;
   --name-underline-offset: 0.2em;
-  /* Misspelled words: a wave heavier than a hairline, so it shows at small text sizes, and closer to the
-     text than a name's line, as the wave itself is taller. */
-  --size-spelling-wave: 1.5px;
-  --spelling-underline-offset: 0.15em;
+  /* Misspelled words and grammar problems: a wave heavier than a hairline, so it shows at small text
+     sizes, and closer to the text than a name's line, as the wave itself is taller. */
+  --size-check-wave: 1.5px;
+  --check-underline-offset: 0.15em;
   --size-icon: 16px;
   --icon-stroke: 1.75;
   --size-control: 28px;
@@ -175,6 +175,11 @@
   --color-name-other: rgb(93 91 86 / 0.7);
   /* Possible names: a hairline of dots, quieter than any name's mark. On the page: 4.1:1 light, 4.2:1 dark. */
   --color-possible-name: rgb(93 91 86 / 0.8);
+  /*
+   * Grammar problems: a wave in the accent, as spelling's is in the danger colour. It follows the accent
+   * into the dark theme. On the page: 6.7:1 light, 8.5:1 dark.
+   */
+  --color-grammar: var(--color-accent);
 }
 
 @media (prefers-color-scheme: dark) {

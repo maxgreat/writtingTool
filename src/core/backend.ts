@@ -3,6 +3,25 @@ import type { Change } from "./binder";
 import type { ProjectSnapshot } from "./project";
 import type { NewProject, ProjectEntry } from "./projects";
 
+/** A grammar problem in a paragraph, as the core finds it (Harper, or a LanguageTool server). */
+export interface GrammarProblem {
+  /** Where it is in the paragraph's text, in UTF-16 code units (string offsets). */
+  from: number;
+  to: number;
+  /** What is wrong, as a sentence for the writer. */
+  message: string;
+  /** The checker's category, such as "Agreement". */
+  kind: string;
+  /** Text to put in place of the problem, best first; "" removes it. */
+  fixes: string[];
+}
+
+/** A LanguageTool server the writer chose, as the core takes it; paragraphs checked are sent there. */
+export type GrammarServer =
+  | { mode: "public" }
+  | { mode: "premium"; username: string; apiKey: string }
+  | { mode: "own"; url: string };
+
 /** An earlier version of a chapter, kept on this device. */
 export interface Version {
   /** When it was kept, in milliseconds since 1970. Also names the version. */
@@ -83,6 +102,14 @@ export interface Backend {
    * where checkWords is.
    */
   suggestWords?(language: string, word: string): Promise<string[] | null>;
+  /**
+   * Each paragraph's grammar problems, in order. Paragraphs are their text
+   * as it reads, without Markdown. With `server`, the paragraphs are sent to
+   * that LanguageTool server; without, English is checked on this device
+   * (Harper) and other languages resolve to null. Rejects with a reason
+   * when a server can't be reached or refuses. Absent in the browser preview.
+   */
+  checkGrammar?(language: string, paragraphs: string[], server: GrammarServer | null): Promise<GrammarProblem[][] | null>;
   /**
    * Desktop app only: shows the text's context menu, native, at a point in
    * the window (client coordinates): `items` first, in groups set apart by
@@ -182,7 +209,8 @@ async function showTextMenu(entries: TextMenuEntry[], x: number, y: number): Pro
     tidyTextMenu(entries).map((entry) =>
       isTextMenuSeparator(entry)
         ? PredefinedMenuItem.new({ item: "Separator" })
-        : MenuItem.new({ text: entry.text, enabled: entry.enabled ?? true, action: () => entry.action() }),
+        : // "&" marks a mnemonic in a native menu; "&&" shows one, as names, messages and fixes may hold.
+          MenuItem.new({ text: entry.text.replaceAll("&", "&&"), enabled: entry.enabled ?? true, action: () => entry.action() }),
     ),
   );
   const separator = own.length > 0 ? [await PredefinedMenuItem.new({ item: "Separator" })] : [];
@@ -221,6 +249,8 @@ const appBackend: Omit<Backend, "canOpenFolders"> = {
   ordinaryWords: (language, words) => call<boolean[] | null>("ordinary_words", { language, words }),
   checkWords: (language, words) => call<boolean[] | null>("check_words", { language, words }),
   suggestWords: (language, word) => call<string[] | null>("suggest_words", { language, word }),
+  checkGrammar: (language, paragraphs, server) =>
+    call<GrammarProblem[][] | null>("check_grammar", { language, paragraphs, server }),
   popupTextMenu(items, x, y) {
     // One at a time, so each menu frees the one before it.
     const shown = textMenus.then(() => showTextMenu(items, x, y));

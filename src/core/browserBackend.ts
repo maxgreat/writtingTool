@@ -1,4 +1,4 @@
-import type { Backend, Version } from "./backend";
+import type { Backend, GrammarProblem, Version } from "./backend";
 import { applyChange, type MemoryTree } from "./memoryFiles";
 import { buildProject, type ProjectSnapshot } from "./project";
 
@@ -73,12 +73,25 @@ async function devSpelling<T>(request: "check" | "suggest", body: object): Promi
   return (await response.json()) as T;
 }
 
-const spelling: Pick<Backend, "checkWords" | "suggestWords"> = import.meta.env.DEV
+/** The grammar check, from the dev server's copy of the Rust core (scripts/dev-core.mjs). */
+async function devGrammar(body: object): Promise<GrammarProblem[][] | null> {
+  const response = await fetch("/__dev/core/grammar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const answer = (await response.json()) as { result?: GrammarProblem[][] | null; error?: string };
+  if (!response.ok || answer.error) throw new Error(answer.error ?? `The dev server couldn't check grammar (${response.status}).`);
+  return answer.result ?? null;
+}
+
+const spelling: Pick<Backend, "checkWords" | "suggestWords" | "checkGrammar"> = import.meta.env.DEV
   ? {
       checkWords: async (language, words) =>
         (await devSpelling<{ correct: boolean[] | null }>("check", { language, words })).correct,
       suggestWords: async (language, word) =>
         (await devSpelling<{ suggestions: string[] | null }>("suggest", { language, word })).suggestions,
+      checkGrammar: (language, paragraphs, server) => devGrammar({ language, paragraphs, server }),
     }
   : {};
 

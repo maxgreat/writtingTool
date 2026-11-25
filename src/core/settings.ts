@@ -8,6 +8,22 @@ export type WritingFont = "serif" | "sans" | "mono";
 export type EditorMode = "formatted" | "plain";
 export type LineSpacing = 1.2 | 1.5 | 2;
 
+/**
+ * Where grammar is checked besides on this device: nowhere (English is
+ * checked offline by Harper), or a LanguageTool server the writer chose,
+ * which the paragraphs checked are sent to.
+ */
+export type LanguageToolMode = "off" | "public" | "premium" | "own";
+
+export interface LanguageToolSettings {
+  mode: LanguageToolMode;
+  /** The writer's own server ("own"), such as http://localhost:8081. */
+  url: string;
+  /** A premium account ("premium"). */
+  username: string;
+  apiKey: string;
+}
+
 export interface ViewSettings {
   /** Text size on screen, in points. */
   fontSize: number;
@@ -22,6 +38,9 @@ export interface ViewSettings {
   /** Panel widths in CSS pixels. */
   binderWidth: number;
   inspectorWidth: number;
+  /** Mark grammar problems. */
+  grammar: boolean;
+  languageTool: LanguageToolSettings;
 }
 
 export const FONT_SIZE = { min: 12, max: 28 } as const;
@@ -41,6 +60,8 @@ export const DEFAULT_SETTINGS: ViewSettings = {
   inspectorOpen: true,
   binderWidth: 260,
   inspectorWidth: 300,
+  grammar: true,
+  languageTool: { mode: "off", url: "", username: "", apiKey: "" },
 };
 
 const STORAGE_KEY = "writingTool.viewSettings.v1";
@@ -70,6 +91,20 @@ export function sanitizeSettings(raw: unknown): ViewSettings {
     inspectorOpen: typeof s.inspectorOpen === "boolean" ? s.inspectorOpen : d.inspectorOpen,
     binderWidth: clamp(s.binderWidth, PANEL_WIDTH, d.binderWidth),
     inspectorWidth: clamp(s.inspectorWidth, PANEL_WIDTH, d.inspectorWidth),
+    grammar: typeof s.grammar === "boolean" ? s.grammar : d.grammar,
+    languageTool: sanitizeLanguageTool(s.languageTool),
+  };
+}
+
+const text = (value: unknown, max: number) => (typeof value === "string" ? value.slice(0, max) : "");
+
+function sanitizeLanguageTool(raw: unknown): LanguageToolSettings {
+  const s = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
+  return {
+    mode: oneOf(s.mode, ["off", "public", "premium", "own"] as const, "off"),
+    url: text(s.url, 500),
+    username: text(s.username, 200),
+    apiKey: text(s.apiKey, 200),
   };
 }
 

@@ -234,21 +234,29 @@
 }
 
 /*
- * Misspelled words: a wave under the word, in the danger colour, so it
- * reads as a fault to fix and never as a name (tinted, or a straight,
- * dotted or dashed line in the accent or muted colour). The wave runs
- * unbroken under descenders, as spelling marks do elsewhere. On the page:
- * 6.3:1 light, 10:1 dark. A right-click, or a tap on a touch screen, opens
- * its corrections; a click only places the caret, so the pointer stays
- * the text's.
+ * What the checks find: a wave under the text, never like a name's mark
+ * (tinted, or a straight, dotted or dashed line). The wave runs unbroken
+ * under descenders, as such marks do elsewhere. A right-click, or a tap on
+ * a touch screen, opens the menu of fixes; a click only places the caret,
+ * so the pointer stays the text's.
  */
-.spelling-mark {
+.spelling-mark,
+.grammar-mark {
   text-decoration-line: underline;
   text-decoration-style: wavy;
-  text-decoration-thickness: var(--size-spelling-wave);
-  text-decoration-color: var(--color-danger);
+  text-decoration-thickness: var(--size-check-wave);
   text-decoration-skip-ink: none;
-  text-underline-offset: var(--spelling-underline-offset);
+  text-underline-offset: var(--check-underline-offset);
+}
+
+/* Misspelled words: the danger colour, a fault to fix. On the page: 6.3:1 light, 10:1 dark. */
+.spelling-mark {
+  text-decoration-color: var(--color-danger);
+}
+
+/* Grammar problems: the accent, so they read apart from spelling. On the page: 6.7:1 light, 8.5:1 dark. */
+.grammar-mark {
+  text-decoration-color: var(--color-grammar);
 }
 
 /*
@@ -317,9 +325,19 @@
   overflow-wrap: anywhere;
 }
 
-/* A misspelled word's corrections: the choices the menu is for, so they lead it. */
-.spelling-correction {
+/* A misspelled word's corrections and a grammar problem's fixes: the choices the menu is for, so they lead it. */
+.spelling-correction,
+.grammar-fix {
   font-weight: var(--weight-semibold);
+}
+
+/* What is wrong, above the fixes: a sentence that wraps, quieter than the choices under it. */
+.grammar-message {
+  padding: var(--space-1-5) var(--space-2) var(--space-1);
+  color: var(--color-text-muted);
+  white-space: normal;
+  overflow-wrap: break-word;
+  text-wrap: pretty;
 }
 
 /* Where the corrections will be, while they are looked up: a bar per row, as tall as a row. */

@@ -1,6 +1,8 @@
 import type { NameMatch, NameMatcher } from "../names";
 import { capitalizedInLine } from "../possibleNames";
 import { sentenceKeyFinder } from "../sentences";
+import type { GrammarProblem } from "../backend";
+import { readableLine } from "../readable";
 import { spellingKey, wordsToCheck } from "../spelling";
 import type { NameHit, SuggestionHit } from "./types";
 
@@ -78,6 +80,55 @@ export function spellingMarkAt(target: EventTarget | null): SuggestionHit | null
   return { word, rect: element.getBoundingClientRect() };
 }
 
+/**
+ * Grammar problems: an element with this class, `data-message` (what is
+ * wrong), `data-fixes` (a JSON array of replacement texts, best first),
+ * `data-text` (the text the problem covers, as it reads), and `data-from`
+ * and `data-to`, where it is in its paragraph in the editor (see
+ * EditorHandle.markRange).
+ */
+export const GRAMMAR_MARK_CLASS = "grammar-mark";
+
+export function grammarMarkAttributes(problem: GrammarProblem, text: string, from: number, to: number): Record<string, string> {
+  return {
+    class: GRAMMAR_MARK_CLASS,
+    "data-message": problem.message,
+    "data-fixes": JSON.stringify(problem.fixes),
+    "data-text": text,
+    "data-from": String(from),
+    "data-to": String(to),
+  };
+}
+
+/** A grammar problem an event happened on, if any. */
+export interface GrammarHit {
+  message: string;
+  fixes: string[];
+  /** The text it covers, as it reads. */
+  text: string;
+  rect: DOMRect;
+  /** The mark's element, for EditorHandle.markRange. */
+  element: Element;
+}
+
+export function grammarMarkAt(target: EventTarget | null): GrammarHit | null {
+  const element = target instanceof Element ? target.closest(`.${GRAMMAR_MARK_CLASS}`) : null;
+  if (!element) return null;
+  let fixes: unknown;
+  try {
+    fixes = JSON.parse(element.getAttribute("data-fixes") ?? "[]");
+  } catch {
+    fixes = [];
+  }
+  return {
+    message: element.getAttribute("data-message") ?? "",
+    fixes: Array.isArray(fixes) ? fixes.filter((f): f is string => typeof f === "string") : [],
+    text: element.getAttribute("data-text") ?? "",
+    rect: element.getBoundingClientRect(),
+    element,
+  };
+}
+
 /** What to mark besides names. */
 export interface MarkSources {
   /** Possible names, as composed words (see useNameSuggestions). */
@@ -86,7 +137,13 @@ export interface MarkSources {
   misspelled?: ReadonlySet<string>;
   /** The formatted editor's heading, whose text has no "#". */
   heading?: boolean;
+  /** Grammar problems, by each paragraph's text as it reads (see useGrammar). */
+  grammar?: ReadonlyMap<string, readonly GrammarProblem[]>;
+  /** The text is a line of Markdown (the plain editor), not a paragraph's text as it reads (the formatted one). */
+  markdown?: boolean;
 }
+
+const NO_PROBLEMS: ReadonlyMap<string, readonly GrammarProblem[]> = new Map();
 
 const NO_WORDS: ReadonlySet<string> = new Set();
 
@@ -107,7 +164,7 @@ export interface ParagraphMark {
  * spelling check leaves possible names out.
  */
 export function paragraphMarks(text: string, matcher: NameMatcher, sources: MarkSources = {}): ParagraphMark[] {
-  const { suggestions = NO_WORDS, misspelled = NO_WORDS, heading = false } = sources;
+  const { suggestions = NO_WORDS, misspelled = NO_WORDS, heading = false, grammar = NO_PROBLEMS, markdown = false } = sources;
   const matches = matcher.find(text);
   const marks: ParagraphMark[] = [];
   if (matches.length > 0) {
@@ -125,6 +182,25 @@ export function paragraphMarks(text: string, matcher: NameMatcher, sources: Mark
       if (!misspelled.has(spellingKey(w.word))) continue;
       if (taken.some((m) => m.from < w.to && w.from < m.to)) continue;
       marks.push({ from: w.from, to: w.to, attributes: spellingMarkAttributes(w.word) });
+    }
+  }
+  if (grammar.size > 0 && !heading) {
+    // The problems are found in the paragraph as it reads; in Markdown, each place maps back to the line.
+    const readable = markdown ? readableLine(text) : null;
+    const problems = grammar.get(readable ? readable.text : text) ?? [];
+    const taken = marks.slice();
+    for (const problem of problems) {
+      const from = readable ? readable.at[problem.from] : problem.from;
+      const to = readable ? readable.at[problem.to - 1] + 1 : problem.to;
+      if (from === undefined || Number.isNaN(to) || to > text.length || from >= to) continue;
+      // Names and misspelled words keep their own marks.
+      if (taken.some((m) => m.from < to && from < m.to)) continue;
+      const covered = readable ? readable.text.slice(problem.from, problem.to) : text.slice(from, to);
+      // In Markdown, a problem across a marker or an escape ("could *of*") offers no fix: putting
+      // plain text in its place would take the marker away. Its message and Ignore still apply.
+      const fixable = text.slice(from, to) === covered;
+      const shown = fixable ? problem : { ...problem, fixes: [] };
+      marks.push({ from, to, attributes: grammarMarkAttributes(shown, covered, from, to) });
     }
   }
   if (marks.length > matches.length) marks.sort((a, b) => a.from - b.from);

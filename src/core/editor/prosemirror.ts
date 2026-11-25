@@ -6,6 +6,7 @@ import type { TextPosition } from "../caret";
 import { NameMatcher } from "../names";
 import { nameFromSelection, wordAround } from "../possibleNames";
 import { wordToCheckAt } from "../spelling";
+import type { GrammarProblem } from "../backend";
 import type { EditorWord } from "./types";
 import { paragraphMarks } from "./nameMarks";
 
@@ -23,7 +24,11 @@ interface Sources {
   getSuggestions: () => ReadonlySet<string>;
   /** Misspelled words to mark (see ChapterEditorProps.misspelled). */
   getMisspelled: () => ReadonlySet<string>;
+  /** Grammar problems to mark (see ChapterEditorProps.grammar). */
+  getGrammar: () => ReadonlyMap<string, readonly GrammarProblem[]>;
 }
+
+const NO_PROBLEMS: ReadonlyMap<string, readonly GrammarProblem[]> = new Map();
 /** Leaf inline nodes count as one character, as they take one position. */
 const LEAF_TEXT = "￼";
 
@@ -38,6 +43,7 @@ function decorateBlock(sources: Sources, block: PMNode, pos: number): Decoration
   const marks = paragraphMarks(text, sources.getMatcher(), {
     suggestions: sources.getSuggestions(),
     misspelled: sources.getMisspelled(),
+    grammar: sources.getGrammar(),
     heading,
   });
   return marks.map((m) =>
@@ -107,7 +113,7 @@ function nameHighlightPlugin(sources: Sources): Plugin<DecorationSet> {
 export const NameHighlight = Extension.create<Sources>({
   name: "nameHighlight",
   addOptions() {
-    return { getMatcher: () => EMPTY_MATCHER, getSuggestions: () => NO_WORDS, getMisspelled: () => NO_WORDS };
+    return { getMatcher: () => EMPTY_MATCHER, getSuggestions: () => NO_WORDS, getMisspelled: () => NO_WORDS, getGrammar: () => NO_PROBLEMS };
   },
   addProseMirrorPlugins() {
     return [nameHighlightPlugin(this.options)];
@@ -176,6 +182,18 @@ export function replaceWordIn(view: EditorView, word: EditorWord, text: string):
   const tr = view.state.tr.insertText(text, word.from, word.to);
   view.dispatch(tr.setSelection(TextSelection.create(tr.doc, word.from + text.length)).scrollIntoView());
   return true;
+}
+
+/** Where a grammar mark is in the document (its data-from and data-to are offsets in its block), with its text. */
+export function markRangeIn(view: EditorView, mark: Element): EditorWord | null {
+  if (!view.dom.contains(mark)) return null;
+  const from = Number(mark.getAttribute("data-from"));
+  const to = Number(mark.getAttribute("data-to"));
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from >= to) return null;
+  const $pos = view.state.doc.resolve(view.posAtDOM(mark, 0));
+  if (!$pos.parent.isTextblock || to > $pos.parent.content.size) return null;
+  const start = $pos.start();
+  return { word: view.state.doc.textBetween(start + from, start + to, "\n", LEAF_TEXT), from: start + from, to: start + to };
 }
 
 /** The selection as a name to add; empty when nothing is selected or it spans blocks. */

@@ -2,6 +2,8 @@
 //! commands, and the core owns the project folder.
 
 mod dictionary;
+pub mod grammar;
+pub mod languagetool;
 mod project;
 mod projects;
 
@@ -187,6 +189,21 @@ async fn suggest_words(language: String, word: String) -> Result<Option<Vec<Stri
     dictionary::suggest(&language, &word)
 }
 
+/// Each paragraph's grammar problems: the writer's LanguageTool server when
+/// one is set, else Harper for English. None when nothing checks the
+/// language. Paragraphs are their text as it reads, without Markdown.
+#[tauri::command]
+async fn check_grammar(
+    language: String,
+    paragraphs: Vec<String>,
+    server: Option<languagetool::Server>,
+) -> Result<Option<Vec<Vec<grammar::Problem>>>, String> {
+    match server {
+        Some(server) => languagetool::check(&server, &language, &paragraphs).map(Some),
+        None => grammar::check(&language, &paragraphs),
+    }
+}
+
 /// Set by `.githooks/verify-launch` to check that a build starts.
 const LAUNCH_CHECK_VAR: &str = "WRITING_TOOL_LAUNCH_CHECK";
 
@@ -220,6 +237,7 @@ pub fn run() {
             ordinary_words,
             check_words,
             suggest_words,
+            check_grammar,
             frontend_ready
         ])
         .run(tauri::generate_context!())

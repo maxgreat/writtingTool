@@ -31,6 +31,8 @@ interface PopoverProps {
   ignore?: RefObject<HTMLElement | null>;
   /** Something chosen here is being done: its items wait (aria-busy). */
   busy?: boolean;
+  /** The id of text inside that says more than the label, read as the popover's description. */
+  describedBy?: string;
 }
 
 const ITEMS = '[role^="menuitem"]:not(:disabled)';
@@ -42,7 +44,19 @@ const FOCUSABLE = `${ITEMS}, input:not(:disabled), button:not(:disabled)`;
  * scrolls when it is taller than the room it has, and closes on Escape, a
  * phone's Back or a press outside.
  */
-export function Popover({ anchor, onClose, children, role, label, id, className, autoFocus, ignore, busy }: PopoverProps) {
+export function Popover({
+  anchor,
+  onClose,
+  children,
+  role,
+  label,
+  id,
+  className,
+  autoFocus,
+  ignore,
+  busy,
+  describedBy,
+}: PopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
@@ -139,6 +153,7 @@ export function Popover({ anchor, onClose, children, role, label, id, className,
         id={id}
         role={role}
         aria-label={label}
+        aria-describedby={describedBy}
         aria-busy={busy || undefined}
         tabIndex={-1}
         className={cx("popover", className)}

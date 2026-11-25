@@ -1,9 +1,9 @@
 import { Info } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { TEXT_MENU_SEPARATOR, type Backend, type TextMenuEntry } from "../core/backend";
+import { TEXT_MENU_SEPARATOR, type Backend, type GrammarProblem, type TextMenuEntry } from "../core/backend";
 import type { TextPosition } from "../core/caret";
 import { FormattedEditor } from "../core/editor/FormattedEditor";
-import { nameMarkAt, NAME_MARK_CLASS } from "../core/editor/nameMarks";
+import { grammarMarkAt, nameMarkAt, NAME_MARK_CLASS, type GrammarHit } from "../core/editor/nameMarks";
 import { PlainEditor } from "../core/editor/PlainEditor";
 import type { EditorHandle, EditorWord, FormatState, NameHit, SuggestionHit } from "../core/editor/types";
 import type { IgnoredName, NameMatcher } from "../core/names";
@@ -20,6 +20,7 @@ import {
   type NameTarget,
 } from "./AddName";
 import { errorMessage, tokenMs, tokenPx } from "./dom";
+import { grammarCopy, GrammarMenu, grammarTextMenuItems, type GrammarSource } from "./GrammarMenu";
 import type { IgnoreSource } from "./IgnoreHere";
 import { editorStyle } from "./layoutStyle";
 import { NameCard, NameChoice } from "./NameCard";
@@ -83,6 +84,17 @@ export interface EditorPaneProps {
    */
   spelling: SpellingSource | null;
   /**
+   * Grammar problems to mark in the text (useGrammar's, less those ignored),
+   * by each paragraph's text as it reads: none in focus mode. The same map
+   * while they don't change.
+   */
+  grammar: ReadonlyMap<string, readonly GrammarProblem[]>;
+  /**
+   * Fixes and Ignore, offered for a grammar problem right-clicked, or tapped
+   * on a touch screen; null in focus mode.
+   */
+  grammarSource: GrammarSource | null;
+  /**
    * The desktop app's native menu for the text (Backend.popupTextMenu),
    * which a right-click shows; absent in the browser preview and on phones.
    */
@@ -97,6 +109,16 @@ export interface EditorPaneProps {
   hoverCards: boolean;
   /** What to show when there is no chapter to open. */
   empty: ReactNode;
+}
+
+/**
+ * Where a menu on a mark right-clicked at (x, y) hangs from: under the line
+ * of the mark the pointer is on, at the pointer, so the text it is about
+ * stays in sight. The point itself if the mark has no box there.
+ */
+function underMarkLine(mark: Element, x: number, y: number): DOMRect {
+  const line = [...mark.getClientRects()].find((r) => y >= r.top && y <= r.bottom);
+  return line ? new DOMRect(x, line.top, 0, line.height) : new DOMRect(x, y, 0, 0);
 }
 
 /** The open chapter as a centred column, in Formatted or Plain mode. */
@@ -118,6 +140,8 @@ export function EditorPane({
   suggesting,
   misspelled,
   spelling,
+  grammar,
+  grammarSource,
   popupTextMenu,
   touch,
   sheetsById,
@@ -141,6 +165,16 @@ export function EditorPane({
     anchor: DOMRect;
     opening: number;
   } | null>(null);
+  /**
+   * The grammar problem whose menu is open: the mark, and where its text is
+   * in the editor (null if it couldn't be found there, so it can't be fixed).
+   */
+  const [fixing, setFixing] = useState<{
+    hit: GrammarHit;
+    range: EditorWord | null;
+    anchor: DOMRect;
+    opening: number;
+  } | null>(null);
   /** Counts right-clicks in the desktop app: a native menu waiting for its corrections gives way to a later one. */
   const textMenus = useRef(0);
   /** Why something chosen in the native text menu didn't happen, shown where the menu was. */
@@ -160,6 +194,7 @@ export function EditorPane({
   if (!suggesting && suggestion) setSuggestion(null);
   if (!suggesting && naming) setNaming(null);
   if (!spelling && correcting) setCorrecting(null);
+  if (!grammarSource && fixing) setFixing(null);
 
   const hideCard = useCallback(() => {
     if (timer.current !== null) clearTimeout(timer.current);
@@ -214,6 +249,7 @@ export function EditorPane({
     setSuggestion(null);
     setNaming(null);
     setCorrecting(null);
+    setFixing(null);
     if (hit.ambiguous) setChoice(hit);
     else onOpenSheet(hit.sheetIds[0], hit.occurrence);
   };
@@ -225,6 +261,7 @@ export function EditorPane({
     setChoice(null);
     setNaming(null);
     setCorrecting(null);
+    setFixing(null);
     openings.current += 1;
     setSuggestion({ hit, opening: openings.current });
   };
@@ -244,6 +281,7 @@ export function EditorPane({
     setSuggestion(null);
     setChoice(null);
     setCorrecting(null);
+    setFixing(null);
     openings.current += 1;
     setNaming({ target, anchor, opening: openings.current });
     return true;
@@ -317,6 +355,7 @@ export function EditorPane({
     setSuggestion(null);
     setChoice(null);
     setNaming(null);
+    setFixing(null);
     openings.current += 1;
     setCorrecting({ written, word, anchor, opening: openings.current });
   };
@@ -357,22 +396,86 @@ export function EditorPane({
     editorRef.current?.focus();
   };
 
+  /* Grammar -------------------------------------------------------------- */
+
+  /**
+   * The grammar problem a right-click is on, whose fixes lead the menu: none
+   * when the click is on a selection that could be a name and is more than
+   * the problem's text, which the menu acts on instead.
+   */
+  const grammarTargetAt = (editor: EditorHandle, target: EventTarget | null, x: number, y: number): GrammarHit | null => {
+    if (!grammarSource) return null;
+    const hit = grammarMarkAt(target);
+    if (!hit) return null;
+    const selected = editor.selectionContains(x, y) ? editor.selectedName().trim() : "";
+    return selected === "" || selected === hit.text.trim() ? hit : null;
+  };
+
+  /** The page's menu on a grammar problem, hung from `anchor`. */
+  const openFixing = (hit: GrammarHit, range: EditorWord | null, anchor: DOMRect) => {
+    hideCard();
+    setSuggestion(null);
+    setChoice(null);
+    setNaming(null);
+    setCorrecting(null);
+    openings.current += 1;
+    setFixing({ hit, range, anchor, opening: openings.current });
+  };
+
+  const closeFixing = useCallback(() => {
+    setFixing(null);
+    editorRef.current?.focus();
+  }, [editorRef]);
+
+  /** Touch screens: a tap on a grammar mark opens its menu, as a tap on a misspelled word does; the caret is placed too. */
+  const onGrammarClick = (hit: GrammarHit) => {
+    const editor = editorRef.current;
+    if (!touch || !grammarSource || !editor) return;
+    openFixing(hit, editor.markRange(hit.element), hit.rect);
+  };
+
+  /** A fix chosen in the native menu: the text replaced, or a refusal where the menu was; the caret goes back to the text. */
+  const fixFromTextMenu = (hit: GrammarHit, range: EditorWord | null, fix: string, at: DOMRect) => {
+    if (replaceWord(range, fix)) setNote(grammarCopy.fixed(hit.text, fix));
+    else setRefusal({ title: grammarCopy.cantFix(hit.text), message: WORD_CHANGED, at });
+    editorRef.current?.focus();
+  };
+
+  /** Ignore, chosen in the native menu: the mark goes at once. */
+  const ignoreFromTextMenu = (source: GrammarSource, hit: GrammarHit) => {
+    source.ignore(hit);
+    setNote(grammarCopy.ignored(hit.text));
+    editorRef.current?.focus();
+  };
+
+  /* The native menu ------------------------------------------------------ */
+
   /**
    * The native menu for a right-click: for a misspelled word, its
    * corrections and the dictionaries first, looked up before the menu
-   * shows (a quick local call; without them if they can't be had), then
-   * `names`. Shows nothing if another right-click came meanwhile.
+   * shows (a quick local call; without them if they can't be had); for a
+   * grammar problem, what is wrong, its fixes and Ignore; then `names`.
+   * Shows nothing if another right-click came meanwhile.
    */
   const showNativeMenu = async (
     show: NonNullable<Backend["popupTextMenu"]>,
     word: EditorWord | null,
+    problem: { hit: GrammarHit; range: EditorWord | null } | null,
     names: TextMenuEntry[],
     at: DOMRect,
   ) => {
     const request = ++textMenus.current;
     let entries = names;
     const source = spelling;
-    if (word && source) {
+    const checking = grammarSource;
+    if (problem && checking) {
+      const { hit, range } = problem;
+      const grammarItems = grammarTextMenuItems(hit, !readOnly, {
+        fix: (fix) => fixFromTextMenu(hit, range, fix, at),
+        ignore: () => ignoreFromTextMenu(checking, hit),
+      });
+      entries = [...grammarItems, TEXT_MENU_SEPARATOR, ...names];
+    } else if (word && source) {
       let corrections: Corrections;
       try {
         corrections = (await source.suggest(word.word)) ?? [];
@@ -393,13 +496,14 @@ export function EditorPane({
   /**
    * A right-click in the chapter text. The desktop app shows its native menu:
    * for a misspelled word, its corrections and Add to project or my
-   * dictionary; then Add to each type for the word or the selection (Open
-   * for a name); then Cut, Copy and Paste. The browser preview, with a
-   * mouse, shows the page's own menu over a word or a selection (the
-   * spelling menu over a misspelled word), and leaves its own menu
-   * elsewhere. Touch screens keep the system's: a long-press selects, and
-   * the selection offers Add as name; a tap on a misspelled word opens its
-   * menu. Focus mode offers no names and no corrections.
+   * dictionary; for a grammar problem, what is wrong, its fixes and Ignore;
+   * then Add to each type for the word or the selection (Open for a name);
+   * then Cut, Copy and Paste. The browser preview, with a mouse, shows the
+   * page's own menu over a word or a selection (the spelling or grammar
+   * menu over their marks), and leaves its own menu elsewhere. Touch
+   * screens keep the system's: a long-press selects, and the selection
+   * offers Add as name; a tap on a misspelled word or a grammar problem
+   * opens its menu. Focus mode offers no names, corrections or fixes.
    */
   const onContextMenu = (event: MouseEvent) => {
     const editor = editorRef.current;
@@ -411,11 +515,17 @@ export function EditorPane({
     const { clientX: x, clientY: y } = event;
     const at = new DOMRect(x, y, 0, 0);
     const word = correctionTargetAt(editor, x, y);
+    // Marks never overlap: a misspelled word is never part of a grammar problem.
+    const hit = word ? null : grammarTargetAt(editor, event.target, x, y);
+    const problem = hit && { hit, range: editor.markRange(hit.element) };
 
     if (!popupTextMenu) {
       if (word) {
         event.preventDefault();
         openCorrecting(word.word, word, at);
+      } else if (problem) {
+        event.preventDefault();
+        openFixing(problem.hit, problem.range, underMarkLine(problem.hit.element, x, y));
       } else if (target && openNaming(target, at)) {
         event.preventDefault();
       }
@@ -431,7 +541,7 @@ export function EditorPane({
             open: (id) => onOpenSheet?.(id, target.occurrence),
           })
         : [];
-    showNativeMenu(popupTextMenu, word, items, at).catch((error: unknown) =>
+    showNativeMenu(popupTextMenu, word, problem, items, at).catch((error: unknown) =>
       setRefusal({ title: "Couldn’t show the menu", message: errorMessage(error), at }),
     );
   };
@@ -471,6 +581,8 @@ export function EditorPane({
     onSuggestionClick,
     misspelled,
     onSpellingClick,
+    grammar,
+    onGrammarClick,
     readOnly,
     ariaLabel: "Chapter text",
   };
@@ -562,6 +674,18 @@ export function EditorPane({
           naming={suggesting}
           busy={readOnly}
           onClose={closeCorrecting}
+          announce={setNote}
+        />
+      )}
+      {fixing && grammarSource && (
+        <GrammarMenu
+          key={fixing.opening}
+          hit={fixing.hit}
+          anchor={fixing.anchor}
+          source={grammarSource}
+          replace={(fix) => replaceWord(fixing.range, fix)}
+          busy={readOnly}
+          onClose={closeFixing}
           announce={setNote}
         />
       )}
