@@ -63,8 +63,15 @@ export function Popover({ anchor, onClose, children, role, label, id, className,
       if (event.target instanceof Node && ref.current?.contains(event.target)) return;
       place();
     };
+    // An anchor that slides in (the bar, in focus mode) is followed once it has settled.
+    const onTransitionEnd = (event: TransitionEvent) => {
+      const a = anchorRef.current;
+      const el = a instanceof DOMRect ? null : a.current;
+      if (el && event.target instanceof Node && event.target.contains(el)) place();
+    };
     window.addEventListener("resize", place);
     window.addEventListener("scroll", onScroll, true);
+    document.addEventListener("transitionend", onTransitionEnd, true);
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (ref.current?.contains(target) || ignore?.current?.contains(target)) return;
@@ -81,6 +88,7 @@ export function Popover({ anchor, onClose, children, role, label, id, className,
     return () => {
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", onScroll, true);
+      document.removeEventListener("transitionend", onTransitionEnd, true);
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
     };
@@ -143,7 +151,7 @@ export function Popover({ anchor, onClose, children, role, label, id, className,
 interface MenuButtonProps {
   open: boolean;
   onOpenChange(open: boolean): void;
-  /** What the trigger shows; a chevron is added. */
+  /** What the trigger shows; a chevron is added, unless `chevron` is false. */
   children: ReactNode;
   menu: ReactNode;
   menuLabel: string;
@@ -155,6 +163,10 @@ interface MenuButtonProps {
   disabled?: boolean;
   className?: string;
   popoverClassName?: string;
+  /** False for a trigger whose icon already says it opens a menu. */
+  chevron?: boolean;
+  /** The trigger, for something else to hang from it once the menu has closed. */
+  triggerRef?: RefObject<HTMLButtonElement | null>;
 }
 
 /** A trigger button and the menu or small dialog it opens. */
@@ -171,8 +183,11 @@ export function MenuButton({
   disabled,
   className,
   popoverClassName,
+  chevron = true,
+  triggerRef,
 }: MenuButtonProps) {
-  const trigger = useRef<HTMLButtonElement>(null);
+  const ownTrigger = useRef<HTMLButtonElement>(null);
+  const trigger = triggerRef ?? ownTrigger;
   const id = useId();
   return (
     <>
@@ -190,7 +205,7 @@ export function MenuButton({
         onClick={() => onOpenChange(!open)}
       >
         {children}
-        <ChevronDown className="chevron" aria-hidden />
+        {chevron && <ChevronDown className="chevron" aria-hidden />}
       </button>
       {open && (
         <Popover

@@ -1,9 +1,9 @@
 import { Check, ChevronDown, FolderOpen, X } from "lucide-react";
-import { useEffect, useId, useRef, useState, type FormEvent, type MouseEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type MouseEvent, type RefObject } from "react";
 import { APP_VERSION, PRIVACY_POLICY_URL } from "../core/about";
 import { defaultLanguage, LANGUAGES, type ProjectEntry } from "../core/projects";
 import { BottomSheet } from "./BottomSheet";
-import { cx, errorMessage } from "./dom";
+import { cx, errorMessage, focusLost, revealIn } from "./dom";
 import { Popover, type CloseReason } from "./Popover";
 
 /** What the Projects view needs from useProject and the backend. */
@@ -45,125 +45,187 @@ export function projectDetail(entry: ProjectEntry, all: readonly ProjectEntry[])
   return all.some((other) => other !== entry && other.title === entry.title) ? folderName(entry.path) : null;
 }
 
+/** Why the Projects view opens: to open a project (its list first), or to make one (its form, ready for a title). */
+export type ProjectsIntent = "open" | "new";
+
+/** Where the Projects view was opened from. */
+export interface ProjectsOrigin {
+  /** The control the desktop dialog hangs from; focus goes back to it when the view closes. */
+  anchor: RefObject<HTMLElement | null>;
+  /** Where focus goes instead when the view closes: back to the text after a shortcut, say. */
+  returnFocus?: () => void;
+}
+
+interface Opened extends ProjectsOrigin {
+  /** `loads` when the view opened: once it goes up, a project has been opened and the view closes. */
+  loads: number;
+}
+
 /**
- * The project title at the top of the binder. It keeps the heading's look
- * and opens the Projects view: a dialog under it on desktop (Escape or a
- * click outside closes it), a sheet from the bottom on phones. The view
- * closes once a project has been opened from it, and stays open while that
- * is under way.
+ * The one Projects view of the window, and what opens it: the project
+ * title in the binder, the main menu and its shortcut. Made by
+ * useProjectsDialog; ProjectsDialog shows it.
  */
-export function ProjectsButton({ title, source }: { title: string; source: ProjectsSource }) {
-  const trigger = useRef<HTMLButtonElement>(null);
-  const viewId = useId();
-  const headingId = useId();
-  /** `loads` when the view opened; null while it is closed. */
-  const [openedAt, setOpenedAt] = useState<number | null>(null);
-  /** Counts openings: each one mounts a fresh view, which lists the projects again. */
-  const [openings, setOpenings] = useState(0);
+export interface ProjectsDialogControl {
+  source: ProjectsSource;
+  /** The view's id, for its triggers' aria-controls. */
+  id: string;
+  /** Where the open view came from; null while it is closed. */
+  opened: Opened | null;
+  /**
+   * Opens the view. While it is open it stays as it is, unless it was
+   * opened for the other intent, which it then opens afresh for. Nothing
+   * happens while an open or a create is under way.
+   */
+  show(intent: ProjectsIntent, origin: ProjectsOrigin): void;
+  /** Closes the view, unless an open or a create is under way, and gives focus back. */
+  close(): void;
+  /** For ProjectsDialog: what this opening is for, and its count, so each opening mounts a fresh view. */
+  view: { intent: ProjectsIntent; openings: number };
+  /** For ProjectsDialog: an open or a create started or ended in the view. */
+  setPending(pending: boolean): void;
+  /** For ProjectsDialog: the desktop dialog closed by itself (Escape, a press outside). */
+  dismiss(reason: CloseReason): void;
+}
+
+/**
+ * The Projects view's state: open or closed, why, and from where. The view
+ * closes once a project has been opened from it, stays open while that is
+ * under way, and closes when the window crosses the phone breakpoint.
+ */
+export function useProjectsDialog(source: ProjectsSource): ProjectsDialogControl {
+  const id = useId();
+  const [opened, setOpened] = useState<Opened | null>(null);
+  const [view, setView] = useState<{ intent: ProjectsIntent; openings: number }>({ intent: "open", openings: 0 });
   /** An open or a create is under way: the view can't be closed until it ends. */
   const pending = useRef(false);
-  const open = openedAt !== null;
   const { loads, phone } = source;
 
-  const focusTitle = () => trigger.current?.focus({ preventScroll: true });
+  const giveFocusBack = (from: Opened) => {
+    if (from.returnFocus) from.returnFocus();
+    else from.anchor.current?.focus({ preventScroll: true });
+  };
 
   const close = () => {
-    if (pending.current) return;
-    setOpenedAt(null);
-    focusTitle();
+    if (pending.current || opened === null) return;
+    setOpened(null);
+    giveFocusBack(opened);
+  };
+
+  const show = (intent: ProjectsIntent, origin: ProjectsOrigin) => {
+    if (pending.current || (opened !== null && view.intent === intent)) return;
+    setView((v) => ({ intent, openings: v.openings + 1 }));
+    setOpened({ ...origin, loads });
   };
 
   // A project was opened from the view: it has done its job.
   useEffect(() => {
-    if (openedAt === null || loads === openedAt) return;
-    setOpenedAt(null);
-    trigger.current?.focus({ preventScroll: true });
-  }, [loads, openedAt]);
+    if (opened === null || loads === opened.loads) return;
+    setOpened(null);
+    giveFocusBack(opened);
+  }, [loads, opened]);
 
   // The window crossed the phone breakpoint: the dialog and the sheet aren't
   // interchangeable, so the view closes rather than jump between them.
   const [layout, setLayout] = useState(phone);
   if (layout !== phone) {
     setLayout(phone);
-    setOpenedAt(null);
+    setOpened(null);
   }
 
-  const onPopoverClose = (reason: CloseReason) => {
-    if (pending.current) return;
-    setOpenedAt(null);
+  const dismiss = (reason: CloseReason) => {
+    if (pending.current || opened === null) return;
+    setOpened(null);
     if (reason === "escape") {
-      focusTitle();
+      giveFocusBack(opened);
     } else {
-      // A click outside: focus goes where it was put, or back to the title if it went nowhere.
+      // A click outside: focus goes where it was put, or back where the view came from if it went nowhere.
       requestAnimationFrame(() => {
-        const active = document.activeElement;
-        if (active === null || active === document.body) focusTitle();
+        if (focusLost()) giveFocusBack(opened);
       });
     }
   };
 
+  const setPending = (busy: boolean) => {
+    pending.current = busy;
+  };
+
+  return { source, id, opened, show, close, view, setPending, dismiss };
+}
+
+/**
+ * The project title at the top of the binder. It keeps the heading's look
+ * and opens the Projects view at its list.
+ */
+export function ProjectsButton({ title, dialog }: { title: string; dialog: ProjectsDialogControl }) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const open = dialog.opened?.anchor === trigger;
+  return (
+    <button
+      ref={trigger}
+      type="button"
+      className="binder-title-button"
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-controls={open ? dialog.id : undefined}
+      title="Projects"
+      onClick={() => (open ? dialog.close() : dialog.show("open", { anchor: trigger }))}
+    >
+      {title}
+      <ChevronDown className="chevron" aria-hidden />
+    </button>
+  );
+}
+
+/**
+ * The Projects view: a dialog under the control that opened it on desktop
+ * (Escape or a click outside closes it), a sheet from the bottom on phones.
+ */
+export function ProjectsDialog({ dialog }: { dialog: ProjectsDialogControl }) {
+  const headingId = useId();
+  const { source, opened, view: current } = dialog;
+  const { phone } = source;
+
   const view = (
     <ProjectsView
-      key={openings}
+      key={current.openings}
       source={source}
+      intent={current.intent}
       headingId={headingId}
-      onClose={phone ? close : undefined}
-      onPendingChange={(busy) => {
-        pending.current = busy;
-      }}
+      onClose={phone ? dialog.close : undefined}
+      onPendingChange={dialog.setPending}
     />
   );
 
-  return (
-    <>
-      <button
-        ref={trigger}
-        type="button"
-        className="binder-title-button"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? viewId : undefined}
-        title="Projects"
-        onClick={() => {
-          if (open) {
-            close();
-            return;
-          }
-          setOpenings((n) => n + 1);
-          setOpenedAt(loads);
-        }}
+  if (phone) {
+    return (
+      <BottomSheet
+        id={dialog.id}
+        open={opened !== null}
+        onClose={dialog.close}
+        labelledBy={headingId}
+        closeLabel="Close projects"
+        className="bottom-sheet--fit"
+        overPanels
       >
-        {title}
-        <ChevronDown className="chevron" aria-hidden />
-      </button>
-      {phone ? (
-        <BottomSheet
-          id={viewId}
-          open={open}
-          onClose={close}
-          labelledBy={headingId}
-          closeLabel="Close projects"
-          className="bottom-sheet--fit"
-          overPanels
-        >
-          {openings > 0 && view}
-        </BottomSheet>
-      ) : (
-        open && (
-          <Popover
-            anchor={trigger}
-            ignore={trigger}
-            id={viewId}
-            role="dialog"
-            label="Projects"
-            className="projects-popover"
-            onClose={onPopoverClose}
-          >
-            {view}
-          </Popover>
-        )
-      )}
-    </>
+        {current.openings > 0 && view}
+      </BottomSheet>
+    );
+  }
+  return (
+    opened && (
+      <Popover
+        anchor={opened.anchor}
+        ignore={opened.anchor}
+        id={dialog.id}
+        role="dialog"
+        label="Projects"
+        className="projects-popover"
+        onClose={dialog.dismiss}
+      >
+        {view}
+      </Popover>
+    )
   );
 }
 
@@ -194,14 +256,13 @@ const rowKey = (path: string) => `project:${path}`;
 
 interface ProjectsViewProps {
   source: ProjectsSource;
+  /** "new" starts in the new project's title field, where projects can be created. */
+  intent: ProjectsIntent;
   headingId: string;
   /** Phones: the sheet's close button. The desktop dialog has none: Escape or a click outside close it. */
   onClose?: () => void;
   onPendingChange(busy: boolean): void;
 }
-
-/** True when focus went nowhere, for example with a button that was disabled. */
-const focusLost = () => document.activeElement === null || document.activeElement === document.body;
 
 /**
  * The projects on this device, the open one marked; Open folder… where
@@ -209,7 +270,7 @@ const focusLost = () => document.activeElement === null || document.activeElemen
  * Create as the view's one primary action. A failure shows by the control
  * that failed, and what was typed stays.
  */
-function ProjectsView({ source, headingId, onClose, onPendingChange }: ProjectsViewProps) {
+function ProjectsView({ source, intent, headingId, onClose, onPendingChange }: ProjectsViewProps) {
   const { list, current, canCreate, openFolder } = source;
   const [state, setState] = useState<ListState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -218,9 +279,12 @@ function ProjectsView({ source, headingId, onClose, onPendingChange }: ProjectsV
   const [title, setTitle] = useState("");
   const [language, setLanguage] = useState(() => defaultLanguage(navigator.languages));
   const root = useRef<HTMLDivElement>(null);
+  const titleField = useRef<HTMLInputElement>(null);
   const ids = useId();
   const locked = source.busy || pending !== null;
   const desktop = onClose === undefined;
+  /** Opened for a new project, where one can be made: focus starts in its title field. */
+  const startInForm = intent === "new" && canCreate;
 
   useEffect(() => {
     let live = true;
@@ -236,10 +300,20 @@ function ProjectsView({ source, headingId, onClose, onPendingChange }: ProjectsV
   // Desktop: focus starts on the view, and moves to the first project that
   // can be opened once the list is in, unless it has been moved meanwhile.
   // Phones focus the sheet's close button instead (BottomSheet), so no
-  // keyboard pops up.
+  // keyboard pops up. Opened for a new project, focus starts in its title
+  // field on both (the sheet focuses what is marked data-autofocus).
   useEffect(() => {
-    if (desktop) root.current?.focus({ preventScroll: true });
-  }, [desktop]);
+    if (!desktop) return;
+    const field = titleField.current;
+    if (startInForm && field) {
+      field.focus({ preventScroll: true });
+      // The dialog scrolls when the window is short: the field comes into view.
+      const box = root.current?.parentElement;
+      if (box) revealIn(box, field);
+    } else {
+      root.current?.focus({ preventScroll: true });
+    }
+  }, [desktop, startInForm]);
 
   useEffect(() => {
     if (!desktop || state.status !== "ready" || document.activeElement !== root.current) return;
@@ -396,7 +470,7 @@ function ProjectsView({ source, headingId, onClose, onPendingChange }: ProjectsV
             type="button"
             className="btn btn--icon"
             aria-label="Close"
-            data-autofocus
+            data-autofocus={startInForm ? undefined : true}
             disabled={pending !== null}
             onClick={onClose}
           >
@@ -435,8 +509,10 @@ function ProjectsView({ source, headingId, onClose, onPendingChange }: ProjectsV
           <div className="new-project-fields">
             <label htmlFor={`${ids}-title`}>Title</label>
             <input
+              ref={titleField}
               id={`${ids}-title`}
               className="input"
+              data-autofocus={startInForm || undefined}
               value={title}
               readOnly={locked}
               aria-invalid={failure?.at === TITLE}

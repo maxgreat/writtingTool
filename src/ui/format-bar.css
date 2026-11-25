@@ -1,4 +1,4 @@
-/* The formatting bar: panel buttons at the ends, the controls centred between them. */
+/* The formatting bar: the main menu and panel buttons at the ends, the controls centred between them. */
 
 .format-bar {
   display: flex;
@@ -11,7 +11,17 @@
 .format-bar-end {
   display: flex;
   flex: none;
+  gap: var(--space-0-5);
   min-width: var(--size-control);
+}
+
+/*
+ * Desktop: both ends as wide as the left one (the main menu and the binder
+ * button), so the controls between are centred in the window. Phones keep
+ * the room for the controls, which scroll there anyway.
+ */
+.is-desktop .format-bar-end {
+  min-width: calc(2 * var(--size-control) + var(--space-0-5));
 }
 
 .format-bar-end--right {

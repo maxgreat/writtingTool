@@ -156,6 +156,43 @@ describe("useProject", () => {
   });
 });
 
+describe("closing the window", () => {
+  it("stays open once if the edits can't be saved, then closes without them", async () => {
+    writeFile.mockRejectedValue(new Error("Disk full"));
+    act(() => api.updateChapter(CHAPTER, "Changed."));
+    let may: boolean | null = null;
+    await act(async () => {
+      may = await api.mayClose();
+    });
+    expect(may).toBe(false);
+    expect(api.save).toEqual({ status: "error", message: "Disk full Close the window again to quit without them." });
+    await act(async () => {
+      may = await api.mayClose();
+    });
+    expect(may).toBe(true);
+  });
+
+  it("gives a close asked for while one is decided the same answer, so it isn't the second", async () => {
+    let fail: (error: Error) => void = () => undefined;
+    writeFile.mockReturnValueOnce(
+      new Promise<string | null>((_, reject) => {
+        fail = reject;
+      }),
+    );
+    writeFile.mockRejectedValue(new Error("Disk full"));
+    act(() => api.updateChapter(CHAPTER, "Changed."));
+    const answers: boolean[] = [];
+    await act(async () => {
+      const first = api.mayClose();
+      const second = api.mayClose();
+      fail(new Error("Disk full"));
+      answers.push(await first, await second);
+    });
+    expect(answers).toEqual([false, false]);
+    expect(writeFile).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("opening another project", () => {
   const other: ProjectSnapshot = {
     ...snapshot,

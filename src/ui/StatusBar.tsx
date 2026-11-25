@@ -1,4 +1,4 @@
-import { TriangleAlert } from "lucide-react";
+import { Check, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import type { Backend } from "../core/backend";
 import type { SaveState } from "../core/useProject";
@@ -12,6 +12,8 @@ export interface StatusBarProps {
   language: string;
   save: SaveState;
   onRetry(): Promise<void>;
+  /** Save was chosen and has finished, and nothing has changed since: the saved state shows a check. */
+  confirmed?: boolean;
   backendKind: Backend["kind"];
   problems: string[];
   /** Phones: the chapter and today's counts and the save state only. */
@@ -26,6 +28,7 @@ export function StatusBar({
   language,
   save,
   onRetry,
+  confirmed = false,
   backendKind,
   problems,
   compact,
@@ -55,7 +58,7 @@ export function StatusBar({
 
       <div className="status-group status-group--end">
         {problems.length > 0 && <Problems problems={problems} compact={compact} />}
-        <SaveStatus save={save} onRetry={onRetry} backendKind={backendKind} compact={compact} />
+        <SaveStatus save={save} onRetry={onRetry} confirmed={confirmed} backendKind={backendKind} compact={compact} />
       </div>
     </footer>
   );
@@ -64,9 +67,10 @@ export function StatusBar({
 function SaveStatus({
   save,
   onRetry,
+  confirmed,
   backendKind,
   compact,
-}: Pick<StatusBarProps, "save" | "onRetry" | "backendKind" | "compact">) {
+}: Pick<StatusBarProps, "save" | "onRetry" | "confirmed" | "backendKind" | "compact">) {
   const [retrying, setRetrying] = useState(false);
   const browser = backendKind === "browser";
 
@@ -98,12 +102,19 @@ function SaveStatus({
   const state = save.status === "saving" ? "Saving…" : save.status === "pending" ? "Unsaved" : null;
   // The text was saved, but its previous version wasn't kept: a warning, not an error.
   const warning = save.status === "saved" ? save.warning : undefined;
+  // Workspace announces the confirmation itself, as it can show while this bar is hidden (focus mode).
+  const checked = confirmed && save.status === "saved" && !warning;
   return (
     <span className={cx("status-item", warning && "save-warning")} title={warning}>
       {warning ? (
         <>
           <TriangleAlert aria-hidden />
           <span aria-hidden>Saved · previous version not kept</span>
+        </>
+      ) : checked ? (
+        <>
+          <Check aria-hidden />
+          <span>{browser ? (compact ? "Saved in this tab" : "Browser preview · saved in this tab") : "Saved on this device"}</span>
         </>
       ) : browser ? (
         <span

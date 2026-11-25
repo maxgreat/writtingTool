@@ -8,17 +8,19 @@ import { holdsNames, type Project } from "../core/project";
 import type { EditorMode, ViewSettings } from "../core/settings";
 import { useNameSuggestions } from "../core/useNameSuggestions";
 import type { useProject } from "../core/useProject";
+import { TextNote } from "./AddName";
 import { Binder } from "./Binder";
 import { SheetPreview } from "./BottomSheet";
-import { cx, hasMod, shortcut } from "./dom";
+import { cx, errorMessage, focusLost, hasMod, shortcut } from "./dom";
 import { EditorPane } from "./EditorPane";
 import { FormatBar } from "./FormatBar";
 import { HOVER_QUERY, useMediaQuery } from "./hooks";
 import type { IgnoreSource } from "./IgnoreHere";
 import { Inspector, type InspectorView } from "./Inspector";
 import { panelStyle } from "./layoutStyle";
+import type { MainMenuCommands } from "./MainMenu";
 import type { SuggestionSource } from "./PossibleNameMenu";
-import type { ProjectsSource } from "./Projects";
+import { ProjectsDialog, useProjectsDialog, type ProjectsIntent, type ProjectsSource } from "./Projects";
 import { ResizeHandle } from "./ResizeHandle";
 import { StatusBar } from "./StatusBar";
 import type { SwipeIntent } from "./swipe";
@@ -61,6 +63,30 @@ function sheetView(id: string, editing: boolean, occurrence: IgnoredName | undef
 const KEYBOARD_SCOPE = ".editor-pane";
 
 /**
+ * The letter of a shortcut's key, whatever the case (Caps Lock). On a
+ * layout without Latin letters (Cyrillic, Greek) it is the key's place on
+ * a QWERTY keyboard, as browsers do for their own shortcuts.
+ */
+function letter(event: KeyboardEvent): string {
+  if (/^[a-z]$/iu.test(event.key)) return event.key.toLowerCase();
+  return /^Key[A-Z]$/u.test(event.code) ? event.code.slice(3).toLowerCase() : "";
+}
+
+/** mod and a letter, with no other modifier: Save, Open project and Quit. */
+function isModLetter(event: KeyboardEvent, key: string): boolean {
+  return hasMod(event) && !event.altKey && !event.shiftKey && !event.getModifierState("AltGraph") && letter(event) === key;
+}
+
+/** Keys pressed on their way to a shortcut. */
+const MODIFIER_KEYS = new Set(["Control", "Meta", "Shift", "Alt", "AltGraph"]);
+
+/** What focus can go to when a field left for Save or Quit is gone. */
+const CONTROLS = "input:not(:disabled), textarea:not(:disabled), select:not(:disabled), button:not(:disabled)";
+
+/** Resolves once React has shown what was waiting: after the next frame. */
+const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+
+/**
  * The main window: formatting bar on top, binder, chapter and inspector,
  * status bar at the bottom. Phones get the editor alone, with the panels as
  * overlays; focus mode hides everything but the text.
@@ -90,6 +116,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   const [newChapterRequest, setNewChapterRequest] = useState(0);
   /** A sheet being moved to the Trash from the inspector, and its type: see the reset below. */
   const [trashedSheet, setTrashedSheet] = useState<{ id: string; folder: string } | null>(null);
+  /** Save was chosen and has finished, with nothing changed since: the status bar shows a check. */
+  const [saveConfirmed, setSaveConfirmed] = useState(false);
 
   // A chapter with Markdown the formatted editor can't keep is shown in Plain
   // until another chapter is opened. The mode setting itself doesn't change.
@@ -126,7 +154,11 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     );
     setTrashedSheet(null);
     setPreview((p) => ({ id: null, open: false, opening: p.opening }));
+    setSaveConfirmed(false);
   }
+
+  // The check goes as soon as there is something to save again, or the save failed.
+  if (saveConfirmed && api.save.status !== "saved") setSaveConfirmed(false);
 
   const plainOnly = chapter !== null && plainOnlyId === chapter.id;
   const mode: EditorMode = plainOnly ? "plain" : settings.mode;
@@ -162,7 +194,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
    * the bars stay where they are, however the window is resized.
    */
   const keyboardUp = useOnScreenKeyboard(isPhone && !focusMode, KEYBOARD_SCOPE);
-  const statusShown = !focusMode && (!keyboardUp || api.save.status === "error");
+  // A save error, or the check after Save, shows even in focus mode: the writer asked, or must know.
+  const statusShown = api.save.status === "error" || saveConfirmed || (!focusMode && !keyboardUp);
 
   // Leaving phone layout closes the overlays.
   useEffect(() => {
@@ -382,10 +415,311 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     if (!pointerInBar.current && !menuOpen.current) setBarRevealed(false);
   };
 
+  /* Fields taken when left ------------------------------------------------ */
+
+  /**
+   * Quit was stopped for a field that refused its edit: the Quit right after
+   * leaves without it. Anything else pressed meanwhile, or an edit taken,
+   * starts over.
+   */
+  const quitStopped = useRef(false);
+  /** A field being left for Save or Quit (see commitField): whether it refused what was typed. */
+  const fieldCommit = useRef<{ refused: boolean } | null>(null);
+  /** Binder changes being made, each resolving to whether it was. */
+  const binderChanges = useRef(new Set<Promise<boolean>>());
+
+  const { updateSheet: updateSheetInCore, changeBinder: changeBinderInCore } = api;
+  /** useProject's updateSheet, for the inspector's form; a refusal is noted for commitField. */
+  const updateSheet = useCallback<ProjectApi["updateSheet"]>(
+    (id, edit) => {
+      try {
+        updateSheetInCore(id, edit);
+      } catch (error) {
+        if (fieldCommit.current) fieldCommit.current.refused = true;
+        throw error;
+      }
+    },
+    [updateSheetInCore],
+  );
+  /** useProject's changeBinder, for the binder; commitField waits for the changes under way, and needs them made. */
+  const changeBinder = useCallback<ProjectApi["changeBinder"]>(
+    (makePlan) => {
+      const change = changeBinderInCore(makePlan);
+      const made = change.then(
+        () => true,
+        () => false,
+      );
+      binderChanges.current.add(made);
+      void made.then(() => binderChanges.current.delete(made));
+      return change;
+    },
+    [changeBinderInCore],
+  );
+
+  // While the project on disk changes (api.switching) fields take nothing: commitField waits.
+  const switchingNow = useRef(api.switching);
+  const settled = useRef<(() => void)[]>([]);
+  useEffect(() => {
+    switchingNow.current = api.switching;
+    if (!api.switching) for (const resolve of settled.current.splice(0)) resolve();
+  }, [api.switching]);
+
+  /**
+   * Hands what is typed in the focused field to the project, as leaving it
+   * would: a sheet's name and other names, and a title in the binder, are
+   * only taken on Enter or when the field is left, and the Save and Quit
+   * shortcuts leave focus where it is. The field loses focus for a moment
+   * and gets it straight back, its caret or selection as it was. The
+   * chapter's text is left alone: its edits are pending as they are typed.
+   * The sheet's form hands its edit over at once; the binder's title starts
+   * a binder change, which is waited for, as is any other under way (a
+   * title left with Enter or for the menu, say). Resolves to false if the
+   * field refused what was typed, or a binder change failed: each says why.
+   *
+   * A field can go once its edit is shown (a new field's name becomes the
+   * field, a binder title its row). Focus then goes to what took its place
+   * in the part of the page it was in, else to that part's first control.
+   */
+  const commitField = useCallback(async (): Promise<boolean> => {
+    // Before waiting: each change leaves the set once it is made, or has failed.
+    const changes = [...binderChanges.current];
+    if (switchingNow.current) await new Promise<void>((resolve) => settled.current.push(resolve));
+    const field = document.activeElement;
+    let refused = false;
+    if ((field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && !field.closest(KEYBOARD_SCOPE)) {
+      const { selectionStart: start, selectionEnd: end, selectionDirection: direction } = field;
+      const part = field.closest("section, nav, [role='dialog']");
+      const before = new Set(part?.querySelectorAll(CONTROLS));
+      const commit = { refused: false };
+      fieldCommit.current = commit;
+      try {
+        field.blur();
+      } finally {
+        fieldCommit.current = null;
+      }
+      refused = commit.refused;
+      // At once, before anything renders, so keys typed meanwhile still go to the field.
+      if (field.isConnected) {
+        field.focus({ preventScroll: true });
+        if (start !== null && end !== null) field.setSelectionRange(start, end, direction ?? undefined);
+      }
+      changes.push(...binderChanges.current);
+      void Promise.all(changes)
+        .then(nextFrame)
+        .then(() => {
+          if (field.isConnected || !focusLost()) return;
+          const controls = part?.isConnected ? [...part.querySelectorAll<HTMLElement>(CONTROLS)] : [];
+          const next = controls.find((c) => !before.has(c)) ?? controls[0];
+          if (next) next.focus({ preventScroll: true });
+          else editorRef.current?.focus();
+        });
+    }
+    const made = await Promise.all(changes);
+    const taken = !refused && made.every(Boolean);
+    if (taken) quitStopped.current = false;
+    return taken;
+  }, []);
+
+  /* Main menu -------------------------------------------------------------- */
+
+  /** The menu's button: the Projects view hangs from it when opened from the menu or its shortcut. */
+  const mainMenuRef = useRef<HTMLButtonElement>(null);
+
+  const projects: ProjectsSource = {
+    current: project.root,
+    loads: api.loads,
+    list: api.listProjects,
+    open: api.openProjectAt,
+    create: api.createProject,
+    openFolder: backend.canOpenFolders ? api.openFolder : undefined,
+    canCreate: backend.canCreateProjects,
+    openUrl: backend.openUrl,
+    busy: api.switching,
+    phone: isPhone,
+  };
+  /** The Projects view, opened from the binder's title, the main menu or its shortcut. */
+  const projectsDialog = useProjectsDialog(projects);
+
+  // In focus mode the bar stays in view while the Projects view hangs from its menu button.
+  const barHeld = focusMode && projectsDialog.opened !== null;
+
+  /** The Projects view, from the main menu: focus goes back to the menu's button when it closes, unless `returnFocus` says otherwise. */
+  const showProjects = (intent: ProjectsIntent, returnFocus?: () => void) => {
+    projectsDialog.show(intent, { anchor: mainMenuRef, returnFocus });
+  };
+
+  /**
+   * Something chosen in the main menu, or its shortcut, couldn't be done: a
+   * note under the menu's button says why, until the next key, press or
+   * scroll.
+   */
+  const [refusal, setRefusal] = useState<{ title: string; message: string; at: DOMRect } | null>(null);
+  const refuse = useCallback((title: string, error: unknown) => {
+    const at = mainMenuRef.current?.getBoundingClientRect() ?? new DOMRect();
+    setRefusal({ title, message: errorMessage(error), at });
+  }, []);
+
+  useEffect(() => {
+    if (!refusal) return;
+    const dismiss = () => setRefusal(null);
+    window.addEventListener("keydown", dismiss, true);
+    window.addEventListener("pointerdown", dismiss, true);
+    window.addEventListener("scroll", dismiss, true);
+    return () => {
+      window.removeEventListener("keydown", dismiss, true);
+      window.removeEventListener("pointerdown", dismiss, true);
+      window.removeEventListener("scroll", dismiss, true);
+    };
+  }, [refusal]);
+
+  /**
+   * Save, from the menu or its shortcut: takes the focused field's edit,
+   * then writes pending edits now. The status bar shows "Saving…", then a
+   * check by "Saved on this device", or why it failed, with Retry. A field
+   * that refused its edit gets no check: it says why itself.
+   */
+  const { saveNow } = api;
+  const save = useCallback(async () => {
+    setSaveConfirmed(false);
+    const taken = await commitField();
+    await saveNow();
+    if (taken) setSaveConfirmed(true);
+  }, [commitField, saveNow]);
+
+  // The check goes at the next key or press, as the writer moves on.
+  useEffect(() => {
+    if (!saveConfirmed) return;
+    const dismiss = () => setSaveConfirmed(false);
+    window.addEventListener("keydown", dismiss, true);
+    window.addEventListener("pointerdown", dismiss, true);
+    return () => {
+      window.removeEventListener("keydown", dismiss, true);
+      window.removeEventListener("pointerdown", dismiss, true);
+    };
+  }, [saveConfirmed]);
+
+  /** Open folder…: the system's folder picker, then the folder chosen, as in the Projects view. */
+  const [openingFolder, setOpeningFolder] = useState(false);
+  const { openFolder } = api;
+  const openFolderFromMenu = useCallback(async () => {
+    setOpeningFolder(true);
+    try {
+      await openFolder();
+    } catch (error) {
+      refuse("Couldn’t open the folder", error);
+    } finally {
+      setOpeningFolder(false);
+    }
+  }, [openFolder, refuse]);
+
+  /**
+   * A Quit is under way, from its start until it stops or the window
+   * closes: another one meanwhile is ignored, as it would take the first
+   * one's refusal for its own and close the window. A ref, so no render can
+   * let one through; `quitting` shows it in the menu.
+   */
+  const quitRunning = useRef(false);
+  const [quitting, setQuitting] = useState(false);
+  const { mayClose } = api;
+
+  /**
+   * Quit, in the desktop app: takes the focused field's edit, then saves and
+   * closes the window as its own close button does, which stays open once
+   * if the edits can't be saved, so the error shows. A field that refused
+   * its edit stops the first Quit too, so its reason shows.
+   */
+  const quit = useMemo(
+    () =>
+      backend.closeWindow
+        ? async () => {
+            if (quitRunning.current) return;
+            quitRunning.current = true;
+            setQuitting(true);
+            try {
+              const taken = await commitField();
+              if (!taken && !quitStopped.current) {
+                quitStopped.current = true;
+                return;
+              }
+              quitStopped.current = false;
+              if (!(await mayClose())) return;
+              await backend.closeWindow?.();
+            } catch (error) {
+              refuse("Couldn’t quit", error);
+            } finally {
+              quitRunning.current = false;
+              setQuitting(false);
+            }
+          }
+        : undefined,
+    [backend, commitField, mayClose, refuse],
+  );
+
+  // Only the Quit right after a stopped one leaves without the field's edit:
+  // any other key or press starts over, Ctrl on its way to Ctrl+Q aside.
+  useEffect(() => {
+    const startOver = (event: Event) => {
+      if (event instanceof KeyboardEvent && (MODIFIER_KEYS.has(event.key) || isModLetter(event, "q"))) return;
+      quitStopped.current = false;
+    };
+    window.addEventListener("keydown", startOver, true);
+    window.addEventListener("pointerdown", startOver, true);
+    return () => {
+      window.removeEventListener("keydown", startOver, true);
+      window.removeEventListener("pointerdown", startOver, true);
+    };
+  }, []);
+
+  const mainMenu: MainMenuCommands = {
+    canCreateProjects: backend.canCreateProjects,
+    onNewProject: () => showProjects("new"),
+    onOpenProject: () => showProjects("open"),
+    onOpenFolder: backend.canOpenFolders
+      ? () => {
+          // Back in the text if no folder is chosen; a project that opens puts its own text there.
+          editorRef.current?.focus();
+          void openFolderFromMenu();
+        }
+      : undefined,
+    onSave: () => {
+      editorRef.current?.focus();
+      void save();
+    },
+    saving: api.save.status === "saving",
+    // The bar comes back with the pointer at the top edge, which touch screens don't have.
+    onToggleFocus:
+      canHover || focusMode
+        ? () => {
+            if (!focusMode) {
+              enterFocus();
+              return;
+            }
+            leaveFocus();
+            editorRef.current?.focus();
+          }
+        : undefined,
+    onQuit: quit,
+    quitting,
+    busy: api.switching || openingFolder,
+    showShortcuts: canHover,
+  };
+
   /* Keyboard --------------------------------------------------------------- */
 
-  const keys = useRef({ togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel });
-  keys.current = { togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel };
+  /** A shortcut's Projects view: focus goes back where it was, the text if it was there or nowhere. */
+  const showProjectsFromKeys = (intent: ProjectsIntent) => {
+    const previous = document.activeElement;
+    showProjects(intent, () => {
+      if (previous instanceof HTMLElement && previous.isConnected && previous !== document.body && !previous.closest(KEYBOARD_SCOPE)) {
+        previous.focus({ preventScroll: true });
+      } else {
+        editorRef.current?.focus();
+      }
+    });
+  };
+
+  const keys = useRef({ togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit });
+  keys.current = { togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit };
 
   useEffect(() => {
     // Capture phase, so these work whichever editor has focus.
@@ -398,7 +732,17 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
         return;
       }
       if (!hasMod(event) || event.getModifierState("AltGraph")) return;
-      if (event.altKey && event.code === "KeyB") {
+      if (isModLetter(event, "s")) {
+        // Never the browser's Save page.
+        event.preventDefault();
+        void k.save();
+      } else if (isModLetter(event, "o")) {
+        event.preventDefault();
+        if (!event.repeat) k.showProjectsFromKeys("open");
+      } else if (isModLetter(event, "q") && k.quit) {
+        event.preventDefault();
+        if (!event.repeat) void k.quit();
+      } else if (event.altKey && event.code === "KeyB") {
         event.preventDefault();
         k.togglePanel("binder");
       } else if (event.altKey && event.code === "KeyI") {
@@ -433,19 +777,6 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     if (editorRef.current) command(editorRef.current);
   };
 
-  const projects: ProjectsSource = {
-    current: project.root,
-    loads: api.loads,
-    list: api.listProjects,
-    open: api.openProjectAt,
-    create: api.createProject,
-    openFolder: backend.canOpenFolders ? api.openFolder : undefined,
-    canCreate: backend.canCreateProjects,
-    openUrl: backend.openUrl,
-    busy: api.switching,
-    phone: isPhone,
-  };
-
   const empty = (
     <div className="editor-empty">
       <h2>{project.title} has no chapters yet</h2>
@@ -476,7 +807,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
 
       <header
         ref={barRef}
-        className={cx("bar-slot", barRevealed && "is-revealed")}
+        className={cx("bar-slot", (barRevealed || barHeld) && "is-revealed")}
         onPointerEnter={() => {
           pointerInBar.current = true;
         }}
@@ -505,6 +836,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           onToggleInspector={() => togglePanel("inspector")}
           focusMode={focusMode}
           onLeaveFocus={leaveFocus}
+          mainMenu={mainMenu}
+          mainMenuRef={mainMenuRef}
           onMenuOpenChange={onMenuOpenChange}
           onRefocus={() => editorRef.current?.focus()}
         />
@@ -519,8 +852,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
               onOpenChapter={openChapter}
               onOpenSheet={openSheet}
               onEditSheet={editSheet}
-              projects={projects}
-              onChange={api.changeBinder}
+              projects={projectsDialog}
+              onChange={changeBinder}
               onChapterDetails={api.updateChapterDetails}
               onCreateSheet={api.createSheet}
               onSheetCreated={sheetCreated}
@@ -596,7 +929,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
               onOpenChapter={openChapter}
               onChapterDetails={api.updateChapterDetails}
               onCreateSheet={api.createSheet}
-              onUpdateSheet={api.updateSheet}
+              onUpdateSheet={updateSheet}
               onTrashSheet={trashSheet}
               ignoring={ignoring}
               suggestions={suggestions}
@@ -634,6 +967,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           language={project.language}
           save={api.save}
           onRetry={api.saveNow}
+          confirmed={saveConfirmed}
           backendKind={backend.kind}
           problems={project.problems}
           compact={isPhone}
@@ -660,11 +994,23 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
         />
       )}
 
+      <ProjectsDialog dialog={projectsDialog} />
+
+      {refusal && <TextNote at={refusal.at} title={refusal.title} message={refusal.message} />}
+
       {focusMode && (
         <p className="visually-hidden" role="status">
           Focus mode. Press Escape or {shortcut("F11")} to leave.
         </p>
       )}
+      {/* Here rather than in the status bar, which focus mode only shows once the save is done. */}
+      <p className="visually-hidden" role="status">
+        {saveConfirmed ? (backend.kind === "browser" ? "Saved in this tab." : "Saved on this device.") : ""}
+      </p>
+      {/* Present before a refusal from the main menu, so screen readers announce it. */}
+      <p className="visually-hidden" role="alert">
+        {refusal ? `${refusal.title}. ${refusal.message}` : ""}
+      </p>
     </div>
   );
 }

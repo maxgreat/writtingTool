@@ -1,10 +1,18 @@
 // @vitest-environment jsdom
-import { act, createElement } from "react";
+import { act, createElement, Fragment, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_VERSION, PRIVACY_POLICY_URL } from "../../core/about";
 import type { ProjectEntry } from "../../core/projects";
-import { folderName, projectDetail, ProjectsButton, type ProjectsSource } from "../Projects";
+import {
+  folderName,
+  projectDetail,
+  ProjectsButton,
+  ProjectsDialog,
+  useProjectsDialog,
+  type ProjectsIntent,
+  type ProjectsSource,
+} from "../Projects";
 
 const FERRY: ProjectEntry = { path: "/data/projects/Night Ferry", title: "Night Ferry", inAppFolder: true };
 const FERRY_2: ProjectEntry = { path: "/data/projects/Night Ferry 2", title: "Night Ferry", inAppFolder: true };
@@ -60,6 +68,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  other = { intent: "new" };
   list.mockReset().mockResolvedValue([DEBT, AWAY]);
   open.mockReset().mockResolvedValue(undefined);
   create.mockReset().mockResolvedValue(undefined);
@@ -85,12 +94,41 @@ afterEach(() => {
   container.remove();
 });
 
+/** What the other trigger asks for, and where focus goes when the view closes, if not back to it. */
+let other: { intent: ProjectsIntent; returnFocus?: () => void } = { intent: "new" };
+
+/**
+ * The window's one Projects view, as Workspace has it: the project title
+ * opens it, and so does another control (the main menu, in the app).
+ */
+function Harness({ source: from }: { source: ProjectsSource }) {
+  const dialog = useProjectsDialog(from);
+  const anchor = useRef<HTMLButtonElement>(null);
+  return createElement(
+    Fragment,
+    null,
+    createElement(ProjectsButton, { title: "The Ferryman’s Debt", dialog }),
+    createElement(
+      "button",
+      {
+        ref: anchor,
+        type: "button",
+        id: "other",
+        onClick: () => dialog.show(other.intent, { anchor, returnFocus: other.returnFocus }),
+      },
+      "Other",
+    ),
+    createElement(ProjectsDialog, { dialog }),
+  );
+}
+
 async function render(patch: Partial<ProjectsSource> = {}) {
   source = { ...source, ...patch };
-  await act(async () => root.render(createElement(ProjectsButton, { title: "The Ferryman’s Debt", source })));
+  await act(async () => root.render(createElement(Harness, { source })));
 }
 
 const titleButton = () => container.querySelector<HTMLButtonElement>(".binder-title-button")!;
+const otherButton = () => container.querySelector<HTMLButtonElement>("#other")!;
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
 const rows = () => [...(dialog()?.querySelectorAll<HTMLElement>(".projects-list:not([aria-hidden]) .project-row") ?? [])];
 const skeletons = () => dialog()?.querySelectorAll(".projects-list[aria-hidden] .skeleton").length ?? 0;
@@ -345,6 +383,114 @@ describe("on phones", () => {
     await click(document.activeElement as HTMLElement);
     expect(document.querySelector(".bottom-sheet.is-open")).toBeNull();
     expect(document.activeElement).toBe(titleButton());
+  });
+});
+
+describe("opened from elsewhere", () => {
+  it("is the same single view, marked open on the control it came from only", async () => {
+    other = { intent: "open" };
+    await render();
+    await click(otherButton());
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(titleButton().getAttribute("aria-expanded")).toBe("false");
+    expect(titleButton().hasAttribute("aria-controls")).toBe(false);
+    expect(document.activeElement).toBe(row(AWAY.title));
+    await press("Escape");
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(otherButton());
+  });
+
+  it("opens with the new project's title field ready, for a new project", async () => {
+    await render();
+    await click(otherButton());
+    expect(document.activeElement).toBe(titleInput());
+    // The list arriving doesn't take focus from the field.
+    expect(rows()).toHaveLength(2);
+    expect(document.activeElement).toBe(titleInput());
+    await type(titleInput(), "Night Ferry");
+    await submit();
+    expect(create).toHaveBeenCalledWith("Night Ferry", "fr-FR");
+  });
+
+  it("starts at the list where projects can't be created, even for a new project", async () => {
+    await render({ canCreate: false });
+    await click(otherButton());
+    expect(dialog()?.querySelector("form")).toBeNull();
+    expect(document.activeElement).toBe(row(AWAY.title));
+  });
+
+  it("opens afresh for the other intent, and stays as it is for the same one", async () => {
+    other = { intent: "open" };
+    await render();
+    await click(otherButton());
+    expect(list).toHaveBeenCalledTimes(1);
+    await click(otherButton());
+    expect(list).toHaveBeenCalledTimes(1);
+    other = { intent: "new" };
+    await click(otherButton());
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(document.activeElement).toBe(titleInput());
+  });
+
+  it("can't be opened again, nor for something else, while a project is opening", async () => {
+    const answer = deferred<void>();
+    open.mockReturnValue(answer.promise);
+    other = { intent: "open" };
+    await render();
+    await click(otherButton());
+    await click(row(AWAY.title));
+    other = { intent: "new" };
+    await click(otherButton());
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(row(AWAY.title)!.textContent).toContain("Opening…");
+    await act(async () => answer.resolve());
+  });
+
+  it("gives focus back where it was asked to, after Escape or once a project opens", async () => {
+    const returnFocus = vi.fn();
+    other = { intent: "open", returnFocus };
+    await render();
+    await click(otherButton());
+    await press("Escape");
+    expect(returnFocus).toHaveBeenCalledTimes(1);
+
+    await click(otherButton());
+    await click(row(AWAY.title));
+    await render({ current: AWAY.path, loads: 2 });
+    expect(dialog()).toBeNull();
+    expect(returnFocus).toHaveBeenCalledTimes(2);
+  });
+
+  it("closes when the title is pressed, and opens again from it", async () => {
+    other = { intent: "open" };
+    await render();
+    await click(otherButton());
+    // A press on the title is outside the view, which closes; its click opens the view from the title.
+    await act(async () => titleButton().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    expect(dialog()).toBeNull();
+    await openView();
+    expect(titleButton().getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  });
+
+  it("opens the phone's sheet with the keyboard's field ready, for a new project", async () => {
+    await render({ phone: true });
+    await click(otherButton());
+    expect(document.querySelector(".bottom-sheet.is-open")).not.toBeNull();
+    expect(document.activeElement).toBe(document.querySelector(".bottom-sheet.is-open input"));
+    await click(document.querySelector<HTMLElement>('.bottom-sheet.is-open button[aria-label="Close"]')!);
+    expect(document.querySelector(".bottom-sheet.is-open")).toBeNull();
+    expect(document.activeElement).toBe(otherButton());
+  });
+
+  it("closes when the window crosses the phone breakpoint", async () => {
+    other = { intent: "open" };
+    await render();
+    await click(otherButton());
+    await render({ phone: true });
+    expect(document.querySelector(".projects-popover")).toBeNull();
+    // The sheet is there, closed, so it can slide in next time.
+    expect(document.querySelector(".bottom-sheet.is-open")).toBeNull();
   });
 });
 

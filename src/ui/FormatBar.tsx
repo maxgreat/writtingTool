@@ -9,7 +9,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
 } from "lucide-react";
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent, type RefObject } from "react";
 import type { BlockStyle, FormatState } from "../core/editor/types";
 import {
   FONT_SIZE,
@@ -22,6 +22,7 @@ import {
 } from "../core/settings";
 import { shortcut } from "./dom";
 import { PLAIN_ONLY_NOTE_ID } from "./EditorPane";
+import { MainMenu, type MainMenuCommands } from "./MainMenu";
 import { MenuButton, MenuItem } from "./Popover";
 
 const BLOCK_LABELS: Record<BlockStyle, string> = { body: "Body text", heading: "Heading", quote: "Quote" };
@@ -35,7 +36,7 @@ const MODES: { value: EditorMode; label: string }[] = [
   { value: "plain", label: "Plain" },
 ];
 
-type MenuName = "style" | "size" | "line" | "margins";
+type MenuName = "main" | "style" | "size" | "line" | "margins";
 
 export interface FormatBarProps {
   settings: ViewSettings;
@@ -59,6 +60,10 @@ export interface FormatBarProps {
   /** In focus mode the panel buttons give way to a way out. */
   focusMode: boolean;
   onLeaveFocus(): void;
+  /** The main menu's commands, at the far left of the bar. */
+  mainMenu: MainMenuCommands;
+  /** The main menu's button, which the Projects view hangs from when opened from the menu or its shortcut. */
+  mainMenuRef: RefObject<HTMLButtonElement | null>;
   onMenuOpenChange?(open: boolean): void;
   /** Puts the caret back in the text after a menu choice. */
   onRefocus(): void;
@@ -74,7 +79,7 @@ export function formatLineSpacing(value: number): string {
 /**
  * The one slim row of controls: style, bold, italic, text size, line
  * spacing, margins and the mode switch, with each panel's hide button at its
- * end of the bar.
+ * end of the bar, after the main menu on the left.
  */
 export function FormatBar(props: FormatBarProps) {
   const { settings, update, format, hasChapter, focusMode, onMenuOpenChange } = props;
@@ -94,6 +99,13 @@ export function FormatBar(props: FormatBarProps) {
   return (
     <div className="format-bar" role="group" aria-label="Formatting">
       <div className="format-bar-end">
+        <MainMenu
+          commands={props.mainMenu}
+          focusMode={focusMode}
+          open={menu === "main"}
+          onOpenChange={toggle("main")}
+          triggerRef={props.mainMenuRef}
+        />
         {!focusMode && (
           <button
             type="button"

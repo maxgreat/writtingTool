@@ -61,6 +61,16 @@ const SCENES = [
     },
   },
   {
+    name: "desktop-main-menu",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // The menu at the left end of the bar, with each command's shortcut.
+      await page.getByRole("button", { name: "Main menu" }).click();
+      await page.getByRole("menu", { name: "Main menu" }).waitFor();
+    },
+  },
+  {
     name: "desktop-sheet",
     ...DESKTOP,
     colorScheme: "light",
@@ -168,6 +178,16 @@ const SCENES = [
       await page.locator('button[aria-controls="binder"]').click();
       await page.locator(".binder-title-button").click();
       await page.locator(".bottom-sheet.is-open .project-row.is-open").waitFor();
+    },
+  },
+  {
+    name: "phone-main-menu",
+    ...PHONE,
+    colorScheme: "light",
+    setup: async (page) => {
+      // On a touch screen: larger rows, no shortcuts, and no focus mode, which the pointer brings back from.
+      await page.getByRole("button", { name: "Main menu" }).click();
+      await page.getByRole("menu", { name: "Main menu" }).waitFor();
     },
   },
 ];

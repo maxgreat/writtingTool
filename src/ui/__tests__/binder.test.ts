@@ -55,15 +55,25 @@ beforeEach(() => {
     onOpenChapter: vi.fn(),
     onOpenSheet: vi.fn(),
     onEditSheet: vi.fn<(id: string) => void>(),
+    // The Projects view itself is tested in projects.test.ts.
     projects: {
-      current: "/test",
-      loads: 1,
-      list: async () => [],
-      open: async () => undefined,
-      create: async () => undefined,
-      canCreate: true,
-      busy: false,
-      phone: false,
+      source: {
+        current: "/test",
+        loads: 1,
+        list: async () => [],
+        open: async () => undefined,
+        create: async () => undefined,
+        canCreate: true,
+        busy: false,
+        phone: false,
+      },
+      id: "projects",
+      opened: null,
+      show: vi.fn(),
+      close: vi.fn(),
+      view: { intent: "open", openings: 0 },
+      setPending: vi.fn(),
+      dismiss: vi.fn(),
     },
     onChange: vi.fn(async (makePlan: (p: Project) => Plan | null) => {
       plans.push(makePlan(props.project));

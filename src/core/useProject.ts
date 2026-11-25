@@ -183,14 +183,18 @@ export function useProject() {
     };
   }, [applySnapshot]);
 
-  // Finish pending saves before the window closes or goes to the background.
-  // If they can't be saved, the first close is refused so the error shows;
-  // closing again quits without them.
-  useEffect(() => {
-    if (!backend) return;
-    let unlisten: (() => void) | null = null;
-    let disposed = false;
-    const beforeClose = async (): Promise<boolean> => {
+  /** The answer to a close being decided, which a close asked for meanwhile shares. */
+  const closeDecision = useRef<Promise<boolean> | null>(null);
+
+  /**
+   * Whether the window may close: pending saves are finished first. If they
+   * can't be saved, the first close is refused so the error shows; closing
+   * again quits without them. A close asked for while one is being decided
+   * gets the same answer, so a second press can't count as "again". The
+   * window's close button and Quit both ask.
+   */
+  const mayClose = useCallback((): Promise<boolean> => {
+    closeDecision.current ??= (async () => {
       await flush();
       if (pending.current.size === 0 || closeRefused.current) return true;
       closeRefused.current = true;
@@ -199,8 +203,18 @@ export function useProject() {
         message: `${current.status === "error" ? current.message : "Some changes are not saved."} Close the window again to quit without them.`,
       }));
       return false;
-    };
-    backend.onCloseRequested(beforeClose).then((stop) => {
+    })().finally(() => {
+      closeDecision.current = null;
+    });
+    return closeDecision.current;
+  }, [flush]);
+
+  // Finish pending saves before the window closes (see mayClose) or goes to the background.
+  useEffect(() => {
+    if (!backend) return;
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    backend.onCloseRequested(mayClose).then((stop) => {
       if (disposed) stop();
       else unlisten = stop;
     });
@@ -213,7 +227,7 @@ export function useProject() {
       unlisten?.();
       document.removeEventListener("visibilitychange", onHide);
     };
-  }, [backend, flush]);
+  }, [backend, flush, mayClose]);
 
   /** Shows a changed project at once and writes `path` about a second after the last change. */
   const changeLater = useCallback((next: Project, path: string, text: string) => {
@@ -503,6 +517,7 @@ export function useProject() {
     save,
     /** Writes pending changes now; also the retry after a failed save. */
     saveNow: flush,
+    mayClose,
     openFolder,
     openProjectAt,
     createProject,

@@ -234,8 +234,9 @@
 }
 
 /*
- * Summary card on hover (desktop), and a refusal from the native text menu,
- * shown where the menu was (AddName.tsx). Neither takes the pointer.
+ * Summary card on hover (desktop), and a refusal from the native text menu
+ * or the main menu, shown where the menu was (AddName.tsx). Neither takes
+ * the pointer.
  */
 .name-card,
 .text-note {

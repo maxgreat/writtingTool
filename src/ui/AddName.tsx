@@ -344,10 +344,11 @@ export interface TextNoteProps {
 }
 
 /**
- * Why something chosen in the native text menu didn't happen, shown where
- * the menu was, since nothing can show inside it. Screen readers hear it
- * from the editor pane's alert; the pane takes it away at the next key,
- * press or scroll.
+ * Why something chosen in a menu that has gone didn't happen, shown where
+ * the menu was: the native text menu, where nothing can show inside, or the
+ * main menu. Screen readers hear it from an alert beside it (the editor
+ * pane's, the workspace's), which takes it away at the next key, press or
+ * scroll.
  */
 export function TextNote({ at, title, message }: TextNoteProps) {
   const ref = useRef<HTMLDivElement>(null);

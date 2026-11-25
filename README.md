@@ -38,9 +38,9 @@ These are refreshed with every push, so they always show the app as it is on `ma
 | --- | --- |
 | ![A chapter's menu in the binder: rename, status, move up or down, move to a part, new chapter, Trash](docs/screenshots/desktop-binder-menu.png) | ![The binder after a chapter went to the Trash: its part is empty, and the open Trash lists it with Restore](docs/screenshots/desktop-binder-trash.png) |
 
-| Projects |
-| --- |
-| ![The Projects view, open under the project title at the top of the binder: the open project is checked. The browser preview has only the sample project, so it says so instead of offering a new project. The last line has the app's version and a link to the privacy policy](docs/screenshots/desktop-projects.png) |
+| Projects | Main menu |
+| --- | --- |
+| ![The Projects view, open under the project title at the top of the binder: the open project is checked. The browser preview has only the sample project, so it says so instead of offering a new project. The last line has the app's version and a link to the privacy policy](docs/screenshots/desktop-projects.png) | ![The main menu, open under its button at the left end of the bar, before the binder button. In groups set apart by space: New project… and Open project… (Ctrl+O); Save (Ctrl+S) and Export…; Focus mode (F11). The browser preview can't make projects, so New project… is greyed with "Needs the app"; Export… is greyed with "Coming soon". The desktop app adds Open folder… under Open project…, and Quit (Ctrl+Q) at the end](docs/screenshots/desktop-main-menu.png) |
 
 | A new character | A character's menu |
 | --- | --- |
@@ -62,9 +62,9 @@ These are refreshed with every push, so they always show the app as it is on `ma
 | --- | --- | --- |
 | <img src="docs/screenshots/phone.png" width="240" alt="The chapter on a phone"> | <img src="docs/screenshots/phone-binder.png" width="240" alt="The binder slid in on a phone"> | <img src="docs/screenshots/phone-inspector.png" width="240" alt="The inspector slid in on a phone"> |
 
-| Projects on a phone | Android (the app on the emulator) |
-| --- | --- |
-| <img src="docs/screenshots/phone-projects.png" width="240" alt="The Projects view as a sheet from the bottom, over the binder it was opened from, ending with the app's version and a link to the privacy policy"> | <img src="docs/screenshots/android.png" width="240" alt="The app on an Android phone, a chapter open with character names highlighted"> |
+| Projects on a phone | Main menu on a phone | Android (the app on the emulator) |
+| --- | --- | --- |
+| <img src="docs/screenshots/phone-projects.png" width="240" alt="The Projects view as a sheet from the bottom, over the binder it was opened from, ending with the app's version and a link to the privacy policy"> | <img src="docs/screenshots/phone-main-menu.png" width="240" alt="The main menu on a phone, under its button at the left end of the bar, with larger rows and no shortcuts: New project… (greyed in the browser preview, with Needs the app), Open project…, Save, and Export… (greyed, Coming soon). Touch screens don't get Focus mode, as only a pointer at the top edge brings its bar back"> | <img src="docs/screenshots/android.png" width="240" alt="The app on an Android phone, a chapter open with character names highlighted"> |
 
 The desktop and phone-size pictures come from `npm run screenshots`, which opens the interface on the sample project in a headless Chromium-based browser (hence "Browser preview" in the status bar). The Android one is the real app, taken on the emulator during the check that runs before each push.
 
@@ -113,6 +113,7 @@ Built so far (phases 0 and 1 of the guide, sheet forms from phase 2, and name de
 
 - The binder, the editor and the inspector, with hide buttons, resizable panels, focus mode, a phone layout, and light and dark themes. On phones the panels also slide in with a swipe from the screen edge (on Android with gesture navigation, from the middle of the edge: above and below it the edge stays the system's Back gesture), and the formatting bar docks above the on-screen keyboard while you type.
 - Projects: the project title opens the list of projects on this device, to switch to another or create one with its title and language. On desktop, "Open folder…" opens a project folder from anywhere, and the ones opened recently are listed too.
+- A main menu, at the left end of the bar: New project…, Open project… (Ctrl+O, ⌘O on a Mac), Open folder… on desktop, Save (Ctrl+S), focus mode (F11) and, on desktop, Quit (Ctrl+Q). The app saves by itself a second after you stop typing; Save writes at once, and the status bar shows a check, or why it couldn't. Export… is listed, not built yet.
 - The app's version and a link to the [privacy policy](https://maxgreat.github.io/writtingTool/privacy.html), on the last line of the Projects view, as Google Play asks. The link opens in the system browser; if that fails, the view shows the address.
 - Binder editing: a menu on each chapter and part (right-click, long-press, or its ⋯ button) to rename, set a status, move, add and trash; drag to reorder with a mouse or pen; part word counts; a Trash with Restore. Chapter files are renumbered to follow the binder order.
 - This chapter's synopsis, status and point of view, edited in the inspector.

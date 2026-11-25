@@ -40,7 +40,7 @@ import {
 } from "./binderModel";
 import { contextMenuAnchor, cx, errorMessage, focusLost, formatCount, plural } from "./dom";
 import { MenuButton, MenuItem, Popover } from "./Popover";
-import { ProjectsButton, type ProjectsSource } from "./Projects";
+import { ProjectsButton, type ProjectsDialogControl } from "./Projects";
 import { SheetMenuItems } from "./SheetMenu";
 import { newSheetLabel, sheetNoun } from "./sheets";
 import { SheetTypeIcon } from "./SheetTypeIcon";
@@ -55,8 +55,8 @@ export interface BinderProps {
   onOpenSheet(id: string): void;
   /** A sheet's Edit: its form opens in the inspector. */
   onEditSheet(id: string): void;
-  /** The projects on this device, opened from the project title (see Projects.tsx). */
-  projects: ProjectsSource;
+  /** The Projects view, which the project title opens at its list (see Projects.tsx). */
+  projects: ProjectsDialogControl;
   /**
    * Makes a change to the binder: useProject's changeBinder. Rejects with a
    * message for the writer; the binder shows it and keeps what was typed.
@@ -827,7 +827,7 @@ export function Binder({
     >
       <div className="binder-head">
         <h1 className="binder-title">
-          <ProjectsButton title={project.title} source={projects} />
+          <ProjectsButton title={project.title} dialog={projects} />
         </h1>
         <div ref={addRef} className="binder-add">
           <MenuButton

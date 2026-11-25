@@ -78,6 +78,12 @@ export interface Backend {
    */
   popupTextMenu?(items: TextMenuItem[], x: number, y: number): Promise<void>;
   /**
+   * Desktop app only: closes the window as its own close button does, so
+   * `onCloseRequested` runs first and pending saves finish. Absent on phones
+   * and in the browser preview, which have no window to close.
+   */
+  closeWindow?(): Promise<void>;
+  /**
    * Runs before the window closes, so pending saves can finish. The window
    * stays open if the handler resolves to false. Resolves to an unsubscribe.
    */
@@ -161,6 +167,14 @@ const appBackend: Omit<Backend, "canOpenFolders"> = {
     textMenus = shown.catch(() => undefined);
     return shown;
   },
+  async closeWindow() {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    try {
+      await getCurrentWindow().close();
+    } catch (error) {
+      throw asError(error);
+    }
+  },
   async onCloseRequested(handler) {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     return getCurrentWindow().onCloseRequested(async (event) => {
@@ -174,7 +188,9 @@ export async function loadBackend(): Promise<Backend> {
     const info = await call<{ canOpenFolders: boolean }>("app_info");
     // A native context menu exists on desktops only, the same ones that can open folders.
     const popupTextMenu = info.canOpenFolders ? appBackend.popupTextMenu : undefined;
-    return { ...appBackend, canOpenFolders: info.canOpenFolders, popupTextMenu };
+    // Phones have no window to close: the system closes apps.
+    const closeWindow = info.canOpenFolders ? appBackend.closeWindow : undefined;
+    return { ...appBackend, canOpenFolders: info.canOpenFolders, popupTextMenu, closeWindow };
   }
   const { browserBackend } = await import("./browserBackend");
   return browserBackend;
