@@ -34,7 +34,8 @@
         <p class="lead">
           Writing Tool is a writing app for novels, in the spirit of Scrivener and novelWriter: a binder of parts
           and chapters, the chapter in the middle, and an inspector with your character and place sheets. Names are
-          highlighted as you type, and every chapter is a Markdown file you can open in any editor.
+          highlighted and spelling is checked as you type, every chapter is a Markdown file you can open in any
+          editor, and the book exports to PDF, EPUB and Word.
         </p>
 
         <div class="cta">
@@ -50,8 +51,8 @@
         </div>
 
         <p class="status">
-          Version <span class="num">0.1.0</span> is an early release. Writing works; sync, spelling and export
-          aren’t built yet.
+          Version <span class="num">0.1.0</span> is an early release. Writing, spelling and export work; sync
+          between devices isn’t built yet.
         </p>
 
         <figure class="shot hero-shot">
@@ -93,6 +94,32 @@
             </p>
           </div>
           <div>
+            <h3>Spelling and grammar</h3>
+            <p>
+              Spelling is checked as you write, on your device, with Hunspell dictionaries for British and American
+              English, French and Spanish; names are never marked. Right-click a marked word, or tap it on a phone, for
+              corrections, or add it to the project’s dictionary or to your own. Harper checks English grammar on
+              your device too. Other languages need a LanguageTool server, which is off unless you choose one in
+              Settings; the <a href="privacy.html">privacy policy</a> says what it receives.
+            </p>
+          </div>
+          <div>
+            <h3>Find and replace across the book</h3>
+            <p>
+              Find in book lists the results by chapter as you type and highlights every match in the text.
+              Markdown’s markers are ignored and straight and curly quotes match, with Match case and Whole word to
+              narrow it. Replace one result from its row, or all of them once you confirm.
+            </p>
+          </div>
+          <div>
+            <h3>Export to PDF, EPUB, Word and Markdown</h3>
+            <p>
+              Export the whole book or chosen chapters. Start from a preset such as Paperback A5, then set the page,
+              margins, font, spacing and chapter headings. For a PDF you see the real pages, laid out with Typst,
+              redrawn after each change.
+            </p>
+          </div>
+          <div>
             <h3>Formatted or Plain</h3>
             <p>
               Two editing modes over the same Markdown: Formatted shows styled text, Plain shows the Markdown with its
@@ -100,10 +127,20 @@
             </p>
           </div>
           <div>
+            <h3>Typing aids and themes</h3>
+            <p>
+              In Settings, typography as you type gives curly quotes and dashes in English and guillemets in French
+              and Spanish. List the words you often mistype, so “teh” becomes “the”. Choose a light or dark theme or
+              follow the system, and turn on typewriter scrolling to keep the line you’re typing in the middle of the
+              screen.
+            </p>
+          </div>
+          <div>
             <h3>Autosave and earlier versions</h3>
             <p>
-              A chapter saves about a second after you stop typing. Its last 20 versions are kept, to restore from
-              the inspector. Word counts show the chapter, the book and today.
+              A chapter saves about a second after you stop typing, and its last 20 versions are kept, to restore
+              from the inspector. On desktop, closing the app asks first and offers to save anything not yet
+              written. Word counts show the chapter, the book and today.
             </p>
           </div>
           <div>
@@ -117,16 +154,32 @@
 
         <div class="gallery">
           <figure class="shot">
+            <img src="screenshots/desktop-export.png" width="1280" height="820" loading="lazy" alt="The Export window: the PDF’s settings on the left, and its pages on the right, with Chapter 1 opening on a right-hand page">
+            <figcaption>Export, with the PDF’s real pages</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="screenshots/desktop-search.png" width="1280" height="820" loading="lazy" alt="Find in book in the inspector’s place: Elena found 6 times in 3 chapters, listed by chapter and highlighted in the text">
+            <figcaption>Find in book</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="screenshots/desktop-spelling-menu.png" width="1280" height="820" loading="lazy" alt="A misspelled word’s menu: corrections, best first, then Add to project dictionary and Add to my dictionary">
+            <figcaption>Corrections for a misspelled word</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="screenshots/desktop-settings.png" width="1280" height="820" loading="lazy" alt="The Settings dialog: the project’s language, the spelling and grammar checks, typography as you type and replacements">
+            <figcaption>Settings</figcaption>
+          </figure>
+          <figure class="shot">
             <img src="screenshots/desktop-plain.png" width="1280" height="820" loading="lazy" alt="The chapter in plain mode, with Markdown markers dimmed">
             <figcaption>Plain mode</figcaption>
           </figure>
           <figure class="shot only-light">
             <img src="screenshots/desktop-dark.png" width="1280" height="820" loading="lazy" alt="The main window in the dark theme">
-            <figcaption>The dark theme, which follows your system setting</figcaption>
+            <figcaption>The dark theme, which follows your system or is chosen in Settings</figcaption>
           </figure>
           <figure class="shot only-dark">
             <img src="screenshots/desktop.png" width="1280" height="820" loading="lazy" alt="The main window in the light theme">
-            <figcaption>The light theme, which follows your system setting</figcaption>
+            <figcaption>The light theme, which follows your system or is chosen in Settings</figcaption>
           </figure>
         </div>
 
@@ -154,14 +207,13 @@
       <section class="section" id="not-yet" aria-labelledby="not-yet-title">
         <h2 id="not-yet-title">What isn’t built yet</h2>
         <p class="section-intro">
-          Version <span class="num">0.1.0</span> is the first phase of the
-          <a href="https://github.com/maxgreat/writtingTool/blob/main/Writing%20App%20%E2%80%94%20Development%20Guide.md">development plan</a>:
-          the writing core. Still to come:
+          Version <span class="num">0.1.0</span> has the writing core, the first phase of the
+          <a href="https://github.com/maxgreat/writtingTool/blob/main/Writing%20App%20%E2%80%94%20Development%20Guide.md">development plan</a>,
+          and parts of later phases: sheet forms, name detection, spelling, grammar and export. Still to come:
         </p>
         <ul class="list">
           <li>Sync between devices through Dropbox, with conflict merging</li>
-          <li>Spelling and grammar checks</li>
-          <li>Export to PDF, EPUB, Word and Markdown</li>
+          <li>Code-signed Windows and macOS builds</li>
         </ul>
         <p class="note">So far the desktop app has been tested mainly on Linux.</p>
       </section>
