@@ -68,6 +68,14 @@ export function useProject() {
   /** A close was refused because of unsaved changes; the next close goes through. */
   const closeRefused = useRef(false);
   /**
+   * Autosave waits while this is set (the close dialog is open: the writer
+   * is choosing whether to save). `due` records that a save was due
+   * meanwhile, so it is started again when the hold ends.
+   */
+  const autosaveHold = useRef<{ due: boolean } | null>(null);
+  /** Asked in place of `mayClose` when the window is about to close (see setCloseHandler). */
+  const closeHandler = useRef<(() => Promise<boolean>) | null>(null);
+  /**
    * The project on disk is about to change under the editors: another
    * project is being opened, or a chapter's version is being restored. Edits
    * are refused meanwhile (the editors are read-only then), as they would be
@@ -212,12 +220,21 @@ export function useProject() {
     return closeDecision.current;
   }, [flush]);
 
+  /**
+   * Sets what decides whether the window may close, in place of `mayClose`
+   * (the workspace's close dialog, in the desktop app); null goes back to
+   * `mayClose`.
+   */
+  const setCloseHandler = useCallback((handler: (() => Promise<boolean>) | null) => {
+    closeHandler.current = handler;
+  }, []);
+
   // Finish pending saves before the window closes (see mayClose) or goes to the background.
   useEffect(() => {
     if (!backend) return;
     let unlisten: (() => void) | null = null;
     let disposed = false;
-    backend.onCloseRequested(mayClose).then((stop) => {
+    backend.onCloseRequested(() => (closeHandler.current ?? mayClose)()).then((stop) => {
       if (disposed) stop();
       else unlisten = stop;
     });
@@ -239,8 +256,43 @@ export function useProject() {
     pending.current.set(path, text);
     setSave({ status: "pending" });
     if (timer.current !== null) clearTimeout(timer.current);
-    timer.current = setTimeout(() => void flush(), AUTOSAVE_DELAY_MS);
+    timer.current = null;
+    if (autosaveHold.current) autosaveHold.current.due = true;
+    else timer.current = setTimeout(() => void flush(), AUTOSAVE_DELAY_MS);
   }, [flush]);
+
+  /**
+   * Stops autosave until the returned function is called, which starts it
+   * again if a save was due meanwhile. For the close dialog: the edits wait
+   * while the writer chooses whether to save them. A save already being
+   * written finishes; `saveNow` still writes at once.
+   */
+  const holdAutosave = useCallback((): (() => void) => {
+    const hold = { due: timer.current !== null };
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+    autosaveHold.current = hold;
+    return () => {
+      if (autosaveHold.current !== hold) return;
+      autosaveHold.current = null;
+      if (hold.due && pending.current.size > 0 && timer.current === null) {
+        timer.current = setTimeout(() => void flush(), AUTOSAVE_DELAY_MS);
+      }
+    };
+  }, [flush]);
+
+  /**
+   * Drops the edits not written yet, for Close without saving: the window
+   * closes next. They stay on screen, but are no longer waiting to be saved.
+   */
+  const discardPending = useCallback(() => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+    pending.current.clear();
+  }, []);
+
+  /** Whether some edits are not written yet: waiting, or kept after a failed save. */
+  const hasUnsaved = useCallback(() => pending.current.size > 0, []);
 
   const updateChapter = useCallback((id: string, markdown: string) => {
     const current = projectRef.current;
@@ -521,6 +573,10 @@ export function useProject() {
     /** Writes pending changes now; also the retry after a failed save. */
     saveNow: flush,
     mayClose,
+    setCloseHandler,
+    holdAutosave,
+    discardPending,
+    hasUnsaved,
     openFolder,
     openProjectAt,
     createProject,

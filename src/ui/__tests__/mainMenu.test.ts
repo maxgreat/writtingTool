@@ -26,6 +26,14 @@ const OTHER: ProjectEntry = { path: "/data/projects/Lighthouse", title: "The Lig
 /* The backend and useProject, as the app has them ---------------------------- */
 
 const closeWindow = vi.fn<() => Promise<void>>();
+/** The window went away: the page allowed its close. */
+const closed = vi.fn();
+/** What the workspace set to decide the window's close (its close dialog). */
+let closeHandler: (() => Promise<boolean>) | null = null;
+/** As the app's window: asks the page, then closes if it may. */
+async function askThenClose() {
+  if (await closeHandler?.()) closed();
+}
 
 /** The desktop app: a folder picker and a window to close, unless left out. */
 function app({ folders = true, quit = true } = {}): Backend {
@@ -60,6 +68,15 @@ const createProject = vi.fn<(title: string, language: string) => Promise<void>>(
 const saveNow = vi.fn<() => Promise<void>>();
 /** As useProject's: saves, then says whether the window may close. */
 const mayClose = vi.fn<() => Promise<boolean>>();
+const setCloseHandler = (handler: (() => Promise<boolean>) | null) => {
+  closeHandler = handler;
+};
+/** Autosave held while the close dialog asks: the release is counted. */
+const resumeAutosave = vi.fn();
+const holdAutosave = vi.fn(() => resumeAutosave);
+const discardPending = vi.fn();
+/** Whether edits wait to be saved: as the save state says. */
+let unsaved = false;
 
 /** Sets the save state useProject reports. */
 let setSave: (save: SaveState) => void = () => undefined;
@@ -94,7 +111,11 @@ async function mount({
   useMatchMedia({ phone: isPhone, hover });
   function Harness() {
     const [save, setSaveState] = useState<SaveState>(initialSave);
-    setSave = setSaveState;
+    setSave = (next) => {
+      unsaved = next.status === "pending" || next.status === "error";
+      setSaveState(next);
+    };
+    unsaved = save.status === "pending" || save.status === "error";
     const api = {
       backend,
       load: { status: "ready" },
@@ -106,6 +127,10 @@ async function mount({
       save,
       saveNow,
       mayClose,
+      setCloseHandler,
+      holdAutosave,
+      discardPending,
+      hasUnsaved: () => unsaved,
       openFolder,
       openProjectAt,
       createProject,
@@ -144,7 +169,12 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
-  closeWindow.mockReset().mockResolvedValue(undefined);
+  closeWindow.mockReset().mockImplementation(askThenClose);
+  closed.mockClear();
+  closeHandler = null;
+  resumeAutosave.mockClear();
+  holdAutosave.mockClear();
+  discardPending.mockClear();
   listProjects.mockClear();
   openFolder.mockReset().mockResolvedValue(undefined);
   openProjectAt.mockReset().mockResolvedValue(undefined);
@@ -484,41 +514,86 @@ describe("Focus mode", () => {
 });
 
 describe("Quit", () => {
-  it("closes the window, which saves first", async () => {
+  const dialog = () => document.querySelector<HTMLElement>('[role="alertdialog"]');
+  const dialogButton = (label: string) =>
+    [...(dialog()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent?.trim() === label);
+  const press = (label: string) =>
+    act(async () => {
+      dialogButton(label)!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+  it("asks first, saying everything is saved, and closes the window on Close", async () => {
     await mount();
     await choose("Quit");
-    expect(mayClose).toHaveBeenCalledTimes(1);
-    expect(saveNow).toHaveBeenCalledTimes(1);
     expect(closeWindow).toHaveBeenCalledTimes(1);
-    expect(mayClose.mock.invocationCallOrder[0]).toBeLessThan(closeWindow.mock.invocationCallOrder[0]);
+    expect(dialog()?.textContent).toContain("All your changes are saved.");
+    expect(holdAutosave).toHaveBeenCalledTimes(1);
+    expect(closed).not.toHaveBeenCalled();
+    await press("Close");
+    expect(closed).toHaveBeenCalledTimes(1);
+    expect(dialog()).toBeNull();
+    expect(resumeAutosave).not.toHaveBeenCalled();
   });
 
-  it("stays open when the edits can't be saved, as the window's close button does", async () => {
-    mayClose.mockResolvedValue(false);
-    await mount();
+  it("offers to save edits that wait, and closes once they are written", async () => {
+    await mount({ save: { status: "pending" } });
+    saveNow.mockImplementation(async () => setSave({ status: "saved" }));
     await choose("Quit");
-    expect(closeWindow).not.toHaveBeenCalled();
-    // It can be chosen again.
+    expect(dialog()?.textContent).toContain("Save changes before closing?");
+    await press("Save and close");
+    expect(saveNow).toHaveBeenCalledTimes(1);
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays open, saying why, when the edits can't be saved; Close without saving drops them", async () => {
+    await mount({ save: { status: "pending" } });
+    saveNow.mockImplementation(async () => setSave({ status: "error", message: "Disk full." }));
+    await choose("Quit");
+    await press("Save and close");
+    expect(closed).not.toHaveBeenCalled();
+    expect(dialog()?.textContent).toContain("Disk full.");
+    await press("Close without saving");
+    expect(discardPending).toHaveBeenCalledTimes(1);
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays open on Cancel, autosave going on, and can be chosen again", async () => {
+    await mount({ save: { status: "pending" } });
+    await choose("Quit");
+    await press("Cancel");
+    expect(dialog()).toBeNull();
+    expect(closed).not.toHaveBeenCalled();
+    expect(resumeAutosave).toHaveBeenCalledTimes(1);
     await openMenu();
     expect(item("Quit")?.disabled).toBe(false);
   });
 
-  it("waits while a Quit is under way", async () => {
-    let answer: (may: boolean) => void = () => undefined;
-    mayClose.mockReturnValue(
-      new Promise<boolean>((resolve) => {
-        answer = resolve;
-      }),
-    );
+  it("asks once: Ctrl+Q waits, and the window's close button is refused while the dialog is open", async () => {
     await mount();
     await choose("Quit");
-    await openMenu();
-    expect(item("Quit")?.disabled).toBe(true);
     await ctrl("q");
-    expect(mayClose).toHaveBeenCalledTimes(1);
-    await act(async () => answer(false));
+    expect(closeWindow).toHaveBeenCalledTimes(1);
+    // The window's own close button, pressed again.
+    await act(async () => {
+      await closeWindow();
+    });
+    expect(closed).not.toHaveBeenCalled();
+    expect(document.querySelectorAll('[role="alertdialog"]')).toHaveLength(1);
+    await press("Cancel");
+    expect(closed).not.toHaveBeenCalled();
+    await openMenu();
     expect(item("Quit")?.disabled).toBe(false);
-    expect(closeWindow).not.toHaveBeenCalled();
+  });
+
+  it("leaves the shortcuts alone while it asks", async () => {
+    await mount();
+    await choose("Quit");
+    await key({ key: "F11" }, window);
+    expect(isFocusMode()).toBe(false);
+    await ctrl("s");
+    expect(saveNow).not.toHaveBeenCalled();
+    await press("Cancel");
   });
 
   it("says why the window couldn't be closed", async () => {
@@ -582,6 +657,7 @@ describe("the shortcuts", () => {
     const event = await ctrl("q");
     expect(event.defaultPrevented).toBe(true);
     expect(closeWindow).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
 
     act(() => root.unmount());
     root = createRoot(container);

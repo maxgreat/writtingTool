@@ -46,11 +46,13 @@ const applyChanges = vi.fn(async (_root: string, change: Change) => {
   applyChange(tree, change);
   return snapshot();
 });
-/** useProject's handler for the window's close, which saves first. */
+/** The page's handler for the window's close: the workspace's close dialog. */
 let beforeClose: (() => Promise<boolean>) | null = null;
-/** As the app's: the window asks the page first, which saves. */
+/** The window went away: its close was allowed. */
+const closed = vi.fn();
+/** As the app's: the window asks the page first, and closes if the page allows it. */
 const closeWindow = vi.fn(async () => {
-  await beforeClose?.();
+  if (await beforeClose?.()) closed();
 });
 
 const fake: Backend = {
@@ -131,6 +133,7 @@ beforeEach(async () => {
     return snapshot();
   });
   closeWindow.mockClear();
+  closed.mockClear();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -153,6 +156,12 @@ const nameField = () => container.querySelector<HTMLInputElement>('.sheet-form i
 const titleField = () => container.querySelector<HTMLInputElement>('.binder input[aria-label="Chapter title"]');
 const saveCheck = () => container.querySelector(".status-bar svg.lucide-check");
 const alerts = () => [...container.querySelectorAll('.sheet-form [role="alert"]')].map((a) => a.textContent);
+/** The close dialog, open while a close waits for an answer. */
+const closeDialog = () => document.querySelector<HTMLElement>('[role="alertdialog"]');
+const dialogButton = (label: string) =>
+  [...(closeDialog()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find(
+    (b) => b.textContent?.trim() === label,
+  );
 
 async function rightClick(el: Element) {
   await act(async () => {
@@ -331,36 +340,76 @@ describe("Ctrl+S in a field that is taken when left", () => {
 });
 
 describe("Ctrl+Q in a field that is taken when left", () => {
-  it("writes the sheet's new name before the window closes", async () => {
+  it("asks to save the sheet's new name, and writes it before the window closes", async () => {
     await openElenaForm();
     await type(nameField(), "Elena Marsh");
     await ctrl("q");
-    expect(closeWindow).toHaveBeenCalledTimes(1);
+    // Taken from the field, waiting for the answer: autosave waits too.
+    expect(closeDialog()?.textContent).toContain("Save changes before closing?");
+    await act(async () => {
+      await sleep(1500);
+    });
+    expect(writeFile).not.toHaveBeenCalled();
+    await click(dialogButton("Save and close"));
+    await settle();
     expect(writeFile).toHaveBeenCalledWith(ROOT, ELENA, expect.stringContaining("name: Elena Marsh"));
-    expect(writeFile.mock.invocationCallOrder[0]).toBeLessThan(closeWindow.mock.invocationCallOrder[0]);
+    expect(closed).toHaveBeenCalledTimes(1);
+    expect(writeFile.mock.invocationCallOrder[0]).toBeLessThan(closed.mock.invocationCallOrder[0]);
   });
 
-  it("renames a chapter typed in the binder before the window closes", async () => {
+  it("closes without the new name after Close without saving", async () => {
+    await openElenaForm();
+    await type(nameField(), "Elena Marsh");
+    await ctrl("q");
+    await click(dialogButton("Close without saving"));
+    await settle();
+    expect(closed).toHaveBeenCalledTimes(1);
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(tree.files.get(ELENA)).toContain("name: Elena Voss");
+  });
+
+  it("stays open after Cancel, and autosave writes the name again", async () => {
+    await openElenaForm();
+    await type(nameField(), "Elena Marsh");
+    await ctrl("q");
+    await click(dialogButton("Cancel"));
+    await settle();
+    expect(closeDialog()).toBeNull();
+    expect(closed).not.toHaveBeenCalled();
+    await act(async () => {
+      await sleep(1100);
+    });
+    expect(tree.files.get(ELENA)).toContain("name: Elena Marsh");
+  });
+
+  it("renames a chapter typed in the binder before asking, then says everything is saved", async () => {
     const field = await renameChapter();
     await type(field, "The landing");
     await ctrl("q");
-    expect(applyChanges.mock.invocationCallOrder[0]).toBeLessThan(closeWindow.mock.invocationCallOrder[0]);
+    expect(applyChanges).toHaveBeenCalledTimes(1);
     expect(tree.files.has("manuscript/01 The landing.md")).toBe(true);
+    expect(closeDialog()?.textContent).toContain("All your changes are saved.");
+    await click(dialogButton("Close"));
+    await settle();
+    expect(closed).toHaveBeenCalledTimes(1);
   });
 
   it("stays open once for a field that refused what was typed, so its reason shows", async () => {
     await openElenaForm();
     await type(nameField(), "");
     await ctrl("q");
-    expect(closeWindow).not.toHaveBeenCalled();
+    expect(closeDialog()).toBeNull();
+    expect(closed).not.toHaveBeenCalled();
     expect(alerts()).toEqual(["A sheet needs a name."]);
     expect(document.activeElement).toBe(nameField());
     // The field refuses again (emptied with no key, to keep only Ctrl between the two Quits)…
     await type(nameField(), "");
-    // …and Ctrl, on its way to Ctrl+Q, isn't something else pressed: this Quit leaves without the name.
+    // …and Ctrl, on its way to Ctrl+Q, isn't something else pressed: this Quit goes on without the name.
     await press("Control");
     await ctrl("q");
-    expect(closeWindow).toHaveBeenCalledTimes(1);
+    await click(dialogButton("Close"));
+    await settle();
+    expect(closed).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -370,11 +419,12 @@ describe("Ctrl+Q in a field that is taken when left", () => {
     await openElenaForm();
     await type(nameField(), "");
     await ctrl("q");
-    expect(closeWindow).not.toHaveBeenCalled();
+    expect(closed).not.toHaveBeenCalled();
     await between();
     await type(nameField(), "");
     await ctrl("q");
-    expect(closeWindow).not.toHaveBeenCalled();
+    expect(closeDialog()).toBeNull();
+    expect(closed).not.toHaveBeenCalled();
     expect(alerts()).toEqual(["A sheet needs a name."]);
   });
 
@@ -406,7 +456,8 @@ describe("a binder change still being made when Save or Quit is pressed", () => 
       // Time for the Quit to go on, were it to.
       await new Promise((resolve) => setTimeout(resolve, 100));
     });
-    expect(closeWindow).not.toHaveBeenCalled();
+    expect(closeDialog()).toBeNull();
+    expect(closed).not.toHaveBeenCalled();
     expect(titleField()?.value).toBe("The landing");
   });
 
@@ -470,12 +521,15 @@ describe("one Quit at a time", () => {
       await waitFor(() => binderAlert() === REFUSAL);
       await sleep(100);
     });
-    expect(closeWindow).not.toHaveBeenCalled();
+    expect(closeDialog()).toBeNull();
+    expect(closed).not.toHaveBeenCalled();
     expect(titleField()?.value).toBe("The landing");
 
-    // The Quit after the one that stopped leaves without the title.
+    // The Quit after the one that stopped goes on without the title.
     await ctrl("q");
-    expect(closeWindow).toHaveBeenCalledTimes(1);
+    await click(dialogButton("Close"));
+    await settle();
+    expect(closed).toHaveBeenCalledTimes(1);
   });
 
   it("can't be chosen again from the menu while the first waits", async () => {
@@ -495,11 +549,11 @@ describe("one Quit at a time", () => {
       // Ready for the next Quit once this one has stopped.
       await waitFor(() => quitItem()?.disabled === false);
     });
-    expect(closeWindow).not.toHaveBeenCalled();
+    expect(closed).not.toHaveBeenCalled();
     expect(titleField()?.value).toBe("The landing");
   });
 
-  it("asks once when two Quits overlap a save that fails: the window stays open, then closes on the next", async () => {
+  it("ignores a second close while the dialog asks, and stays open when the save fails, saying why", async () => {
     await openElenaForm();
     await type(nameField(), "Elena Marsh");
     let fail: (error: Error) => void = () => undefined;
@@ -509,21 +563,29 @@ describe("one Quit at a time", () => {
           fail = reject;
         }),
     );
-    writeFile.mockRejectedValue(new Error("Disk full"));
-    const statusText = () => container.querySelector(".status-bar")?.textContent ?? "";
     await asInTheApp(async () => {
       keyDown(CTRL_Q);
-      await waitFor(() => writeFile.mock.calls.length === 1);
+      await waitFor(() => dialogButton("Save and close") !== undefined);
+      // The dialog's question stands: Ctrl+Q waits, and the window's close button is refused.
       keyDown({ key: "Control", ctrlKey: true });
       keyDown(CTRL_Q);
+      await closeWindow();
+      await sleep(50);
+      expect(closeWindow).toHaveBeenCalledTimes(2);
+      expect(closed).not.toHaveBeenCalled();
+      dialogButton("Save and close")!.click();
+      await waitFor(() => writeFile.mock.calls.length === 1);
       fail(new Error("Disk full"));
-      await waitFor(() => statusText().includes("Close the window again to quit without them."));
+      await waitFor(() => closeDialog()?.textContent?.includes("Disk full") ?? false);
       await sleep(100);
     });
-    expect(closeWindow).not.toHaveBeenCalled();
+    expect(closed).not.toHaveBeenCalled();
+    expect(closeDialog()?.textContent).toContain("Couldn’t save your changes");
 
-    await ctrl("q");
-    expect(closeWindow).toHaveBeenCalledTimes(1);
+    await click(dialogButton("Close without saving"));
+    await settle();
+    expect(closed).toHaveBeenCalledTimes(1);
+    expect(tree.files.get(ELENA)).toContain("name: Elena Voss");
   });
 });
 

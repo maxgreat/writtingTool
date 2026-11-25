@@ -1,0 +1,103 @@
+/*
+ * The close dialog (CloseDialog.tsx): asked on desktop before the window
+ * closes. Centred over a scrim, above everything else, popovers included.
+ */
+
+/* A grid, so the dialog's auto margins centre it, and a dialog taller than
+   the window scrolls from its top instead of being cut off. */
+.close-dialog-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-alert);
+  display: grid;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-4);
+  background: var(--color-scrim);
+  animation: close-dialog-fade var(--duration-fast) var(--ease-standard);
+}
+
+.close-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(var(--size-alert), 100%);
+  margin: auto;
+  padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-overlay);
+  outline: var(--size-hairline) solid var(--color-separator);
+  animation: close-dialog-in var(--duration-fast) var(--ease-standard);
+}
+
+/* Focus rests on the dialog itself after a press on its text: no ring. */
+.close-dialog:focus-visible {
+  outline: var(--size-hairline) solid var(--color-separator);
+}
+
+.close-dialog-title {
+  font-size: var(--text-lg);
+}
+
+/* Error messages can hold folder paths, which have no spaces to break at. */
+.close-dialog-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+/* Close without saving on the left, set apart; Cancel and the primary action
+   on the right. In a narrow window, the pair wraps below, still on the right. */
+.close-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* Pulled out by its padding, so its label lines up with the text above. */
+.close-dialog-discard {
+  margin-inline: calc(var(--space-2) * -1) auto;
+}
+
+.close-dialog-choices {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* While the save is written, Close without saving shows it waits too:
+   otherwise it looks as it does when it can be pressed. */
+.close-dialog-discard:disabled {
+  color: var(--color-text-disabled);
+}
+
+/* The primary action waiting for its save. */
+.close-dialog .btn[aria-busy="true"] {
+  cursor: progress;
+}
+
+@keyframes close-dialog-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes close-dialog-in {
+  from {
+    opacity: 0;
+    translate: 0 var(--space-1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .close-dialog-scrim,
+  .close-dialog {
+    animation: none;
+  }
+}

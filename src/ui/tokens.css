@@ -96,6 +96,8 @@
   --size-input-min: 8rem;
   /* The Projects view on desktop. */
   --size-dialog: 24rem;
+  /* The close dialog: wide enough for its three buttons on one line. */
+  --size-alert: 28rem;
   --size-popover-min: 11rem;
   --size-popover-max: 20rem;
   --size-error: 32rem;
@@ -137,6 +139,8 @@
   --z-dialog-scrim: 30;
   --z-dialog: 31;
   --z-popover: 40;
+  /* The close dialog and its scrim: a decision, above everything, popovers included. */
+  --z-alert: 50;
 
   /* Colour, light theme. One accent: active states, the primary action, key data. */
   --color-bg: #fbfaf8;

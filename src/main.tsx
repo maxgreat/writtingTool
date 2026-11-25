@@ -11,6 +11,7 @@ import "./ui/editor.css";
 import "./ui/inspector.css";
 import "./ui/status-bar.css";
 import "./ui/screens.css";
+import "./ui/close-dialog.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

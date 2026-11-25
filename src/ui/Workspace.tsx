@@ -12,6 +12,7 @@ import { TextNote } from "./AddName";
 import { BACK_AGAIN, BackLayer, useBackLayer, useLeaveOnBack, type Leave } from "./BackStack";
 import { Binder } from "./Binder";
 import { SheetPreview } from "./BottomSheet";
+import { CloseDialog } from "./CloseDialog";
 import { cx, errorMessage, focusLost, hasMod, shortcut } from "./dom";
 import { EditorPane } from "./EditorPane";
 import { FormatBar } from "./FormatBar";
@@ -699,16 +700,101 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     [commitField, mayClose, refuse],
   );
 
-  /** Quit, in the desktop app: closes the window as its own close button does. */
+  /**
+   * The close dialog, in the desktop app: open while the writer chooses,
+   * with what answers the close it was opened for (true closes the window).
+   */
+  const [closeAsk, setCloseAsk] = useState<{ answer(close: boolean): void } | null>(null);
+  /** Save and close was chosen and the save is being written. */
+  const [savingToClose, setSavingToClose] = useState(false);
+  const { holdAutosave, setCloseHandler } = api;
+
+  /**
+   * Whether the window may close, asked when its close button, Quit or
+   * Ctrl+Q closes it: takes the focused field's edit, then asks in the close
+   * dialog, autosave waiting meanwhile. A field that refused its edit stops
+   * the first close, so its reason shows; the next goes on without it. A
+   * close asked for while one is being decided is refused: that one goes on.
+   */
+  const confirmClose = useCallback(async (): Promise<boolean> => {
+    if (quitRunning.current) return false;
+    quitRunning.current = true;
+    setQuitting(true);
+    let resume: (() => void) | null = null;
+    let close = false;
+    try {
+      const taken = await commitField();
+      if (!taken && !quitStopped.current) {
+        quitStopped.current = true;
+        return false;
+      }
+      quitStopped.current = false;
+      resume = holdAutosave();
+      close = await new Promise<boolean>((answer) => setCloseAsk({ answer }));
+      return close;
+    } finally {
+      setCloseAsk(null);
+      setSavingToClose(false);
+      if (!close) {
+        resume?.();
+        // Quit's menu item is gone: back to the text, unless the dialog put focus back where it was.
+        void nextFrame().then(() => {
+          if (focusLost()) editorRef.current?.focus();
+        });
+      }
+      quitRunning.current = false;
+      setQuitting(false);
+    }
+  }, [commitField, holdAutosave]);
+
+  // The desktop app asks before its window closes; elsewhere useProject's own check runs.
+  const closeAskRef = useRef(closeAsk);
+  closeAskRef.current = closeAsk;
+  useEffect(() => {
+    if (!backend.closeWindow) return;
+    setCloseHandler(confirmClose);
+    return () => {
+      setCloseHandler(null);
+      // Gone with the workspace: the window stays, as if Cancel had been chosen.
+      closeAskRef.current?.answer(false);
+    };
+  }, [backend, confirmClose, setCloseHandler]);
+
+  const { hasUnsaved, discardPending } = api;
+  const closeDialog = {
+    cancel: () => closeAsk?.answer(false),
+    close: () => closeAsk?.answer(true),
+    discard: () => {
+      discardPending();
+      closeAsk?.answer(true);
+    },
+    /** Writes the pending edits, then closes; if they can't be written the dialog says why and stays. */
+    saveAndClose: async () => {
+      const ask = closeAsk;
+      if (!ask || savingToClose) return;
+      setSavingToClose(true);
+      try {
+        await saveNow();
+      } finally {
+        setSavingToClose(false);
+      }
+      if (!hasUnsaved()) ask.answer(true);
+    },
+  };
+
+  /** Quit, in the desktop app: closes the window as its own close button does, so the close dialog asks first. */
   const quit = useMemo(
     () =>
       backend.closeWindow
-        ? () =>
-            leaveApp(async () => {
+        ? async () => {
+            try {
               await backend.closeWindow?.();
-            }, "Couldn’t quit")
+            } catch (error) {
+              refuse("Couldn’t quit", error);
+            }
+          }
         : undefined,
-    [backend, leaveApp],
+    [backend, refuse],
   );
 
   /** A phone's Back with nothing open on top: Quit's checks, then the app closes, unless something opened meanwhile. */
@@ -788,13 +874,16 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     });
   };
 
-  const keys = useRef({ togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit });
-  keys.current = { togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit };
+  const asking = closeAsk !== null;
+  const keys = useRef({ togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit, asking });
+  keys.current = { togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit, asking };
 
   useEffect(() => {
     // Capture phase, so these work whichever editor has focus.
     const onShortcut = (event: KeyboardEvent) => {
       const k = keys.current;
+      // The close dialog is a decision: nothing changes behind it.
+      if (k.asking) return;
       if (event.key === "F11") {
         event.preventDefault();
         if (k.focusMode) k.leaveFocus();
@@ -830,6 +919,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       const k = keys.current;
+      if (k.asking) return;
       if (k.phonePanel) setPhonePanel(null);
       else if (k.focusMode) k.leaveFocus();
     };
@@ -1073,6 +1163,16 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
       )}
 
       <ProjectsDialog dialog={projectsDialog} />
+
+      <CloseDialog
+        open={closeAsk !== null}
+        save={api.save}
+        closing={savingToClose}
+        onCancel={closeDialog.cancel}
+        onClose={closeDialog.close}
+        onDiscard={closeDialog.discard}
+        onSaveAndClose={() => void closeDialog.saveAndClose()}
+      />
 
       {refusal && <TextNote at={refusal.at} title={refusal.title} message={refusal.message} />}
 
