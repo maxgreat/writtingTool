@@ -384,6 +384,7 @@ describe("a sheet's ignored mentions", () => {
         onChapterDetails: () => undefined,
         onCreateSheet: async () => "",
         onUpdateSheet: () => undefined,
+        onTrashSheet: async () => undefined,
         ignoring: { ignored: project.ignoredNames, setIgnored: setIgnored ?? ignoreName, busy },
         suggestions: { list: [], words: new Set<string>(), rule: null },
         onMarkNotName: () => undefined,

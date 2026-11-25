@@ -1,6 +1,7 @@
 import type { Place } from "../core/binder";
-import type { BinderItem, Project, TrashItem } from "../core/project";
+import type { BinderItem, Project, SheetType, TrashItem } from "../core/project";
 import { plural } from "./dom";
+import { sheetKindLabel } from "./sheets";
 
 /**
  * What the binder needs to work out from the project before it asks the
@@ -76,9 +77,18 @@ export function partWords(project: Project, part: Part): number {
 /** A count and its unit, kept on one line. */
 const unit = (n: number, one: string, many: string) => plural(n, one, many).replace(" ", "\u00a0");
 
-/** "102 words" for a chapter; "2 chapters · 230 words" for a part. Lines break only at the dot. */
-export function trashSummary(item: TrashItem): string {
+/**
+ * "102 words" for a chapter; "2 chapters · 230 words" for a part; for a
+ * sheet, what it is and the words in its notes: "Character · 40 words", or
+ * "Character" when it has none (its fields may still hold something). Each
+ * count stays on one line with its unit.
+ */
+export function trashSummary(item: TrashItem, types: SheetType[]): string {
   const words = unit(item.wordCount, "word", "words");
+  if (item.type === "sheet") {
+    const kind = sheetKindLabel(item.kind ?? "", types);
+    return item.wordCount === 0 ? kind : `${kind} · ${words}`;
+  }
   return item.type === "part" ? `${unit(item.chapterIds.length, "chapter", "chapters")} · ${words}` : words;
 }
 

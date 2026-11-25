@@ -93,6 +93,7 @@ describe("Appears in, in the inspector", () => {
       onChapterDetails: vi.fn(),
       onCreateSheet: vi.fn(),
       onUpdateSheet: vi.fn(),
+      onTrashSheet: async () => undefined,
       ignoring: { ignored: [], setIgnored: vi.fn(), busy: false },
       suggestions: { list: [], words: new Set<string>(), rule: null },
       onMarkNotName: vi.fn(),

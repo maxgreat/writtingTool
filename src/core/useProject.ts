@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadBackend, type Backend, type Version } from "./backend";
-import { withChapterDetails, type ChapterDetails, type Plan } from "./binder";
+import { planTrashSheet, withChapterDetails, type ChapterDetails, type Plan } from "./binder";
 import { withFinalNewline } from "./markdown";
 import { withIgnoredName, withNotName, type ProjectJsonWrite } from "./nameChoices";
 import type { IgnoredName } from "./names";
@@ -375,6 +375,16 @@ export function useProject() {
   }, [flush, applySnapshot]);
 
   /**
+   * Moves a sheet to the Trash, from where the binder can restore it. Pending
+   * edits, the sheet's own included, are saved first (see changeBinder).
+   * Rejects with a message for the writer if it can't be moved.
+   */
+  const trashSheet = useCallback(
+    (id: string): Promise<void> => changeBinder((current) => planTrashSheet(current, id)),
+    [changeBinder],
+  );
+
+  /**
    * Opens another project: saves pending edits to the current one first, and
    * refuses edits while the core switches (`switching`). Rejects with the
    * reason if the project can't be opened, or if edits can't be saved.
@@ -503,6 +513,7 @@ export function useProject() {
     ignoreName,
     markNotName,
     changeBinder,
+    trashSheet,
     listVersions,
     restoreVersion,
     /** The project on disk is about to change (another project opens, a version is restored): show the editors read-only. */

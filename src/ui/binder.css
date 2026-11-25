@@ -178,7 +178,7 @@
   color: var(--color-accent);
 }
 
-/* Chapters, parts and sheet types: the row, and its button at the end. -- */
+/* Chapters, parts, sheet types and sheets: the row, and its button at the end. */
 
 .binder-item {
   display: flex;
@@ -206,12 +206,17 @@
   min-width: 0;
 }
 
+/* A sheet moving to the Trash waits, dimmed, until its row goes. */
+.binder-item[aria-busy="true"] .binder-row {
+  color: var(--color-text-muted);
+}
+
 /* The item has the hover background, the row inside doesn't add its own. */
 .binder-item > .binder-row:hover {
   background: transparent;
 }
 
-/* A chapter's or part's More button, a sheet type's New button. */
+/* A chapter's, part's or sheet's More button, a sheet type's New button. */
 .binder-action {
   color: var(--color-text-muted);
   transition:

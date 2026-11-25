@@ -1,5 +1,5 @@
 import { escapeChapterText } from "./markdown";
-import type { Chapter, Project } from "./project";
+import type { Chapter, Project, TrashItem } from "./project";
 
 /**
  * Changes to the binder, planned as file operations for the Rust core.
@@ -34,7 +34,7 @@ export interface FileWrite {
  */
 export interface Change {
   folders: string[];
-  /** `sheets` or `sheets/<type>` folders to create if they are missing, before the files are written. */
+  /** Folders under sheets/ (`sheets`, `sheets/<type>`, deeper) to create if they are missing, parents first, before the files are written. */
   sheetFolders?: string[];
   moves: Move[];
   writes: FileWrite[];
@@ -405,13 +405,46 @@ export function planTrashPart(project: Project, id: string): Plan {
 }
 
 /**
+ * Moves a sheet to the Trash, as a file at the top of trash/. project.json
+ * remembers where it was, which is also what marks it as a sheet there.
+ */
+export function planTrashSheet(project: Project, id: string): Plan {
+  if (!project.sheets.some((s) => s.id === id)) throw new Error("That sheet is no longer in the project.");
+  const draft = new Draft(project);
+  const folders = draft.ensureFolder(TRASH);
+  const to = unique(TRASH, baseName(id), draft.taken);
+  draft.taken.add(to.toLowerCase());
+  draft.trashRecords()[to] = { from: id };
+  return draft.plan([{ folders, moves: [{ from: id, to }], writes: [draft.projectJson()] }]);
+}
+
+/**
+ * Puts a sheet from the Trash back in the folder it came from (its type's,
+ * or one inside it), under its old file name, or with " 2"... if another
+ * sheet has taken that name meanwhile. Folders that are gone are made again.
+ */
+function planRestoreSheet(project: Project, item: TrashItem & { from: string }): Plan {
+  const draft = new Draft(project);
+  delete draft.trashRecords()[item.id];
+  const folder = dirName(item.from);
+  // sheets, sheets/<type>, then each folder down to the sheet's, parents first.
+  const segments = folder.split("/");
+  const sheetFolders = segments.map((_, i) => segments.slice(0, i + 1).join("/"));
+  const taken = new Set([...project.sheets.map((s) => s.id), ...project.entries].map((p) => p.toLowerCase()));
+  const to = taken.has(item.from.toLowerCase()) ? unique(folder, baseName(item.from), taken) : item.from;
+  return draft.plan([{ folders: [], sheetFolders, moves: [{ from: item.id, to }], writes: [draft.projectJson()] }]);
+}
+
+/**
  * Puts an item from the Trash back. A chapter goes to the end of the part it
  * came from if that part still exists, otherwise to the end of the binder; a
- * part goes to the end of the binder. Chapters are then renumbered.
+ * part goes to the end of the binder. Chapters are then renumbered. A sheet
+ * goes back to its type (see planRestoreSheet).
  */
 export function planRestore(project: Project, trashId: string): Plan {
   const item = project.trash.find((t) => t.id === trashId);
   if (!item) throw new Error("That item is no longer in the Trash.");
+  if (item.type === "sheet" && item.from !== null) return planRestoreSheet(project, { ...item, from: item.from });
   const draft = new Draft(project);
   const folders = draft.ensureFolder(MANUSCRIPT);
   delete draft.trashRecords()[trashId];

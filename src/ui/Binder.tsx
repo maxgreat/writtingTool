@@ -20,6 +20,7 @@ import {
   planRestore,
   planTrashChapter,
   planTrashPart,
+  planTrashSheet,
   type ChapterDetails,
   type Place,
   type Plan,
@@ -37,9 +38,10 @@ import {
   type DragItem,
   type Move,
 } from "./binderModel";
-import { cx, errorMessage, formatCount, plural } from "./dom";
+import { contextMenuAnchor, cx, errorMessage, focusLost, formatCount, plural } from "./dom";
 import { MenuButton, MenuItem, Popover } from "./Popover";
 import { ProjectsButton, type ProjectsSource } from "./Projects";
+import { SheetMenuItems } from "./SheetMenu";
 import { newSheetLabel, sheetNoun } from "./sheets";
 import { SheetTypeIcon } from "./SheetTypeIcon";
 import { useBinderDrag } from "./useBinderDrag";
@@ -51,6 +53,8 @@ export interface BinderProps {
   openChapterId: string | null;
   onOpenChapter(id: string): void;
   onOpenSheet(id: string): void;
+  /** A sheet's Edit: its form opens in the inspector. */
+  onEditSheet(id: string): void;
   /** The projects on this device, opened from the project title (see Projects.tsx). */
   projects: ProjectsSource;
   /**
@@ -83,8 +87,11 @@ type Naming =
 /** Also where focus goes back if the title is dropped. */
 type Editing = Naming & { returnTo(): void };
 
+/** A row with a menu: a chapter or part, which can also be dragged, or a sheet. */
+type RowItem = DragItem | { type: "sheet"; id: string };
+
 interface MenuState {
-  item: DragItem;
+  item: RowItem;
   /** Where the menu hangs: the pointer for a right-click or long-press, else the row's More button. */
   anchor: DOMRect | RefObject<HTMLElement | null>;
   /** The More button when the menu was opened with it: pressing it again closes the menu. */
@@ -93,7 +100,7 @@ interface MenuState {
   returnTo: HTMLElement | null;
 }
 
-/** Which row a failure belongs to: "chapter:<id>", "part:<id>", "trash:<id>", "edit" (the title input) or "manuscript". */
+/** Which row a failure belongs to: "chapter:<id>", "part:<id>", "sheet:<id>", "trash:<id>", "edit" (the title input) or "manuscript". */
 interface Failure {
   at: string;
   message: string;
@@ -111,13 +118,15 @@ const sheetGroup = (folder: string) => `sheets/${folder}`;
  * Trash. Chapters and parts have a menu (right-click, long-press, or the
  * More button) to rename, set a status, move, add and trash; a mouse or pen
  * can also drag them. Each sheet type has a New button, which asks for the
- * name in its group; the top add menu offers the same.
+ * name in its group; the top add menu offers the same. Sheets have a menu
+ * too, to edit them in the inspector or move them to the Trash.
  */
 export function Binder({
   project,
   openChapterId,
   onOpenChapter,
   onOpenSheet,
+  onEditSheet,
   projects,
   onChange,
   onChapterDetails,
@@ -263,12 +272,16 @@ export function Binder({
     return result.ran;
   };
 
-  /** A menu action: the menu closes, focus goes back where the menu came from, and comes back there if it fails. */
-  const menuAction = (at: string, makePlan: (current: Project) => Plan | null) => {
+  /**
+   * A menu action: the menu closes, focus goes back where the menu came from,
+   * and comes back there if it fails. `afterDone` runs once it is made.
+   */
+  const menuAction = (at: string, makePlan: (current: Project) => Plan | null, afterDone?: () => void) => {
     const returnTo = menu?.returnTo ?? null;
     returnTo?.focus();
     void change(at, makePlan).then((done) => {
-      if (!done && returnTo?.isConnected && document.activeElement === document.body) returnTo.focus();
+      if (done) afterDone?.();
+      else if (returnTo?.isConnected && document.activeElement === document.body) returnTo.focus();
     });
   };
 
@@ -426,24 +439,20 @@ export function Binder({
 
   /* Menus ------------------------------------------------------------------ */
 
-  const openMenu = (item: DragItem, anchor: MenuState["anchor"], trigger: MenuState["trigger"], returnTo: HTMLElement | null) => {
+  const openMenu = (item: RowItem, anchor: MenuState["anchor"], trigger: MenuState["trigger"], returnTo: HTMLElement | null) => {
     if (busy) return;
     setAddOpen(false);
     setMenu({ item, anchor, trigger, returnTo });
   };
 
   /** Right-click, long-press on touch, or the keyboard's menu key. */
-  const onContextMenu = (event: MouseEvent<HTMLElement>, item: DragItem) => {
+  const onContextMenu = (event: MouseEvent<HTMLElement>, item: RowItem) => {
     event.preventDefault();
     const row = event.currentTarget;
-    const box = row.getBoundingClientRect();
-    const { clientX: x, clientY: y } = event;
-    // The menu key reports no pointer position inside the row: hang the menu below the row instead.
-    const atPointer = x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
-    openMenu(item, atPointer ? new DOMRect(x, y, 0, 0) : box, undefined, row.querySelector<HTMLElement>(".binder-row"));
+    openMenu(item, contextMenuAnchor(row, event.clientX, event.clientY), undefined, row.querySelector<HTMLElement>(".binder-row"));
   };
 
-  const moreButton = (item: DragItem, title: string) => {
+  const moreButton = (item: RowItem, title: string) => {
     const open = menu !== null && menu.item.type === item.type && menu.item.id === item.id && menu.trigger !== undefined;
     return (
       <button
@@ -594,6 +603,51 @@ export function Binder({
     );
   };
 
+  /** A sheet's row button, if its row is on screen. */
+  const sheetRowButton = (id: string) => {
+    const rows = navRef.current?.querySelectorAll<HTMLElement>("[data-sheet-row]") ?? [];
+    return [...rows].find((r) => r.dataset.sheetRow === id)?.querySelector<HTMLElement>(".binder-row") ?? null;
+  };
+
+  /** A sheet type's own row, which folds its group: the item that holds its New button. */
+  const sheetGroupRow = (folder: string) => {
+    const buttons = navRef.current?.querySelectorAll<HTMLElement>("[data-sheet-add]") ?? [];
+    const add = [...buttons].find((b) => b.dataset.sheetAdd === folder);
+    return add?.closest(".binder-item")?.querySelector<HTMLElement>(".binder-row") ?? null;
+  };
+
+  /**
+   * A sheet's Move to Trash. Its row goes away, and focus with it: it goes
+   * to the next sheet of its type, else the one before, else the type's row.
+   */
+  const trashSheet = (id: string) => {
+    const sheet = project.sheets.find((s) => s.id === id);
+    if (!sheet) return;
+    const siblings = project.sheets.filter((s) => s.kind === sheet.kind).map((s) => s.id);
+    const at = siblings.indexOf(id);
+    const nearby = [siblings[at + 1], siblings[at - 1]].filter((s) => s !== undefined);
+    const row = sheetRowButton(id);
+    const land = () => {
+      if (!focusLost()) return;
+      const next = nearby.map(sheetRowButton).find((b) => b !== null) ?? sheetGroupRow(sheet.kind);
+      next?.focus();
+    };
+    // Once the row is gone: now if it already is, else after the render that takes it away.
+    menuAction(`sheet:${id}`, (current) => planTrashSheet(current, id), () => {
+      if (row?.isConnected) afterRender.current = land;
+      else land();
+    });
+  };
+
+  /** A sheet's Edit: its form opens in the inspector, which takes focus if it shows the form anew. */
+  const editSheet = (id: string) => {
+    const returnTo = menu?.returnTo ?? null;
+    setMenu(null);
+    setFailure(null);
+    returnTo?.focus();
+    onEditSheet(id);
+  };
+
   /* Dragging --------------------------------------------------------------- */
 
   const onDrop = (item: DragItem, move: Move) => {
@@ -621,6 +675,7 @@ export function Binder({
     const id = rest.join(":");
     if (type === "chapter") return chapterPlace(project.binder, id) !== null;
     if (type === "part") return partIndex(project.binder, id) !== -1;
+    if (type === "sheet") return project.sheets.some((s) => s.id === id);
     if (type === "trash") return project.trash.some((t) => t.id === id);
     return false;
   };
@@ -633,7 +688,7 @@ export function Binder({
       </p>
     ) : null;
 
-  const menuFor = (type: DragItem["type"], id: string) => menu?.item.type === type && menu.item.id === id;
+  const menuFor = (type: RowItem["type"], id: string) => menu?.item.type === type && menu.item.id === id;
   const dragged = (type: DragItem["type"], id: string) => drag?.item.type === type && drag.item.id === id;
 
   const chapterRow = (id: string, partId: string | null) => {
@@ -759,7 +814,9 @@ export function Binder({
   const menuTitle =
     menu?.item.type === "chapter"
       ? project.chapters[menu.item.id]?.title
-      : partsOf(project.binder).find((p) => p.id === menu?.item.id)?.title;
+      : menu?.item.type === "sheet"
+        ? project.sheets.find((s) => s.id === menu.item.id)?.name
+        : partsOf(project.binder).find((p) => p.id === menu?.item.id)?.title;
 
   return (
     <nav
@@ -886,13 +943,29 @@ export function Binder({
                           })}
                         </li>
                       )}
-                      {sheets.map((sheet) => (
-                        <li key={sheet.id}>
-                          <button type="button" className="binder-row binder-row--nested" onClick={() => onOpenSheet(sheet.id)}>
-                            <span className="binder-row-title">{sheet.name}</span>
-                          </button>
-                        </li>
-                      ))}
+                      {sheets.map((sheet) => {
+                        const item: RowItem = { type: "sheet", id: sheet.id };
+                        return (
+                          <li key={sheet.id}>
+                            <div
+                              className={cx("binder-item", menuFor("sheet", sheet.id) && "is-menu-open")}
+                              data-sheet-row={sheet.id}
+                              aria-busy={working === `sheet:${sheet.id}` || undefined}
+                              onContextMenu={(event) => onContextMenu(event, item)}
+                            >
+                              <button
+                                type="button"
+                                className="binder-row binder-row--nested"
+                                onClick={() => onOpenSheet(sheet.id)}
+                              >
+                                <span className="binder-row-title">{sheet.name}</span>
+                              </button>
+                              {moreButton(item, sheet.name)}
+                            </div>
+                            {failureAt(`sheet:${sheet.id}`, true)}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </Group>
@@ -920,7 +993,7 @@ export function Binder({
                     <div className="trash-row">
                       <span className="trash-text">
                         <span className="binder-row-title">{item.title}</span>
-                        <span className="binder-row-meta num">{trashSummary(item)}</span>
+                        <span className="binder-row-meta num">{trashSummary(item, project.sheetTypes)}</span>
                       </span>
                       <button
                         type="button"
@@ -956,7 +1029,16 @@ export function Binder({
             if (reason === "escape") returnTo?.focus();
           }}
         >
-          {menu.item.type === "chapter" ? chapterMenu(menu.item.id) : partMenu(menu.item.id)}
+          {menu.item.type === "chapter" ? (
+            chapterMenu(menu.item.id)
+          ) : menu.item.type === "part" ? (
+            partMenu(menu.item.id)
+          ) : (
+            <SheetMenuItems
+              onEdit={() => editSheet(menu.item.id)}
+              onTrash={() => trashSheet(menu.item.id)}
+            />
+          )}
         </Popover>
       )}
     </nav>

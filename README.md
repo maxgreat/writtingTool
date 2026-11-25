@@ -38,13 +38,17 @@ These are refreshed with every push, so they always show the app as it is on `ma
 | --- | --- |
 | ![A chapter's menu in the binder: rename, status, move up or down, move to a part, new chapter, Trash](docs/screenshots/desktop-binder-menu.png) | ![The binder after a chapter went to the Trash: its part is empty, and the open Trash lists it with Restore](docs/screenshots/desktop-binder-trash.png) |
 
-| Projects | A new character |
+| Projects |
+| --- |
+| ![The Projects view, open under the project title at the top of the binder: the open project is checked. The browser preview has only the sample project, so it says so instead of offering a new project. The last line has the app's version and a link to the privacy policy](docs/screenshots/desktop-projects.png) |
+
+| A new character | A character's menu |
 | --- | --- |
-| ![The Projects view, open under the project title at the top of the binder: the open project is checked. The browser preview has only the sample project, so it says so instead of offering a new project. The last line has the app's version and a link to the privacy policy](docs/screenshots/desktop-projects.png) | ![The binder's Characters group, with a + at the end of its row for a new character. Pressed, it asks for the name in place: Mira Holt is typed at the top of the group, above Arno Kell and Elena Voss. Enter makes the sheet and opens its form in the inspector](docs/screenshots/desktop-sheet-new.png) |
+| ![The binder's Characters group, with a + at the end of its row for a new character. Pressed, it asks for the name in place: Mira Holt is typed at the top of the group, above Arno Kell and Elena Voss. Enter makes the sheet and opens its form in the inspector](docs/screenshots/desktop-sheet-new.png) | ![The binder's Characters group after a right-click on Elena Voss: her row is highlighted with its More button showing, and a small menu at the pointer offers Edit, which opens her sheet's form in the inspector, then, after a gap, Move to Trash. Long-press on touch and the More button open the same menu. The Trash at the bottom of the binder can put her back](docs/screenshots/desktop-sheet-menu.png) |
 
 | A character's sheet | Editing it |
 | --- | --- |
-| ![Elena Voss's sheet in the inspector, with Edit at the top: her aliases, role and age, then Appears in, which lists the chapters that mention her under their parts with how many times (The arrival, open in the editor, 3; The ferryman, 2; Upstream, 1), then her notes](docs/screenshots/desktop-sheet.png) | ![Elena Voss's sheet in its form, after Edit, with Done at the top: her name; her other names, Elena and Voss, each with an Any case option and a remove button, then Add another name; her role and age, then Add a field; her notes as Markdown in a box that grows with the text](docs/screenshots/desktop-sheet-edit.png) |
+| ![Elena Voss's sheet in the inspector, with Move to Trash, a bin icon, and Edit at the top: her aliases, role and age, then Appears in, which lists the chapters that mention her under their parts with how many times (The arrival, open in the editor, 3; The ferryman, 2; Upstream, 1), then her notes](docs/screenshots/desktop-sheet.png) | ![Elena Voss's sheet in its form, after Edit, with the bin icon and Done at the top: her name; her other names, Elena and Voss, each with an Any case option and a remove button, then Add another name; her role and age, then Add a field; her notes as Markdown in a box that grows with the text](docs/screenshots/desktop-sheet-edit.png) |
 
 | Opened from a name in the text | A possible name in the text |
 | --- | --- |

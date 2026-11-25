@@ -88,6 +88,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   const [drag, setDrag] = useState<{ binder?: number; inspector?: number }>({});
   /** Goes up when the empty project's button asks the binder for a new chapter. */
   const [newChapterRequest, setNewChapterRequest] = useState(0);
+  /** A sheet being moved to the Trash from the inspector, and its type: see the reset below. */
+  const [trashedSheet, setTrashedSheet] = useState<{ id: string; folder: string } | null>(null);
 
   // A chapter with Markdown the formatted editor can't keep is shown in Plain
   // until another chapter is opened. The mode setting itself doesn't change.
@@ -104,12 +106,25 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   // caret, the plain-only flag and the inspector's place belong to the old
   // read. They are reset during render (React's pattern for state that follows
   // a prop), so the editors, remounted for the new read, never start from them.
+  // A sheet moved to the Trash from the inspector, from its page or its type's
+  // list, leaves the inspector on that list, which the project still has.
   const [seenLoads, setSeenLoads] = useState(api.loads);
   if (seenLoads !== api.loads) {
     setSeenLoads(api.loads);
     setMountCaret(null);
     setPlainOnlyId(null);
-    setInspectorView({ kind: "chapter" });
+    const back =
+      trashedSheet !== null &&
+      !project.sheets.some((s) => s.id === trashedSheet.id) &&
+      project.sheetTypes.some((t) => t.folder === trashedSheet.folder)
+        ? trashedSheet
+        : null;
+    setInspectorView((view) =>
+      back !== null && ((view.kind === "sheet" && view.id === back.id) || (view.kind === "type" && view.folder === back.folder))
+        ? { kind: "type", folder: back.folder }
+        : { kind: "chapter" },
+    );
+    setTrashedSheet(null);
     setPreview((p) => ({ id: null, open: false, opening: p.opening }));
   }
 
@@ -197,6 +212,29 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   );
 
   const openSheet = useCallback((id: string) => showSheet(id, false), [showSheet]);
+
+  /** A sheet's Edit in the binder's menu: its form, in the inspector. */
+  const editSheet = useCallback((id: string) => showSheet(id, true), [showSheet]);
+
+  /**
+   * Moves a sheet to the Trash from the inspector. The project is read
+   * again, and the inspector goes back to the sheet's type's list (see the
+   * reset above). Rejects with a message for the writer.
+   */
+  const { trashSheet: trashSheetInCore } = api;
+  const trashSheet = useCallback(
+    async (id: string) => {
+      const folder = sheetsById.get(id)?.kind;
+      if (folder !== undefined) setTrashedSheet({ id, folder });
+      try {
+        await trashSheetInCore(id);
+      } catch (error) {
+        setTrashedSheet(null);
+        throw error;
+      }
+    },
+    [trashSheetInCore, sheetsById],
+  );
 
   /** A sheet made in the binder: its form opens in the inspector, with the caret in its first field. */
   const sheetCreated = useCallback(
@@ -480,6 +518,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
               openChapterId={openChapterId}
               onOpenChapter={openChapter}
               onOpenSheet={openSheet}
+              onEditSheet={editSheet}
               projects={projects}
               onChange={api.changeBinder}
               onChapterDetails={api.updateChapterDetails}
@@ -558,6 +597,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
               onChapterDetails={api.updateChapterDetails}
               onCreateSheet={api.createSheet}
               onUpdateSheet={api.updateSheet}
+              onTrashSheet={trashSheet}
               ignoring={ignoring}
               suggestions={suggestions}
               onMarkNotName={api.markNotName}

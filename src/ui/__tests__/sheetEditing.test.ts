@@ -72,6 +72,15 @@ const createSheet = vi.fn(async (kind: string, name: string) => {
 
 const sheetOf = (id: string) => latest.sheets.find((s) => s.id === id)!;
 
+/** Reads the project again, as useProject does after a binder change (`loads` goes up). Set by the window's harness. */
+let readAgain: () => void = () => undefined;
+
+/** As useProject's trashSheet: the sheet leaves the project, which is read again. */
+const trashSheet = vi.fn(async (id: string) => {
+  apply({ ...latest, sheets: latest.sheets.filter((s) => s.id !== id) });
+  readAgain();
+});
+
 beforeAll(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 });
@@ -81,8 +90,10 @@ let root: Root;
 
 beforeEach(() => {
   latest = START;
+  readAgain = () => undefined;
   updateSheet.mockClear();
   createSheet.mockClear();
+  trashSheet.mockClear();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -118,6 +129,7 @@ function Harness({ initialView, busy }: { initialView: InspectorView; busy: bool
     onChapterDetails: () => undefined,
     onCreateSheet: createSheet,
     onUpdateSheet: updateSheet,
+    onTrashSheet: trashSheet,
     ignoring: { ignored: project.ignoredNames, setIgnored: () => undefined, busy },
     suggestions: { list: [], words: new Set<string>(), rule: null },
     onMarkNotName: () => undefined,
@@ -588,7 +600,9 @@ async function mountWorkspace({ isPhone = true, initial = {} as Partial<ViewSett
   function WorkspaceHarness() {
     const [current, setCurrent] = useState<Project>(latest);
     const [settings, setSettings] = useState<ViewSettings>({ ...DEFAULT_SETTINGS, mode: "plain", ...initial });
+    const [loads, setLoads] = useState(1);
     showProject = setCurrent;
+    readAgain = () => setLoads((n) => n + 1);
     const matcher = useMemo(() => buildNameMatcher(current.sheets), [current.sheets]);
     const api = {
       backend,
@@ -600,6 +614,7 @@ async function mountWorkspace({ isPhone = true, initial = {} as Partial<ViewSett
       updateChapter: () => undefined,
       updateSheet,
       createSheet,
+      trashSheet,
       save: { status: "saved" },
       saveNow: async () => undefined,
       openFolder: async () => undefined,
@@ -611,7 +626,7 @@ async function mountWorkspace({ isPhone = true, initial = {} as Partial<ViewSett
       switching: false,
       bookWords: 0,
       wordsToday: 0,
-      loads: 1,
+      loads,
     } as unknown as ReturnType<typeof useProject>;
     return createElement(Workspace, {
       api,
@@ -738,5 +753,183 @@ describe("a sheet made in the binder", () => {
     expect(inspector().querySelector<HTMLInputElement>('.sheet-form input[aria-label="Name"]')?.value).toBe("Mira Holt");
     expect(document.activeElement).toBe(input("Role"));
     expect(inspector().contains(document.activeElement)).toBe(true);
+  });
+});
+
+/* Moving a sheet to the Trash ------------------------------------------------- */
+
+describe("moving a sheet to the Trash", () => {
+  beforeAll(stubLayout);
+
+  const binder = () => container.querySelector<HTMLElement>(".panel--binder")!;
+  const inspector = () => container.querySelector<HTMLElement>(".panel--inspector")!;
+  /** A button in the inspector, by its accessible name. */
+  const inInspector = (name: string) =>
+    [...inspector().querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => (b.getAttribute("aria-label") ?? b.textContent) === name,
+    );
+  const listRow = (name: string) =>
+    [...inspector().querySelectorAll<HTMLButtonElement>(".sheet-list .list-row")].find(
+      (b) => b.querySelector(".list-row-title")?.textContent === name,
+    );
+  const status = () => inspector().querySelector(".inspector > [role='status']")?.textContent ?? null;
+  const menu = () => document.querySelector<HTMLElement>('[role="menu"]');
+  const menuItems = () => [...(menu()?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])];
+  const menuItem = (label: string) => menuItems().find((item) => item.textContent === label)!;
+
+  const rightClick = (el: HTMLElement) =>
+    act(async () => {
+      el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 1, clientY: 1 }));
+    });
+
+  /** Elena's page in the inspector, from the Characters list. */
+  async function openElena() {
+    await click(inInspector("Characters")!);
+    await click(listRow("Elena Voss")!);
+    expect(container.querySelector(".sheet-name")?.textContent).toBe("Elena Voss");
+  }
+
+  describe("from the sheet's page", () => {
+    it("is a quiet icon by Edit or Done, which stays the one primary action", async () => {
+      await mountWorkspace({ isPhone: false });
+      await openElena();
+      const trash = inInspector("Move Elena Voss to Trash")!;
+      expect(trash.title).toBe("Move Elena Voss to Trash");
+      expect(trash.classList.contains("btn--quiet")).toBe(true);
+      expect(trash.classList.contains("btn--primary")).toBe(false);
+      expect(trash.nextElementSibling?.textContent).toBe("Edit");
+
+      await click(inInspector("Edit")!);
+      expect([...inspector().querySelectorAll(".btn--primary")].map((b) => b.textContent)).toEqual(["Done"]);
+      expect(inInspector("Move Elena Voss to Trash")?.disabled).toBe(false);
+    });
+
+    it("moves the sheet at once; the inspector goes back to its type's list, where New takes focus", async () => {
+      await mountWorkspace({ isPhone: false });
+      await openElena();
+      const trash = inInspector("Move Elena Voss to Trash")!;
+      trash.focus();
+      await click(trash);
+      expect(trashSheet).toHaveBeenCalledExactlyOnceWith(ELENA);
+      expect(inspector().querySelector('section[aria-label="Characters"]')).not.toBeNull();
+      expect(listRow("Elena Voss")).toBeUndefined();
+      expect(listRow("Arno Kell")).toBeDefined();
+      expect(document.activeElement).toBe(inInspector("New character"));
+      expect(status()).toBe("Elena Voss moved to the Trash.");
+      // The binder lists her no more.
+      expect([...binder().querySelectorAll(".binder-row-title")].map((t) => t.textContent)).not.toContain("Elena Voss");
+    });
+
+    it("waits while the sheet is being moved", async () => {
+      const answer = deferred<void>();
+      trashSheet.mockReturnValueOnce(answer.promise);
+      await mountWorkspace({ isPhone: false });
+      await openElena();
+      const trash = inInspector("Move Elena Voss to Trash")!;
+      await click(trash);
+      expect(trash.disabled).toBe(true);
+      expect(trash.getAttribute("aria-busy")).toBe("true");
+      await click(trash);
+      expect(trashSheet).toHaveBeenCalledOnce();
+
+      await act(async () => answer.resolve());
+      expect(trash.disabled).toBe(false);
+      expect(trash.hasAttribute("aria-busy")).toBe(false);
+    });
+
+    it("shows why under its controls when the sheet can't be moved, and the sheet stays", async () => {
+      trashSheet.mockRejectedValueOnce(new Error("The disk is full."));
+      await mountWorkspace({ isPhone: false });
+      await openElena();
+      const trash = inInspector("Move Elena Voss to Trash")!;
+      trash.focus();
+      await click(trash);
+      const error = inspector().querySelector<HTMLElement>('[role="alert"]')!;
+      expect(error.textContent).toBe("The disk is full.");
+      expect(error.previousElementSibling?.className).toBe("sheet-nav");
+      expect(trash.getAttribute("aria-describedby")).toBe(error.id);
+      expect(trash.disabled).toBe(false);
+      expect(document.activeElement).toBe(trash);
+      expect(container.querySelector(".sheet-name")?.textContent).toBe("Elena Voss");
+      expect(status()).toBe("");
+    });
+  });
+
+  describe("from its row in the type's list", () => {
+    it("right-click offers Edit and Move to Trash; Move to Trash keeps the list, focus on the row before", async () => {
+      await mountWorkspace({ isPhone: false });
+      await click(inInspector("Characters")!);
+      await rightClick(listRow("Elena Voss")!);
+      expect(menu()?.getAttribute("aria-label")).toBe("Elena Voss");
+      expect(menuItems().map((item) => item.textContent)).toEqual(["Edit", "Move to Trash"]);
+      expect(document.activeElement).toBe(menuItem("Edit"));
+      expect(listRow("Elena Voss")?.classList.contains("is-menu-open")).toBe(true);
+
+      await click(menuItem("Move to Trash"));
+      expect(menu()).toBeNull();
+      expect(trashSheet).toHaveBeenCalledExactlyOnceWith(ELENA);
+      expect(inspector().querySelector('section[aria-label="Characters"]')).not.toBeNull();
+      expect(listRow("Elena Voss")).toBeUndefined();
+      expect(document.activeElement).toBe(listRow("Arno Kell"));
+      expect(status()).toBe("Elena Voss moved to the Trash.");
+    });
+
+    it("Edit opens the sheet's form, focus on Done", async () => {
+      await mountWorkspace({ isPhone: false });
+      await click(inInspector("Characters")!);
+      await rightClick(listRow("Arno Kell")!);
+      await click(menuItem("Edit"));
+      expect(form()).not.toBeNull();
+      expect(input("Name").value).toBe("Arno Kell");
+      expect(document.activeElement).toBe(inInspector("Done"));
+      expect(trashSheet).not.toHaveBeenCalled();
+    });
+
+    it("shows why under the row when the sheet can't be moved", async () => {
+      trashSheet.mockRejectedValueOnce(new Error("The disk is full."));
+      await mountWorkspace({ isPhone: false });
+      await click(inInspector("Characters")!);
+      await rightClick(listRow("Elena Voss")!);
+      await click(menuItem("Move to Trash"));
+      const row = listRow("Elena Voss")!;
+      expect(row.nextElementSibling?.textContent).toBe("The disk is full.");
+      expect(row.getAttribute("aria-describedby")).toBe(row.nextElementSibling?.id);
+      expect(document.activeElement).toBe(row);
+    });
+
+    it("waits while the sheet is being moved: its row dims, and no menu opens", async () => {
+      const answer = deferred<void>();
+      trashSheet.mockReturnValueOnce(answer.promise);
+      await mountWorkspace({ isPhone: false });
+      await click(inInspector("Characters")!);
+      await rightClick(listRow("Elena Voss")!);
+      await click(menuItem("Move to Trash"));
+      expect(listRow("Elena Voss")?.getAttribute("aria-busy")).toBe("true");
+      expect(inspector().querySelector(".sheet-list")?.getAttribute("aria-busy")).toBe("true");
+      await rightClick(listRow("Arno Kell")!);
+      expect(menu()).toBeNull();
+
+      await act(async () => answer.resolve());
+      expect(listRow("Elena Voss")?.hasAttribute("aria-busy")).toBe(false);
+    });
+
+    it("Escape closes the menu and gives focus back to the row", async () => {
+      await mountWorkspace({ isPhone: false });
+      await click(inInspector("Places")!);
+      await rightClick(listRow("Varn")!);
+      await press(menuItem("Edit"), "Escape");
+      expect(menu()).toBeNull();
+      expect(document.activeElement).toBe(listRow("Varn"));
+    });
+  });
+
+  it("the binder's Edit opens the sheet's form in the inspector, which shows if it was hidden", async () => {
+    await mountWorkspace({ isPhone: false, initial: { inspectorOpen: false } });
+    const row = [...binder().querySelectorAll<HTMLElement>("[data-sheet-row]")].find((r) => r.dataset.sheetRow === ELENA)!;
+    await rightClick(row);
+    await click(menuItem("Edit"));
+    expect(inspector().classList.contains("is-open")).toBe(true);
+    expect(input("Name").value).toBe("Elena Voss");
+    expect(document.activeElement).toBe(inInspector("Done"));
   });
 });

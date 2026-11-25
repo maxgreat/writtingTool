@@ -10,6 +10,7 @@ import {
   planRestore,
   planTrashChapter,
   planTrashPart,
+  planTrashSheet,
   safeName,
   withChapterDetails,
   withTitle,
@@ -255,6 +256,91 @@ describe("the Trash", () => {
     const tree = sample();
     tree.files.set("project.json", "{oops");
     expect(() => planTrashChapter(read(tree), ARRIVAL)).toThrow(/project\.json could not be read/u);
+    expect(() => planTrashSheet(read(tree), ELENA)).toThrow(/project\.json could not be read/u);
+  });
+});
+
+const ELENA = "sheets/characters/Elena.md";
+
+describe("sheets in the Trash", () => {
+  it("trashes a sheet and puts it back in its type", () => {
+    const tree = sample();
+    tree.files.set(ELENA, "---\nname: Elena Voss\nrole: Lead\n---\n\nShe keeps the inn.\n");
+    let project = apply(tree, planTrashSheet(read(tree), ELENA));
+    expect(project.sheets).toEqual([]);
+    expect(project.chapterOrder).toEqual([ARRIVAL, FERRYMAN, UPSTREAM]);
+    expect(project.trash).toEqual([
+      expect.objectContaining({ id: "trash/Elena.md", type: "sheet", title: "Elena Voss", kind: "characters", from: ELENA, wordCount: 4 }),
+    ]);
+    expect(json(tree).trash).toEqual({ "trash/Elena.md": { from: ELENA } });
+
+    project = apply(tree, planRestore(project, "trash/Elena.md"));
+    expect(project.sheets.map((s) => [s.id, s.name])).toEqual([[ELENA, "Elena Voss"]]);
+    expect(project.trash).toEqual([]);
+    expect(json(tree).trash).toEqual({});
+    expect(json(tree).custom).toBe("kept");
+  });
+
+  it("keeps a trashed sheet's name apart from a chapter's in the Trash", () => {
+    const tree = sample();
+    tree.files.set(`${P2}/04 Elena.md`, "# Elena\n");
+    let project = apply(tree, planTrashChapter(read(tree), `${P2}/04 Elena.md`));
+    tree.files.set("sheets/characters/04 Elena.md", "---\nname: Elena\n---\n");
+    project = apply(tree, planTrashSheet(read(tree), "sheets/characters/04 Elena.md"));
+    expect(project.trash.map((t) => [t.id, t.type])).toEqual([
+      ["trash/04 Elena 2.md", "sheet"],
+      ["trash/04 Elena.md", "chapter"],
+    ]);
+  });
+
+  it("puts a sheet back under a free name when its old one was taken meanwhile", () => {
+    const tree = sample();
+    let project = apply(tree, planTrashSheet(read(tree), ELENA));
+    tree.files.set(ELENA, "---\nname: Elena\n---\n");
+    project = apply(tree, planRestore(read(tree), "trash/Elena.md"));
+    expect(project.sheets.map((s) => s.id)).toEqual(["sheets/characters/Elena 2.md", ELENA]);
+  });
+
+  it("makes its type's folder again if it is gone", () => {
+    const tree = sample();
+    apply(tree, planTrashSheet(read(tree), ELENA));
+    tree.folders.delete("sheets/characters");
+    tree.folders.delete("sheets");
+    const project = apply(tree, planRestore(read(tree), "trash/Elena.md"));
+    expect(project.sheets.map((s) => s.id)).toEqual([ELENA]);
+  });
+
+  it("puts a sheet from a folder inside its type back there, making the folder again", () => {
+    const tree = sample();
+    const bob = "sheets/characters/minor/Bob.md";
+    tree.folders.add("sheets/characters/minor");
+    tree.files.set(bob, "---\nname: Bob\n---\n");
+    let project = apply(tree, planTrashSheet(read(tree), bob));
+    expect(project.trash).toEqual([expect.objectContaining({ id: "trash/Bob.md", type: "sheet", kind: "characters", from: bob })]);
+    tree.folders.delete("sheets/characters/minor");
+    project = apply(tree, planRestore(read(tree), "trash/Bob.md"));
+    expect(project.sheets.map((s) => s.id)).toContain(bob);
+  });
+
+  it("only moves a sheet to the top of the Trash, or back", () => {
+    const tree = sample();
+    tree.folders.add("trash");
+    tree.folders.add("trash/Part");
+    for (const to of ["sheets/places/Elena.md", "sheets/characters/Elena 2.md", "trash/Part/Elena.md", "manuscript/Elena.md", "trash/Elena.txt"]) {
+      expect(() => applyChange(tree, { folders: [], moves: [{ from: ELENA, to }], writes: [] }), to).toThrow();
+    }
+    expect(tree.files.has(ELENA)).toBe(true);
+  });
+
+  it("refuses a sheet that is no longer in the project", () => {
+    expect(() => planTrashSheet(read(sample()), "sheets/characters/Nobody.md")).toThrow(/no longer in the project/u);
+  });
+
+  it("reads a file in the Trash with no record of a sheet as a chapter", () => {
+    const tree = sample();
+    tree.folders.add("trash");
+    tree.files.set("trash/Loose.md", "---\nname: Loose\n---\n");
+    expect(read(tree).trash).toEqual([expect.objectContaining({ id: "trash/Loose.md", type: "chapter" })]);
   });
 });
 

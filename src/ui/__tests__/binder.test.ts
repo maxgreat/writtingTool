@@ -2,7 +2,14 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { planMoveChapter, planNewChapter, planRestore, type ChapterDetails, type Plan } from "../../core/binder";
+import {
+  planMoveChapter,
+  planNewChapter,
+  planRestore,
+  planTrashSheet,
+  type ChapterDetails,
+  type Plan,
+} from "../../core/binder";
 import { buildProject, type Project, type SheetType } from "../../core/project";
 import { Binder, type BinderProps } from "../Binder";
 
@@ -47,6 +54,7 @@ beforeEach(() => {
     openChapterId: ONE,
     onOpenChapter: vi.fn(),
     onOpenSheet: vi.fn(),
+    onEditSheet: vi.fn<(id: string) => void>(),
     projects: {
       current: "/test",
       loads: 1,
@@ -527,5 +535,173 @@ describe("new sheets in the binder", () => {
     await act(async () => answer.resolve("sheets/characters/Tomas.md"));
     expect(props.onSheetCreated).not.toHaveBeenCalled();
     expect(nameInput("character")).toBeNull();
+  });
+});
+
+describe("a sheet's menu", () => {
+  const ARNO = "sheets/characters/Arno Kell.md";
+  const ELENA = "sheets/characters/Elena Voss.md";
+  const MIRA = "sheets/characters/Mira Holt.md";
+  const VARN = "sheets/places/Varn.md";
+  const SHEETS: Record<string, string> = {
+    [ARNO]: "---\nname: Arno Kell\n---\n",
+    [ELENA]: "---\nname: Elena Voss\nrole: Lead\n---\n\nShe keeps the inn.\n",
+    [MIRA]: "---\nname: Mira Holt\n---\n",
+    [VARN]: "---\nname: Varn\n---\n",
+  };
+
+  /** The test project with these sheets. */
+  function withSheets(ids: string[]): Project {
+    return buildProject({
+      root: "/test",
+      folderName: "Test",
+      projectJson: null,
+      files: [{ path: ONE, text: "# One\n\nElena waits.\n" }, ...ids.map((id) => ({ path: id, text: SHEETS[id] }))],
+      folders: ["manuscript", P1],
+      skipped: [],
+    });
+  }
+
+  /** As useProject's changeBinder: the change is made, then the binder shows the project read again. */
+  function readAgainAs(next: (plan: Plan | null) => Project) {
+    return vi.fn(async (makePlan: (p: Project) => Plan | null) => {
+      const plan = makePlan(props.project);
+      plans.push(plan);
+      props = { ...props, project: next(plan) };
+      root.render(createElement(Binder, props));
+    });
+  }
+
+  const sheetItem = (id: string) =>
+    [...container.querySelectorAll<HTMLElement>("[data-sheet-row]")].find((r) => r.dataset.sheetRow === id)!;
+  const sheetButton = (id: string) => sheetItem(id).querySelector<HTMLElement>(".binder-row")!;
+
+  it("opens on right-click with Edit, then Move to Trash after a gap", async () => {
+    await render({ project: withSheets([ARNO, ELENA, VARN]) });
+    await rightClick(sheetItem(ELENA));
+    expect(menu()?.getAttribute("aria-label")).toBe("Elena Voss");
+    expect(menuItems().map((item) => item.textContent)).toEqual(["Edit", "Move to Trash"]);
+    expect(menuItem("Move to Trash")?.previousElementSibling?.className).toBe("popover-gap");
+    expect(document.activeElement).toBe(menuItem("Edit"));
+    expect(sheetItem(ELENA).classList.contains("is-menu-open")).toBe(true);
+
+    // Escape closes it and gives focus back to the row.
+    await press(menuItem("Edit")!, "Escape");
+    expect(menu()).toBeNull();
+    expect(document.activeElement).toBe(sheetButton(ELENA));
+  });
+
+  it("opens from the row's More button too, which closes it again", async () => {
+    await render({ project: withSheets([ARNO, ELENA, VARN]) });
+    const more = button("Actions for Varn")!;
+    expect(sheetItem(VARN).contains(more)).toBe(true);
+    await click(more);
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    expect(menuItems().map((item) => item.textContent)).toEqual(["Edit", "Move to Trash"]);
+    await click(more);
+    expect(menu()).toBeNull();
+  });
+
+  it("Edit opens the sheet's form in the inspector", async () => {
+    await render({ project: withSheets([ARNO, ELENA, VARN]) });
+    await rightClick(sheetItem(ARNO));
+    await click(menuItem("Edit"));
+    expect(menu()).toBeNull();
+    expect(props.onEditSheet).toHaveBeenCalledExactlyOnceWith(ARNO);
+    expect(plans).toEqual([]);
+  });
+
+  it("Move to Trash moves it at once; focus goes to the next sheet of its type, the one before, or the type", async () => {
+    const all = [ARNO, ELENA, MIRA, VARN];
+    let left = all;
+    const without = (id: string) => () => {
+      left = left.filter((s) => s !== id);
+      return withSheets(left);
+    };
+
+    // The first character: the next one takes focus.
+    await render({ project: withSheets(all), onChange: readAgainAs(without(ARNO)) });
+    let before = props.project;
+    await rightClick(sheetItem(ARNO));
+    await click(menuItem("Move to Trash"));
+    expect(plans).toEqual([planTrashSheet(before, ARNO)]);
+    expect(sheetItem(ARNO)).toBeUndefined();
+    expect(document.activeElement).toBe(sheetButton(ELENA));
+
+    // The last character: the one before.
+    await render({ onChange: readAgainAs(without(MIRA)) });
+    before = props.project;
+    await click(button("Actions for Mira Holt"));
+    await click(menuItem("Move to Trash"));
+    expect(plans.at(-1)).toEqual(planTrashSheet(before, MIRA));
+    expect(document.activeElement).toBe(sheetButton(ELENA));
+
+    // The only one left: the Characters row.
+    await render({ onChange: readAgainAs(without(ELENA)) });
+    await rightClick(sheetItem(ELENA));
+    await click(menuItem("Move to Trash"));
+    expect(document.activeElement).toBe(button("Characters"));
+    expect(alertText()).toBeNull();
+  });
+
+  it("shows why by the row when the sheet can't be moved, and focus comes back to it", async () => {
+    await render({
+      project: withSheets([ARNO, ELENA, VARN]),
+      onChange: vi.fn(async () => Promise.reject(new Error("The disk is full."))),
+    });
+    await rightClick(sheetItem(ELENA));
+    await click(menuItem("Move to Trash"));
+    expect(alertText()).toBe("The disk is full.");
+    expect(sheetItem(ELENA).nextElementSibling?.textContent).toBe("The disk is full.");
+    expect(sheetItem(ELENA).nextElementSibling?.className).toContain("binder-error--nested");
+    expect(document.activeElement).toBe(sheetButton(ELENA));
+  });
+
+  it("waits while the project changes on disk, and while the sheet is being moved", async () => {
+    await render({ project: withSheets([ARNO, ELENA, VARN]), busy: true });
+    expect(button("Actions for Elena Voss")?.disabled).toBe(true);
+    await rightClick(sheetItem(ELENA));
+    expect(menu()).toBeNull();
+
+    const answer = deferred<void>();
+    await render({ busy: false, onChange: vi.fn(() => answer.promise) });
+    await rightClick(sheetItem(ELENA));
+    await click(menuItem("Move to Trash"));
+    expect(sheetItem(ELENA).getAttribute("aria-busy")).toBe("true");
+    expect(sheetItem(ARNO).hasAttribute("aria-busy")).toBe(false);
+    expect(button("Actions for Elena Voss")?.disabled).toBe(true);
+    expect(button("Actions for Arno Kell")?.disabled).toBe(true);
+    await rightClick(sheetItem(ARNO));
+    expect(menu()).toBeNull();
+    await act(async () => answer.resolve());
+    expect(button("Actions for Arno Kell")?.disabled).toBe(false);
+  });
+
+  it("doesn't stop a long-press: the row has no touch handlers", async () => {
+    await render({ project: withSheets([ARNO]) });
+    const touch = new Event("touchstart", { bubbles: true, cancelable: true });
+    await act(async () => {
+      sheetButton(ARNO).dispatchEvent(touch);
+    });
+    expect(touch.defaultPrevented).toBe(false);
+  });
+
+  it("in the Trash, a sheet says what it is, and Restore puts it back", async () => {
+    const project = buildProject({
+      root: "/test",
+      folderName: "Test",
+      projectJson: JSON.stringify({ trash: { "trash/Elena Voss.md": { from: ELENA } } }),
+      files: [
+        { path: ONE, text: "# One\n" },
+        { path: "trash/Elena Voss.md", text: SHEETS[ELENA] },
+      ],
+      folders: ["manuscript", P1, "trash"],
+      skipped: [],
+    });
+    await render({ project });
+    await click(button("Trash"));
+    expect(container.querySelector(".trash-row .binder-row-meta")?.textContent).toBe("Character · 4 words");
+    await click(button("Restore Elena Voss"));
+    expect(plans).toEqual([planRestore(project, "trash/Elena Voss.md")]);
   });
 });

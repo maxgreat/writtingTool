@@ -14,6 +14,23 @@ export interface MemoryTree {
 
 const MOVABLE = ["manuscript/", "trash/"];
 
+/** A sheet's end of its move: sheets/<type>/<name>.md, or in a folder inside its type's. */
+const SHEET_FILE = /^sheets(?:\/[^/.][^/]*){2,}$/u;
+/** The Trash's end of a sheet's move: a file at the top of trash/. */
+const TRASH_FILE = /^trash\/[^/.][^/]*$/u;
+const isMarkdown = (path: string) => path.toLowerCase().endsWith(".md");
+
+const inSheets = (path: string) => path.startsWith("sheets/");
+
+/** A move that names a sheet's file, rather than a chapter or part. */
+const isSheetMove = (move: { from: string; to: string }) => inSheets(move.from) || inSheets(move.to);
+
+/** A sheet moves as a file, from its folder to the top of trash/, or back. */
+function isAllowedSheetMove({ from, to }: { from: string; to: string }): boolean {
+  const [sheet, trash] = inSheets(from) ? [from, to] : [to, from];
+  return SHEET_FILE.test(sheet) && TRASH_FILE.test(trash) && isMarkdown(sheet) && isMarkdown(trash);
+}
+
 const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 const isInside = (path: string, folder: string) => path.startsWith(`${folder}/`);
 
@@ -45,8 +62,8 @@ export function applyChange(tree: MemoryTree, change: Change): void {
 
   for (const folder of change.sheetFolders ?? []) {
     const parts = folder.split("/");
-    if (parts[0] !== "sheets" || parts.length > 2 || parts.some((p) => p === "" || p.startsWith("."))) {
-      throw new Error(`${folder}: not sheets/ or a sheet type folder in it`);
+    if (parts[0] !== "sheets" || parts.some((p) => p === "" || p.startsWith("."))) {
+      throw new Error(`${folder}: not sheets/ or a folder in it`);
     }
     if (files.has(folder)) throw new Error(`${folder} is not a folder`);
     if (!folderExists(next, parentOf(folder))) throw new Error(`${folder}: its parent folder is missing`);
@@ -55,8 +72,13 @@ export function applyChange(tree: MemoryTree, change: Change): void {
 
   const { moves } = change;
   for (const [i, a] of moves.entries()) {
-    for (const path of [a.from, a.to]) {
-      if (!MOVABLE.some((p) => path.startsWith(p))) throw new Error(`${path}: not inside manuscript/ or trash/`);
+    if (isSheetMove(a)) {
+      if (!isAllowedSheetMove(a)) throw new Error(`${a.from}: a sheet only moves to the top of trash/, or back`);
+      if (!files.has(a.from)) throw new Error(`${a.from} is not a sheet file`);
+    } else {
+      for (const path of [a.from, a.to]) {
+        if (!MOVABLE.some((p) => path.startsWith(p))) throw new Error(`${path}: not inside manuscript/ or trash/`);
+      }
     }
     if (!exists(next, a.from)) throw new Error(`${a.from} does not exist`);
     for (const [j, b] of moves.entries()) {

@@ -122,6 +122,17 @@ export function languageName(code: string): string {
   }
 }
 
+/**
+ * Where a row's menu hangs: at the pointer for a right-click or a
+ * long-press, below the row for the keyboard's menu key, which reports no
+ * pointer position inside it.
+ */
+export function contextMenuAnchor(row: HTMLElement, x: number, y: number): DOMRect {
+  const box = row.getBoundingClientRect();
+  const atPointer = x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
+  return atPointer ? new DOMRect(x, y, 0, 0) : box;
+}
+
 /** Focus went with a button that was removed or disabled: nothing has it now, so it can be put somewhere useful. */
 export function focusLost(): boolean {
   return document.activeElement === null || document.activeElement === document.body;

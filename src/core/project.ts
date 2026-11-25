@@ -61,17 +61,25 @@ export type BinderItem =
   | { type: "part"; id: string; title: string; chapterIds: string[] }
   | { type: "chapter"; id: string };
 
-/** A chapter or a whole part in the Trash, which is the trash/ folder of the project. */
+/** A chapter, a whole part or a sheet in the Trash, which is the trash/ folder of the project. */
 export interface TrashItem {
   /** Path in trash/, relative to the project root. */
   id: string;
-  type: "chapter" | "part";
+  /**
+   * A sheet is a file at the top of trash/ that project.json says came from
+   * sheets/<type>/; any other file there is a chapter, and a folder a part.
+   */
+  type: "chapter" | "part" | "sheet";
+  /** A chapter's title, a part's folder name or a sheet's name. */
   title: string;
+  /** A sheet's count is of its notes. */
   wordCount: number;
   /** For a part: its chapter files, in path order. */
   chapterIds: string[];
-  /** Where it was before it went to the Trash, if project.json remembers. */
+  /** Where it was before it went to the Trash, if project.json remembers. A sheet always has it. */
   from: string | null;
+  /** For a sheet: its type's folder under sheets/. */
+  kind?: string;
 }
 
 export interface Project {
@@ -153,6 +161,11 @@ const asString = (value: unknown): string => (typeof value === "string" ? value 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A sheet's file: sheets/<type>/<name>.md, or in a folder inside its type's, as the project is read. */
+export function isSheetPath(path: string): boolean {
+  return /^sheets\/[^/]+\/(?:[^/]+\/)*[^/]+\.md$/iu.test(path);
 }
 
 function baseName(path: string): string {
@@ -443,6 +456,16 @@ export function buildProject(snapshot: ProjectSnapshot): Project {
     .sort((a, b) => byPath(a.path, b.path))) {
     const top = topLevel(file.path, TRASH);
     if (top === file.path) {
+      const record = trashMeta[top];
+      const from = isRecord(record) && typeof record.from === "string" ? record.from : null;
+      if (from !== null && isSheetPath(from)) {
+        const sheet = parseSheet(from, file.text, []);
+        const item = trashItem(top, "sheet");
+        item.title = sheet.name;
+        item.kind = sheet.kind;
+        item.wordCount = countWords(sheet.body);
+        continue;
+      }
       const item = trashItem(top, "chapter");
       item.title = chapterTitle(file.path, file.text);
       item.wordCount = countWords(file.text);

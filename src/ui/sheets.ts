@@ -33,6 +33,17 @@ export function newSheetLabel(type: SheetType): string {
 }
 
 /**
+ * What a sheet is, on a line of its own, as in the Trash: "Character".
+ * Types without their own word name their group: "Sheet in Creatures".
+ */
+export function sheetKindLabel(folder: string, types: SheetType[]): string {
+  const noun = sheetNoun(folder);
+  const word = noun.charAt(0).toUpperCase() + noun.slice(1);
+  if (NOUNS.has(folder)) return word;
+  return `${word} in ${types.find((t) => t.folder === folder)?.label ?? folder}`;
+}
+
+/**
  * Removes Markdown markers from one line so it reads as plain text. As in
  * Notes, underscores only count at word edges, so "Smith_and_Sons" stays.
  */

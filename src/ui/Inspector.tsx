@@ -1,5 +1,5 @@
-import { ChevronLeft, Plus } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { ChevronLeft, Plus, Trash2 } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import type { ChapterDetails as Details } from "../core/binder";
 import type { NameIndex } from "../core/nameIndex";
 import type { IgnoredName, NameMatcher } from "../core/names";
@@ -8,10 +8,12 @@ import type { SheetEdit } from "../core/sheetFile";
 import type { NameSuggestions } from "../core/useNameSuggestions";
 import type { AppearancesSource } from "./AppearsIn";
 import { ChapterDetails } from "./ChapterDetails";
-import { cx, errorMessage, focusLost, formatCount } from "./dom";
+import { contextMenuAnchor, cx, errorMessage, focusLost, formatCount } from "./dom";
 import type { IgnoreSource } from "./IgnoreHere";
+import { Popover } from "./Popover";
 import { PossibleNames } from "./PossibleNames";
 import { SheetForm } from "./SheetForm";
+import { SheetMenuItems } from "./SheetMenu";
 import { SheetView } from "./SheetView";
 import { groupByType, namesFromCounts, sheetNoun, sheetSummary } from "./sheets";
 import { Versions, type VersionSource } from "./Versions";
@@ -46,6 +48,11 @@ export interface InspectorProps {
   onCreateSheet(kind: string, name: string): Promise<string>;
   /** useProject's updateSheet: saved like an edit. Throws, changing nothing, when the edit is refused. */
   onUpdateSheet(id: string, edit: SheetEdit): void;
+  /**
+   * Moves a sheet to the Trash (useProject's trashSheet, through Workspace,
+   * which then shows its type's list). Rejects with a message for the writer.
+   */
+  onTrashSheet(id: string): Promise<void>;
   /** Ignore here, under a sheet opened from the text, and each sheet's ignored mentions. */
   ignoring: IgnoreSource;
   /** The book's possible names (useNameSuggestions): This chapter lists those found in the open chapter. */
@@ -64,8 +71,10 @@ export interface InspectorProps {
  * The right panel: a menu with This chapter and one entry per sheet type,
  * and the sheet of a clicked name, with the chapters it appears in and
  * Ignore here. A type's list makes new sheets; a sheet's Edit shows its
- * form, Done the sheet again. A chapter's details can be edited, its
- * possible names made into sheets, and its earlier versions restored.
+ * form, Done the sheet again. A sheet can be moved to the Trash from its
+ * page or from its row's menu in the list. A chapter's details can be
+ * edited, its possible names made into sheets, and its earlier versions
+ * restored.
  */
 export function Inspector({
   project,
@@ -80,6 +89,7 @@ export function Inspector({
   onChapterDetails,
   onCreateSheet,
   onUpdateSheet,
+  onTrashSheet,
   ignoring,
   suggestions,
   onMarkNotName,
@@ -112,6 +122,60 @@ export function Inspector({
   }, [formKey]);
 
   const sheetCreated = (id: string) => onViewChange({ kind: "sheet", id, editing: true, created: true });
+  const editSheet = (id: string) => onViewChange({ kind: "sheet", id, editing: true });
+
+  /* Moving a sheet to the Trash ------------------------------------------ */
+
+  /** Said to screen readers once a sheet is in the Trash: it leaves the list with no other sign. */
+  const [trashNote, setTrashNote] = useState("");
+  /** From a sheet's page: the sheet being moved (by project and id), and why the last try failed. */
+  const [trashing, setTrashing] = useState<string | null>(null);
+  const [trashFailure, setTrashFailure] = useState<{ key: string; message: string } | null>(null);
+  /** A sheet that left from its page: focus, gone with its button, goes to its type's list once that shows. */
+  const trashedHere = useRef<string | null>(null);
+  const trashRef = useRef<HTMLButtonElement>(null);
+  const tabsRef = useRef<HTMLElement>(null);
+  const trashErrorId = useId();
+
+  const trashSheet = async (id: string) => {
+    const name = sheetsById.get(id)?.name ?? "The sheet";
+    setTrashNote("");
+    await onTrashSheet(id);
+    setTrashNote(`${name} moved to the Trash.`);
+  };
+
+  const trashFromPage = async (id: string) => {
+    if (busy || trashing !== null) return;
+    const key = `${project.root}\n${id}`;
+    setTrashing(key);
+    setTrashFailure(null);
+    try {
+      await trashSheet(id);
+      trashedHere.current = id;
+    } catch (error) {
+      setTrashFailure({ key, message: errorMessage(error) });
+    } finally {
+      setTrashing(null);
+    }
+  };
+
+  // Moved: the list it was in takes focus, at New; failed: the button, enabled again, takes it back.
+  useEffect(() => {
+    const id = trashedHere.current;
+    if (id === null || trashing !== null) return;
+    trashedHere.current = null;
+    if (sheetsById.has(id) || !focusLost()) return;
+    const target =
+      bodyRef.current?.querySelector<HTMLElement>(".sheet-list .add-button") ??
+      tabsRef.current?.querySelector<HTMLElement>('[aria-current="true"]');
+    target?.focus();
+  });
+  useEffect(() => {
+    if (trashFailure !== null && focusLost()) trashRef.current?.focus();
+  }, [trashFailure]);
+
+  const sheetKey = sheet ? `${project.root}\n${sheet.id}` : null;
+  const trashFailed = trashFailure !== null && trashFailure.key === sheetKey;
 
   const appearances: AppearancesSource = {
     index,
@@ -124,7 +188,7 @@ export function Inspector({
 
   return (
     <aside className="inspector" aria-label="Inspector">
-      <nav className="inspector-tabs" aria-label="Inspector sections">
+      <nav ref={tabsRef} className="inspector-tabs" aria-label="Inspector sections">
         <button
           type="button"
           className="tab"
@@ -173,6 +237,8 @@ export function Inspector({
             onOpenSheet={onOpenSheet}
             onCreate={onCreateSheet}
             onCreated={sheetCreated}
+            onEdit={editSheet}
+            onTrash={trashSheet}
             busy={busy}
           />
         )}
@@ -187,22 +253,42 @@ export function Inspector({
                 <ChevronLeft aria-hidden />
                 <span className="back-link-label">{sheetType?.label ?? sheet.kind}</span>
               </button>
-              {sheet.editable && (
+              <div className="sheet-nav-actions">
                 <button
-                  ref={toggleRef}
+                  ref={trashRef}
                   type="button"
-                  className={cx("btn edit-toggle", editing ? "btn--primary" : "btn--quiet")}
-                  // The opening stays the same, so the name it came from is kept for Done.
-                  // The sheet is only new once: Edit after Done goes back to Done.
-                  onClick={() => {
-                    const { created: _created, ...opening } = shown;
-                    onViewChange({ ...opening, editing: !editing });
-                  }}
+                  className="btn btn--icon btn--quiet sheet-trash"
+                  aria-label={`Move ${sheet.name} to Trash`}
+                  title={`Move ${sheet.name} to Trash`}
+                  aria-describedby={trashFailed ? trashErrorId : undefined}
+                  aria-busy={trashing === sheetKey || undefined}
+                  disabled={busy || trashing !== null}
+                  onClick={() => void trashFromPage(sheet.id)}
                 >
-                  {editing ? "Done" : "Edit"}
+                  <Trash2 aria-hidden />
                 </button>
-              )}
+                {sheet.editable && (
+                  <button
+                    ref={toggleRef}
+                    type="button"
+                    className={cx("btn edit-toggle", editing ? "btn--primary" : "btn--quiet")}
+                    // The opening stays the same, so the name it came from is kept for Done.
+                    // The sheet is only new once: Edit after Done goes back to Done.
+                    onClick={() => {
+                      const { created: _created, ...opening } = shown;
+                      onViewChange({ ...opening, editing: !editing });
+                    }}
+                  >
+                    {editing ? "Done" : "Edit"}
+                  </button>
+                )}
+              </div>
             </div>
+            {trashFailed && (
+              <p id={trashErrorId} className="inline-error" role="alert">
+                {trashFailure.message}
+              </p>
+            )}
             {editing ? (
               // Keyed by project and sheet: sheet ids are paths, so another project can reuse one.
               <SheetForm
@@ -225,6 +311,9 @@ export function Inspector({
           </>
         )}
       </div>
+      <p className="visually-hidden" role="status">
+        {trashNote}
+      </p>
     </aside>
   );
 }
@@ -358,15 +447,27 @@ interface SheetListProps {
   onCreate(kind: string, name: string): Promise<string>;
   /** A sheet was made: show its form. */
   onCreated(id: string): void;
+  /** A row's Edit: its sheet's form. */
+  onEdit(id: string): void;
+  /** A row's Move to Trash. Rejects with a message for the writer. */
+  onTrash(id: string): Promise<void>;
   busy: boolean;
+}
+
+/** A row's menu: which sheet, where it hangs, and where focus goes back. */
+interface RowMenu {
+  id: string;
+  anchor: DOMRect;
+  returnTo: HTMLElement;
 }
 
 /**
  * A type's sheets, and New character (or place, note, sheet) at the top,
  * which asks for the name in place: Enter makes the sheet, Escape cancels,
- * and a refusal shows below the name, which stays as typed.
+ * and a refusal shows below the name, which stays as typed. A row's menu
+ * (right-click, long-press, or the menu key) offers Edit and Move to Trash.
  */
-function SheetList({ project, folder, onOpenSheet, onCreate, onCreated, busy }: SheetListProps) {
+function SheetList({ project, folder, onOpenSheet, onCreate, onCreated, onEdit, onTrash, busy }: SheetListProps) {
   const type = project.sheetTypes.find((t) => t.folder === folder);
   const sheets = project.sheets.filter((s) => s.kind === folder);
   const label = type?.label ?? folder;
@@ -376,9 +477,17 @@ function SheetList({ project, folder, onOpenSheet, onCreate, onCreated, busy }: 
   const [draft, setDraft] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const locked = busy || creating;
+  const [menu, setMenu] = useState<RowMenu | null>(null);
+  /** The sheet whose row is moving it to the Trash, and why the last move failed. */
+  const [trashing, setTrashing] = useState<string | null>(null);
+  const [rowFailure, setRowFailure] = useState<{ id: string; message: string } | null>(null);
+  const locked = busy || creating || trashing !== null;
   const errorId = useId();
+  const rowErrorId = useId();
   const newRef = useRef<HTMLButtonElement>(null);
+  const rowRefs = useRef(new Map<string, HTMLButtonElement>());
+  /** Set once a row's sheet is in the Trash: the sheets to give focus to, in order, else New. */
+  const landOn = useRef<string[] | null>(null);
 
   const live = useRef(true);
   useEffect(() => {
@@ -401,6 +510,49 @@ function SheetList({ project, folder, onOpenSheet, onCreate, onCreated, busy }: 
     setFailure(null);
   };
 
+  // Focus left with the row of the sheet now in the Trash: the next row takes it, else the one before, else New.
+  useEffect(() => {
+    const ids = landOn.current;
+    if (ids === null || trashing !== null) return;
+    landOn.current = null;
+    if (!focusLost()) return;
+    const target = ids.map((id) => rowRefs.current.get(id)).find((row) => row !== undefined) ?? newRef.current;
+    target?.focus();
+  });
+
+  /** Right-click, long-press on touch, or the keyboard's menu key, on a row. */
+  const openMenu = (event: MouseEvent<HTMLButtonElement>, id: string) => {
+    event.preventDefault();
+    if (locked) return;
+    const row = event.currentTarget;
+    setMenu({ id, anchor: contextMenuAnchor(row, event.clientX, event.clientY), returnTo: row });
+  };
+
+  /** A menu item: the menu closes and focus goes back to its row first. */
+  const closeMenu = () => {
+    menu?.returnTo.focus();
+    setMenu(null);
+  };
+
+  const trash = async (id: string) => {
+    closeMenu();
+    if (locked) return;
+    const at = sheets.findIndex((s) => s.id === id);
+    const nearby = [sheets[at + 1], sheets[at - 1]].filter((s) => s !== undefined).map((s) => s.id);
+    setTrashing(id);
+    setRowFailure(null);
+    try {
+      await onTrash(id);
+      if (live.current) landOn.current = nearby;
+    } catch (error) {
+      if (live.current) setRowFailure({ id, message: errorMessage(error) });
+    } finally {
+      if (live.current) setTrashing(null);
+    }
+  };
+
+  const menuSheet = menu ? sheets.find((s) => s.id === menu.id) : undefined;
+
   const create = async () => {
     if (draft === null || locked) return;
     setCreating(true);
@@ -417,7 +569,7 @@ function SheetList({ project, folder, onOpenSheet, onCreate, onCreated, busy }: 
   };
 
   return (
-    <section className="sheet-list" aria-label={label} aria-busy={creating}>
+    <section className="sheet-list" aria-label={label} aria-busy={creating || trashing !== null}>
       {draft === null ? (
         <button
           ref={newRef}
@@ -481,16 +633,54 @@ function SheetList({ project, folder, onOpenSheet, onCreate, onCreated, busy }: 
         <ul>
           {sheets.map((sheet) => {
             const { field } = sheetSummary(sheet);
+            const failed = rowFailure?.id === sheet.id;
             return (
               <li key={sheet.id}>
-                <button type="button" className="list-row list-row--stacked" onClick={() => onOpenSheet(sheet.id)}>
+                <button
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(sheet.id, el);
+                    else rowRefs.current.delete(sheet.id);
+                  }}
+                  type="button"
+                  className={cx("list-row list-row--stacked", menu?.id === sheet.id && "is-menu-open")}
+                  aria-busy={trashing === sheet.id || undefined}
+                  aria-describedby={failed ? rowErrorId : undefined}
+                  onClick={() => onOpenSheet(sheet.id)}
+                  onContextMenu={(event) => openMenu(event, sheet.id)}
+                >
                   <span className="list-row-title">{sheet.name}</span>
                   {field && <span className="muted">{field[1]}</span>}
                 </button>
+                {failed && (
+                  <p id={rowErrorId} className="inline-error" role="alert">
+                    {rowFailure.message}
+                  </p>
+                )}
               </li>
             );
           })}
         </ul>
+      )}
+
+      {menu && menuSheet && (
+        <Popover
+          anchor={menu.anchor}
+          role="menu"
+          label={menuSheet.name}
+          autoFocus
+          onClose={(reason) => {
+            setMenu(null);
+            if (reason === "escape") menu.returnTo.focus();
+          }}
+        >
+          <SheetMenuItems
+            onEdit={() => {
+              closeMenu();
+              onEdit(menu.id);
+            }}
+            onTrash={() => void trash(menu.id)}
+          />
+        </Popover>
       )}
     </section>
   );

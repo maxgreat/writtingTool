@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BinderItem, TrashItem } from "../../core/project";
+import type { BinderItem, SheetType, TrashItem } from "../../core/project";
 import {
   chapterMoveTo,
   chapterPlace,
@@ -194,10 +194,25 @@ describe("Trash rows", () => {
     ...patch,
   });
 
+  const types: SheetType[] = [
+    { folder: "characters", label: "Characters", fields: [] },
+    { folder: "creatures", label: "Creatures", fields: [] },
+  ];
+
   it("give a chapter's words, and a part's chapters and words, each count on one line with its unit", () => {
-    expect(trashSummary(item({ wordCount: 1 }))).toBe("1 word");
-    expect(trashSummary(item({ type: "part", wordCount: 230, chapterIds: ["a", "b"] }))).toBe(
+    expect(trashSummary(item({ wordCount: 1 }), types)).toBe("1 word");
+    expect(trashSummary(item({ type: "part", wordCount: 230, chapterIds: ["a", "b"] }), types)).toBe(
       "2 chapters · 230 words",
     );
+  });
+
+  it("say what a sheet is, then the words of its notes if it has any", () => {
+    const sheet = (kind: string, wordCount: number) =>
+      item({ type: "sheet", kind, wordCount, from: `sheets/${kind}/X.md` });
+    expect(trashSummary(sheet("characters", 40), types)).toBe("Character · 40 words");
+    expect(trashSummary(sheet("places", 0), types)).toBe("Place");
+    // A type without its own word names its group, by its label if the project still has it.
+    expect(trashSummary(sheet("creatures", 1), types)).toBe("Sheet in Creatures · 1 word");
+    expect(trashSummary(sheet("gone", 0), types)).toBe("Sheet in gone");
   });
 });

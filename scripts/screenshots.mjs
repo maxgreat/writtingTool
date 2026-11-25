@@ -136,6 +136,16 @@ const SCENES = [
       await page.keyboard.type("Mira Holt");
     },
   },
+  {
+    name: "desktop-sheet-menu",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // Elena Voss right-clicked in the binder's Characters group: her menu, with Edit and Move to Trash.
+      await sheetRow(page, "Elena Voss").click({ button: "right", position: { x: 96, y: 14 } });
+      await page.getByRole("menu", { name: "Elena Voss" }).waitFor();
+    },
+  },
   { name: "phone", ...PHONE, colorScheme: "light" },
   {
     name: "phone-binder",
@@ -165,6 +175,11 @@ const SCENES = [
 /** A chapter's row in the binder, by its title. */
 function chapterRow(page, title) {
   return page.locator(".binder-item").filter({ has: page.locator(".binder-row-title", { hasText: title }) });
+}
+
+/** A sheet's row in the binder, by its name. */
+function sheetRow(page, name) {
+  return page.locator("[data-sheet-row]").filter({ has: page.locator(".binder-row-title", { hasText: name }) });
 }
 
 /** One of the inspector's sections: This chapter, or a sheet type. */

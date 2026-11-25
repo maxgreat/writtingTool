@@ -139,6 +139,7 @@ function Harness({ chapter, busy, backend, given }: Shown) {
     onChapterDetails: () => undefined,
     onCreateSheet: createSheet,
     onUpdateSheet: () => undefined,
+    onTrashSheet: async () => undefined,
     ignoring: { ignored: project.ignoredNames, setIgnored: () => undefined, busy },
     suggestions: given ?? found,
     onMarkNotName: markNotName,

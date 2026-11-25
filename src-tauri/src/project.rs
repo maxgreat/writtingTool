@@ -103,8 +103,9 @@ pub struct FileWrite {
 #[serde(rename_all = "camelCase")]
 pub struct Change {
     pub folders: Vec<String>,
-    /// `sheets` or `sheets/<type>` folders to create if they are missing,
-    /// before the files are written (a project made elsewhere may lack one).
+    /// Folders under sheets/ to create if they are missing, parents first,
+    /// before the files are written (a project made elsewhere may lack one,
+    /// and a sheet restored from the Trash goes back to its folder).
     #[serde(default)]
     pub sheet_folders: Vec<String>,
     pub moves: Vec<Move>,
@@ -172,6 +173,13 @@ fn is_markdown(path: &Path) -> bool {
 /// A chapter: a Markdown file inside manuscript/.
 fn is_chapter(relative: &str) -> bool {
     relative.starts_with("manuscript/") && is_markdown(Path::new(relative))
+}
+
+/// Whether a move names a sheet's file, `sheets/<type>/<name>.md`, rather than
+/// a chapter or part. Only the first segment is looked at: the move's paths
+/// are checked in full when they are resolved.
+fn is_sheet_file(relative: &str) -> bool {
+    relative.starts_with("sheets/")
 }
 
 fn now_ms() -> u64 {
@@ -495,16 +503,29 @@ impl ProjectRoot {
         }
 
         for m in &change.moves {
-            let from = self.resolve_binder_path(&m.from, false)?;
+            // A sheet moves as a file, between its folder under sheets/ and
+            // the top of trash/; chapters and parts stay inside manuscript/
+            // and trash/.
+            let sheet = is_sheet_file(&m.from) || is_sheet_file(&m.to);
+            if sheet && is_sheet_file(&m.from) == is_sheet_file(&m.to) {
+                return Err(invalid(format!("{} can only move to the Trash, or back from it", m.from)));
+            }
+            let resolve = |relative: &str| {
+                if sheet { self.resolve_sheet_move(relative) } else { self.resolve_binder_path(relative, false) }
+            };
+            let from = resolve(&m.from)?;
             let meta = fs::symlink_metadata(&from)?;
             let is_file = meta.is_file() && is_markdown(&from);
             if !is_file && !meta.is_dir() {
                 return Err(invalid(format!("{} is not a chapter or a part", m.from)));
             }
+            if sheet && !is_file {
+                return Err(invalid(format!("{} is not a sheet file", m.from)));
+            }
             if is_file && !is_markdown(Path::new(&m.to)) {
                 return Err(invalid(format!("{} is not a Markdown file name", m.to)));
             }
-            moves.push((m, from, self.resolve_binder_path(&m.to, false)?, is_file));
+            moves.push((m, from, resolve(&m.to)?, is_file, sheet));
         }
 
         // Versions follow their chapter or part. A versions folder is left
@@ -512,8 +533,12 @@ impl ProjectRoot {
         // that folder is not moving away itself, or when two moves would share
         // or nest versions folders. Leaving one behind can block another that
         // was to take its place, so this repeats until nothing more changes.
+        // Sheets have no versions.
         let mut candidates = Vec::new();
-        for (m, _, _, is_file) in &moves {
+        for (m, _, _, is_file, sheet) in &moves {
+            if *sheet {
+                continue;
+            }
             if let Some(dir) = self.versions_dir_at(without_md(&m.from, *is_file), None)? {
                 let to_stem = without_md(&m.to, *is_file);
                 let target = self.root.join(VERSIONS_FOLDER).join(to_stem.split('/').collect::<PathBuf>());
@@ -551,7 +576,7 @@ impl ProjectRoot {
                 break;
             }
         }
-        let mut pairs: Vec<(PathBuf, PathBuf)> = moves.iter().map(|(_, from, to, _)| (from.clone(), to.clone())).collect();
+        let mut pairs: Vec<(PathBuf, PathBuf)> = moves.iter().map(|(_, from, to, _, _)| (from.clone(), to.clone())).collect();
         for ((dir, target, to_stem), keep) in candidates.into_iter().zip(active) {
             if !keep {
                 continue;
@@ -639,12 +664,40 @@ impl ProjectRoot {
         Ok(parent.join(parts[parts.len() - 1]))
     }
 
-    /// `sheets` or `sheets/<type>`, through plain segments, whose parent
-    /// folder resolves inside the project.
+    /// One end of a sheet's move: a sheet file `sheets/<type>/<name>.md`
+    /// (or in a folder inside its type's, as the project is read), or a file
+    /// at the top of the Trash, `trash/<name>.md`, through plain segments,
+    /// whose folder resolves inside the project. Whether the path itself
+    /// exists is for the caller to check.
+    fn resolve_sheet_move(&self, relative: &str) -> io::Result<PathBuf> {
+        let parts = plain_segments(relative)?;
+        let allowed = match parts.as_slice() {
+            ["sheets", _, .., name] | ["trash", name] => is_markdown(Path::new(name)),
+            _ => false,
+        };
+        if !allowed {
+            return Err(invalid(format!(
+                "{relative} is not a sheet file (sheets/<type>/<name>.md) or a file at the top of trash/"
+            )));
+        }
+        let mut full = self.root.clone();
+        for part in &parts {
+            full.push(part);
+        }
+        let parent = fs::canonicalize(full.parent().ok_or_else(|| invalid("no parent folder"))?)?;
+        if !parent.starts_with(&self.root) {
+            return Err(invalid(format!("{relative} is outside the project")));
+        }
+        Ok(parent.join(parts[parts.len() - 1]))
+    }
+
+    /// `sheets`, `sheets/<type>` or a folder inside a type's (where a sheet
+    /// restored from the Trash goes back), through plain segments, whose
+    /// parent folder resolves inside the project.
     fn resolve_sheet_folder(&self, relative: &str) -> io::Result<PathBuf> {
         let parts = plain_segments(relative)?;
-        if parts[0] != "sheets" || parts.len() > 2 {
-            return Err(invalid(format!("{relative} is not sheets/ or a sheet type folder in it")));
+        if parts[0] != "sheets" {
+            return Err(invalid(format!("{relative} is not sheets/ or a folder in it")));
         }
         let mut full = self.root.clone();
         for part in &parts {
@@ -1173,6 +1226,70 @@ mod tests {
         assert!(root.root.join(FERRYMAN).is_file());
     }
 
+    const VARN: &str = "sheets/places/Varn.md";
+
+    #[test]
+    fn trashes_a_sheet_and_puts_it_back() {
+        let (_dir, root) = sample();
+        let text = read(&root, VARN);
+        root.apply(&change(&["trash"], &[(VARN, "trash/Varn.md")], &[])).unwrap();
+        assert!(!root.root.join(VARN).exists());
+        assert_eq!(read(&root, "trash/Varn.md"), text);
+        let snapshot = root.snapshot().unwrap();
+        assert!(snapshot.files.iter().any(|f| f.path == "trash/Varn.md"));
+        assert!(!snapshot.files.iter().any(|f| f.path == VARN));
+
+        root.apply(&change(&[], &[("trash/Varn.md", VARN)], &[])).unwrap();
+        assert_eq!(read(&root, VARN), text);
+        assert!(!root.root.join("trash/Varn.md").exists());
+        // Sheets have no versions, so none are made for them on the way.
+        assert!(!root.root.join("snapshots/trash").exists());
+        assert!(!root.root.join("snapshots/sheets").exists());
+    }
+
+    #[test]
+    fn trashes_a_sheet_from_a_folder_in_its_type_and_puts_it_back_there() {
+        let (_dir, root) = sample();
+        let minor = "sheets/characters/minor";
+        let bob = "sheets/characters/minor/Bob.md";
+        fs::create_dir(root.root.join(minor)).unwrap();
+        fs::write(root.root.join(bob), "---\nname: Bob\n---\n").unwrap();
+        root.apply(&change(&["trash"], &[(bob, "trash/Bob.md")], &[])).unwrap();
+        fs::remove_dir(root.root.join(minor)).unwrap();
+
+        let mut back = change(&[], &[("trash/Bob.md", bob)], &[]);
+        back.sheet_folders = vec!["sheets".into(), "sheets/characters".into(), minor.into()];
+        root.apply(&back).unwrap();
+        assert_eq!(read(&root, bob), "---\nname: Bob\n---\n");
+    }
+
+    #[test]
+    fn refuses_sheet_moves_other_than_to_and_from_the_top_of_the_trash() {
+        let (_dir, root) = sample();
+        fs::create_dir(root.root.join("trash")).unwrap();
+        fs::create_dir(root.root.join("trash/Part")).unwrap();
+        for bad in [
+            change(&[], &[("sheets/places", "trash/places")], &[]),
+            change(&[], &[(VARN, "trash/Part/Varn.md")], &[]),
+            change(&[], &[(VARN, "trash/Varn.txt")], &[]),
+            change(&[], &[(VARN, "sheets/Varn.md")], &[]),
+            change(&[], &[(VARN, "sheets/places/../Varn.md")], &[]),
+            change(&[], &[(VARN, "sheets/places/.Varn.md")], &[]),
+            change(&[], &[(VARN, "manuscript/Varn.md")], &[]),
+            change(&[], &[("trash/Part", "sheets/places/Part.md")], &[]),
+            change(&[], &[(VARN, "trash/Varn.md"), ("sheets/characters/Elena Voss.md", "trash/Varn.md")], &[]),
+            change(&[], &[(VARN, "sheets/characters/Varn.md")], &[]),
+            change(&[], &[(VARN, "sheets/places/Varn 2.md")], &[]),
+        ] {
+            assert!(root.apply(&bad).is_err(), "{bad:?} should be refused");
+        }
+        assert!(root.root.join(VARN).is_file());
+        fs::write(root.root.join("trash/Taken.md"), "x").unwrap();
+        assert!(root.apply(&change(&[], &[(VARN, "trash/Taken.md")], &[])).is_err());
+        assert!(root.root.join(VARN).is_file());
+        assert_eq!(read(&root, "trash/Taken.md"), "x");
+    }
+
     #[test]
     fn skips_files_that_are_not_utf8() {
         let (_dir, root) = sample();
@@ -1218,7 +1335,7 @@ mod tests {
     #[test]
     fn refuses_sheet_folders_elsewhere_or_through_links() {
         let (dir, root) = sample();
-        for folder in ["manuscript/x", "sheets/a/b", "sheets/../manuscript", "sheets/.hidden", "notes"] {
+        for folder in ["manuscript/x", "sheets/a/.b", "sheets/../manuscript", "sheets/.hidden", "notes"] {
             assert!(root.apply(&new_sheet(&[folder], "sheets/characters/Tomas.md")).is_err(), "{folder}");
         }
         fs::write(root.path().join("sheets/file"), "").unwrap();
