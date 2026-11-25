@@ -33,7 +33,13 @@ import { Inspector, type InspectorView } from "./Inspector";
 import { panelStyle } from "./layoutStyle";
 import type { MainMenuCommands } from "./MainMenu";
 import type { SuggestionSource } from "./PossibleNameMenu";
-import { ProjectsDialog, useProjectsDialog, type ProjectsIntent, type ProjectsSource } from "./Projects";
+import {
+  ProjectsDialog,
+  useProjectsDialog,
+  type ProjectsDropbox,
+  type ProjectsIntent,
+  type ProjectsSource,
+} from "./Projects";
 import { ResizeHandle } from "./ResizeHandle";
 import { SearchPanel, type SearchSource } from "./SearchPanel";
 import { SettingsDialog } from "./SettingsDialog";
@@ -873,6 +879,49 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   /** The menu's button: the Projects view hangs from it when opened from the menu or its shortcut. */
   const mainMenuRef = useRef<HTMLButtonElement>(null);
 
+  /* Dropbox ---------------------------------------------------------------- */
+
+  /** The writer's Dropbox, for Settings and the Projects view. Kept here, so a sign-in under way goes on while Settings is closed. */
+  const dropbox = useDropbox(backend.dropbox);
+
+  // Sync puts another device's edits in the open chapter through its editor: one step Undo takes back, the caret kept.
+  const { setEditorWriter } = api;
+  useEffect(() => {
+    // Only sync writes there, and there is none without Dropbox.
+    if (!backend.dropbox) return;
+    setEditorWriter((markdown) => editorRef.current?.setMarkdown(markdown) ?? false);
+    return () => setEditorWriter(null);
+  }, [backend, setEditorWriter]);
+
+  /** What the Projects view does with Dropbox, where the build has it. */
+  const projectsDropbox: ProjectsDropbox | undefined = dropbox
+    ? {
+        connection:
+          dropbox.view.step === "connected" ? "connected" : dropbox.view.step === "loading" ? "checking" : "none",
+        put: api.putInDropbox,
+        list: api.listDropboxProjects,
+        open: api.openFromDropbox,
+      }
+    : undefined;
+
+  /** A chapter's or a sheet's title, for the files a sync found edited on two devices. */
+  const fileTitle = (path: string): string | null => project.chapters[path]?.title ?? sheetsById.get(path)?.name ?? null;
+
+  /**
+   * The list of files edited on two devices was opened, then closed: they
+   * are no longer reported, and the warning goes. On desktop the caret goes
+   * back to the text if focus went with the warning; phones leave it, so the
+   * on-screen keyboard doesn't come up.
+   */
+  const { dismissConflicts: dismissConflictsInCore } = api;
+  const dismissConflicts = useCallback(() => {
+    dismissConflictsInCore();
+    if (isPhone) return;
+    void nextFrame().then(() => {
+      if (focusLost()) editorRef.current?.focus();
+    });
+  }, [dismissConflictsInCore, isPhone]);
+
   const projects: ProjectsSource = {
     current: project.root,
     loads: api.loads,
@@ -884,6 +933,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     openUrl: backend.openUrl,
     busy: api.switching,
     phone: isPhone,
+    dropbox: projectsDropbox,
   };
   /** The Projects view, opened from the binder's title, the main menu or its shortcut. */
   const projectsDialog = useProjectsDialog(projects);
@@ -1130,8 +1180,6 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
 
   /** The Settings dialog, from the main menu or its shortcut: a sheet on phones. */
   const [settingsOpen, setSettingsOpen] = useState(false);
-  /** The writer's Dropbox, for Settings. Kept here, so a sign-in under way goes on while the dialog is closed. */
-  const dropbox = useDropbox(backend.dropbox);
 
   /**
    * The dialog puts focus back where it was when it opened. Opened from the
@@ -1562,6 +1610,10 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           problems={project.problems}
           grammarError={grammar.error}
           compact={isPhone}
+          sync={api.sync}
+          onSyncNow={api.syncNow}
+          onDismissConflicts={dismissConflicts}
+          fileTitle={fileTitle}
         />
       )}
 

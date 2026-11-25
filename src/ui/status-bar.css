@@ -1,4 +1,4 @@
-/* The status bar: counts and language on the left, problems and saving on the right. */
+/* The status bar: counts and language on the left, problems, syncing and saving on the right. */
 
 .status-bar {
   display: flex;
@@ -63,6 +63,25 @@
 /* Saved, but something that comes with a save failed: the text is safe. */
 .save-warning {
   color: var(--color-warning);
+}
+
+/* A sync that failed: the edits are safe on this device, so a warning rather than an error. */
+.sync-error {
+  color: var(--color-warning);
+}
+
+/* A part of the sync popover of its own: as much room below it as the lists have. */
+.sync-settings-note {
+  padding-bottom: var(--space-2);
+}
+
+/* Phones: why a sync failed, opened from the bar. In line with the popover's title, as Retry's label is below it. */
+.sync-why {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  overflow-wrap: anywhere;
 }
 
 /* Phones: tighter, as StatusBar leaves out the book count and language there. */

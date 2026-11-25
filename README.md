@@ -2,7 +2,7 @@
 
 A writing app for novels, in the spirit of Scrivener and novelWriter: a binder of parts and chapters, the chapter in the middle, an inspector with character and place sheets. Chapters are plain Markdown files. The design and the plan are in [Writing App — Development Guide.md](Writing%20App%20—%20Development%20Guide.md).
 
-Phase 1 of the guide, the writing core, is built, with sheet forms from phase 2, name detection from phase 3, spelling and English grammar from phase 4 and export from phase 7: the desktop app (tested on Linux) and the Android app, reading and writing project folders on the device. Cloud sync comes in a later phase.
+Phase 1 of the guide, the writing core, is built, with sheet forms from phase 2, name detection from phase 3, spelling and English grammar from phase 4 and export from phase 7: the desktop app (tested on Linux) and the Android app, reading and writing project folders on the device. Sync through Dropbox, from phase 6, is built but only in builds made with the app's Dropbox key (see [Run it](#run-it)); the conflict view and presence badges come next.
 
 ## Download
 
@@ -98,6 +98,8 @@ npm run tauri dev      # the desktop app
 npm run dev            # the interface alone in a browser, on a sample project kept in memory
 ```
 
+Dropbox sync needs the key of a Dropbox app (registered at [dropbox.com/developers](https://www.dropbox.com/developers/apps) with App folder access, PKCE allowed, and the return addresses listed in `src-tauri/src/dropbox/oauth.rs`). Build with it in `WRITING_TOOL_DROPBOX_APP_KEY`, as in `WRITING_TOOL_DROPBOX_APP_KEY=<key> npm run tauri dev`; without it the app has no Dropbox section, and works on this device only.
+
 On first launch the app installs a sample project in its data folder (`~/.local/share/io.github.maxgreat.writingtool/projects/MyNovel` on Linux) and opens it. The project title at the top of the binder opens the Projects view: the projects on this device, a new project (created in that same folder), and on desktop "Open folder…", which opens any folder that holds a `project.json` or a `manuscript/` folder.
 
 ## Test it
@@ -119,6 +121,8 @@ npm run screenshots               # retakes the pictures in docs/screenshots (ne
 | `src/core/` | Everything that is not drawn: the project model, the name matcher, Markdown and caret mapping, autosave, the two editors |
 | `src/ui/` | The interface: binder, inspector, formatting bar, status bar, Projects view, design tokens |
 | `src-tauri/` | The Rust core: opens and creates projects, returns their files, writes chapters atomically and keeps their earlier versions, and makes binder changes as a whole or not at all. `gen/android/` is the Android project |
+| `src-tauri/src/dropbox/` | Signing in to Dropbox (OAuth with PKCE; the token in the system keyring), its files API, and the projects in it |
+| `src-tauri/src/sync/` | Sync: the engine that pulls and pushes a project folder through guarded uploads, and the paragraph merge. Its tests run two devices against a Dropbox kept in memory |
 | `src-tauri/icons/source/` | The app icon's source. `npx tauri icon src-tauri/icons/source/icon.json` makes every size from it, including Android's launcher icon (the drawing sits in the middle of `app-icon-fg.png` so round launcher masks don't crop it) |
 | `sample-project/MyNovel/` | The sample project, bundled into the app and used by the tests |
 | `scripts/screenshots.mjs` | Takes the screenshots in `docs/screenshots/` |
@@ -153,8 +157,9 @@ Built so far (phases 0 and 1 of the guide, sheet forms from phase 2, name detect
 - Sheets made and edited in the app. "New character" (or place, note) at the top of a type's list in the inspector asks for the name, makes `sheets/<type>/<name>.md` and opens its form. A sheet's Edit shows its form: the name, other names (each can match in any case, so the alias "the ferryman" also finds "The ferryman"), the type's fields (characters have a role and an age, places a type; `fields` in a sheet type in `project.json` changes them) plus any you add, and the notes in Markdown. Changes save as you go; a name is saved when you leave its field, and the highlights follow at once. On phones, the name preview has Edit too, which opens the form in the inspector. A sheet whose header can't be read says so and stays read-only.
 - Autosave about a second after typing stops, with atomic writes, and word counts for the chapter, the book and today.
 - Earlier versions of each chapter: the last 20 are kept in `snapshots/` (one at most every ten minutes of editing) and can be restored from the inspector.
+- Sync through the writer's own Dropbox, in builds made with the app's Dropbox key. Settings → Dropbox signs in on Dropbox's own page in the browser (the app never sees the password; on Android the page hands back to the app by itself), and the sign-in is kept in the system's keyring. The Projects view puts the open project in Dropbox, as a folder of plain Markdown files in Dropbox/Apps/, and lists the projects there to download and open on another device. A project in Dropbox syncs when it opens, when the app comes back to the front, on the first edit in a chapter and every 30 seconds; the status bar says when it last synced. Edits made on two devices merge paragraph by paragraph; where both changed the same paragraph, both versions stay in the text, one after the other, and the status bar lists those chapters. Each upload names the version it replaces, so nothing is ever overwritten unseen; edits made outside the app, in Dropbox or another Markdown editor, come in the same way; moves in the binder move the files in Dropbox, which keep their identity; and offline, edits wait on the device for the next sync.
 
 Still to build, following the guide's phases:
 
-- Dropbox sync, presence badges and conflict merging
+- For Dropbox: a release built with the app's key (and the privacy policy updated with it), the side-by-side conflict view, presence badges ("Open on MacBook"), and near-instant notice of changes (long polling) in place of the 30-second check
 - Testing the Windows and macOS builds on real machines (CI builds them, but only the Linux and Android apps have been run so far), and code-signing them

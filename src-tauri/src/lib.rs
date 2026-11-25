@@ -8,6 +8,7 @@ pub mod grammar;
 pub mod languagetool;
 mod project;
 mod projects;
+mod sync;
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -27,6 +28,111 @@ use typst_layout::PagedDocument;
 #[derive(Default)]
 struct AppState {
     project: Mutex<Option<ProjectRoot>>,
+}
+
+/// Held for a whole sync with Dropbox, and while the binder notes its moves
+/// for the next one, so the two never change a project's sync state at
+/// once. Taken before AppState's lock, never after it.
+#[derive(Default)]
+struct SyncLock(Mutex<()>);
+
+/// The open project's folder, if it is at `root`.
+fn open_folder(app: &AppHandle, root: &str) -> Result<PathBuf, String> {
+    let state = app.state::<AppState>();
+    let guard = state.project.lock().map_err(|_| "The project state is unavailable.")?;
+    match guard.as_ref() {
+        Some(open) if open.is_at(root) => Ok(open.path().to_path_buf()),
+        _ => Err("That project is no longer open.".into()),
+    }
+}
+
+/// Runs `action` away from the window's threads, holding the sync lock,
+/// with the open project's lock for it to hold while files are read and
+/// written.
+async fn with_sync_lock<T: Send + 'static>(
+    app: AppHandle,
+    action: impl FnOnce(&AppHandle, &Mutex<Option<ProjectRoot>>) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let lock = app.state::<SyncLock>();
+        let _sync = lock.0.lock().map_err(|_| "Sync is unavailable.")?;
+        let state = app.state::<AppState>();
+        action(&app, &state.project)
+    })
+    .await
+    .map_err(|e| format!("Sync stopped: {e}"))?
+}
+
+/// Project folders on this device that may be copies of projects in
+/// Dropbox: those in the app's folder, and the `recent` ones from elsewhere.
+fn local_projects(app: &AppHandle, recent: &[String]) -> Result<Vec<PathBuf>, String> {
+    Ok(projects::list(&projects_dir(app)?, recent)
+        .map_err(|e| format!("Cannot list the projects on this device: {e}"))?
+        .into_iter()
+        .map(|entry| PathBuf::from(entry.path))
+        .collect())
+}
+
+/// The projects in the connected Dropbox.
+#[tauri::command]
+async fn dropbox_projects(app: AppHandle, recent: Vec<String>) -> Result<Vec<dropbox::projects::DropboxProject>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let candidates = local_projects(&app, &recent)?;
+        let dir = dropbox::data_dir(&app)?;
+        dropbox::projects::list(&app.state::<dropbox::DropboxState>(), &dir, &candidates)
+    })
+    .await
+    .map_err(|e| format!("Listing stopped: {e}"))?
+}
+
+/// Opens a project from Dropbox: its copy on this device, or else a copy
+/// downloaded into the app's folder.
+#[tauri::command]
+async fn dropbox_open_project(app: AppHandle, folder: String, recent: Vec<String>) -> Result<ProjectSnapshot, String> {
+    let path = with_sync_lock(app.clone(), move |app, _| {
+        let candidates = local_projects(app, &recent)?;
+        let dir = dropbox::data_dir(app)?;
+        match dropbox::projects::local_copy(&dir, &candidates, &folder)? {
+            Some(local) => Ok(local),
+            None => {
+                let dropbox = app.state::<dropbox::DropboxState>();
+                dropbox::projects::fetch(&dropbox, &dir, &projects_dir(app)?, &folder)
+            }
+        }
+    })
+    .await?;
+    let state = app.state::<AppState>();
+    let mut guard = state.project.lock().map_err(|_| "The project state is unavailable.")?;
+    open_into(&mut guard, path)
+}
+
+/// Puts the open project in Dropbox and sends it.
+#[tauri::command]
+async fn dropbox_put_project(app: AppHandle, root: String) -> Result<sync::engine::Outcome, String> {
+    with_sync_lock(app, move |app, lock| {
+        let folder = open_folder(app, &root)?;
+        let dir = dropbox::data_dir(app)?;
+        dropbox::projects::put(&app.state::<dropbox::DropboxState>(), &dir, &folder, lock)
+    })
+    .await
+}
+
+/// Syncs the open project with Dropbox, if it is there.
+#[tauri::command]
+async fn sync_project(app: AppHandle, root: String) -> Result<dropbox::projects::SyncResult, String> {
+    with_sync_lock(app, move |app, lock| {
+        let folder = open_folder(app, &root)?;
+        let dir = dropbox::data_dir(app)?;
+        dropbox::projects::sync(&app.state::<dropbox::DropboxState>(), &dir, &folder, lock)
+    })
+    .await
+}
+
+/// Merges two edits of a project file as sync does (see sync::merge):
+/// project.json field by field, anything else by paragraph.
+#[tauri::command]
+fn merge_text(path: String, base: String, ours: String, theirs: String) -> sync::merge::Merged {
+    sync::merge::merge_file(&path, &base, &ours, &theirs)
 }
 
 fn open_into(state: &mut Option<ProjectRoot>, dir: PathBuf) -> Result<ProjectSnapshot, String> {
@@ -166,12 +272,31 @@ async fn restore_version(
 }
 
 /// Makes a change to the binder or the sheets as a whole or not at all, then
-/// returns the project as it is on disk afterwards.
+/// returns the project as it is on disk afterwards. In a project synced with
+/// Dropbox, its moves are noted for the next sync (after the one under way,
+/// if any), so moved files keep their identity there.
 #[tauri::command]
-async fn apply_changes(root: String, change: Change, state: State<'_, AppState>) -> Result<ProjectSnapshot, String> {
+async fn apply_changes(
+    root: String,
+    change: Change,
+    state: State<'_, AppState>,
+    sync_lock: State<'_, SyncLock>,
+) -> Result<ProjectSnapshot, String> {
+    let _sync = sync_lock.0.lock().map_err(|_| "Sync is unavailable.")?;
     with_open(&state, &root, "change the project", |open| {
         open.apply(&change).map_err(|e| format!("Cannot make that change: {e}. Nothing was changed."))?;
-        open.snapshot().map_err(|e| format!("The change was made, but the project could not be read again: {e}"))
+        let moves: Vec<sync::engine::Move> = change.moves.iter().map(|m| (m.from.clone(), m.to.clone())).collect();
+        let noted = sync::engine::record_moves(open.path(), &moves);
+        let mut snapshot = open
+            .snapshot()
+            .map_err(|e| format!("The change was made, but the project could not be read again: {e}"))?;
+        if let Err(e) = noted {
+            // Sync then sees the moved files as new ones, and nothing is lost.
+            snapshot.problems.push(format!(
+                "The change was made, but Dropbox sync could not note the moves ({e}): the moved files will be sent again."
+            ));
+        }
+        Ok(snapshot)
     })
 }
 
@@ -340,6 +465,7 @@ pub fn run() {
         .manage(AppState::default())
         .manage(ExportState::default())
         .manage(dropbox::DropboxState::default())
+        .manage(SyncLock::default())
         .invoke_handler(tauri::generate_handler![
             open_sample_project,
             open_project,
@@ -362,6 +488,11 @@ pub fn run() {
             dropbox::dropbox_sign_in_finish,
             dropbox::dropbox_sign_in_cancel,
             dropbox::dropbox_sign_out,
+            dropbox_projects,
+            dropbox_open_project,
+            dropbox_put_project,
+            sync_project,
+            merge_text,
             frontend_ready
         ])
         .run(tauri::generate_context!())

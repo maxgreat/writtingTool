@@ -4,6 +4,7 @@ import type { BookContent } from "./exportBook";
 import type { BookLayout, ExportFormat, ExportSettings } from "./exportSettings";
 import type { ProjectSnapshot } from "./project";
 import type { NewProject, ProjectEntry } from "./projects";
+import type { SyncOutcome } from "./syncApply";
 
 /** A grammar problem in a paragraph, as the core finds it (Harper, or a LanguageTool server). */
 export interface GrammarProblem {
@@ -47,6 +48,18 @@ export interface DropboxStatus {
   tokenInFile: boolean;
 }
 
+/** A project in the writer's Dropbox. */
+export interface DropboxProject {
+  /** Its folder in Dropbox, such as "/Night Ferry". */
+  folder: string;
+  title: string;
+  /** Its folder on this device, when it is here. */
+  local: string | null;
+}
+
+/** How a sync went: the project is on this device only, its Dropbox isn't connected, or what the sync changed. */
+export type SyncResult = { state: "off" } | { state: "signedOut" } | { state: "done"; outcome: SyncOutcome };
+
 /** What `signInFinish` rejects with after `signInCancel`. */
 export const DROPBOX_SIGN_IN_CANCELLED = "Signing in to Dropbox was cancelled.";
 
@@ -76,6 +89,37 @@ export interface DropboxBackend {
    * Dropbox's settings. Otherwise null.
    */
   signOut(): Promise<string | null>;
+  /**
+   * The projects in the connected Dropbox, by title, each with its copy on
+   * this device if there is one (looked for in the app's folder and the
+   * `recent` folders).
+   */
+  projects(recent: string[]): Promise<DropboxProject[]>;
+  /**
+   * Opens a project from Dropbox: its copy on this device, or else a copy
+   * downloaded into the app's folder first. Resolves to the project as
+   * opened, like openProject.
+   */
+  openProject(folder: string, recent: string[]): Promise<ProjectSnapshot>;
+  /**
+   * Puts the open project (`root`) in Dropbox, in a folder named after its
+   * own, and sends it. Resolves to what the first sync changed here.
+   */
+  putProject(root: string): Promise<SyncOutcome>;
+  /**
+   * Syncs the open project (`root`) with Dropbox: what changed there comes
+   * in, merged with what changed here, then what changed here goes up.
+   * Save pending edits first: the core only syncs what is on disk.
+   */
+  sync(root: string): Promise<SyncResult>;
+  /**
+   * Merges two edits of the project file at `path` as sync does (base: the
+   * text both started from). Chapters, sheets and dictionary.txt merge by
+   * paragraph: where both changed the same paragraphs, both versions are
+   * kept, ours first. project.json merges field by field, keeping ours where
+   * both set one value. Either way each such place counts in `conflicts`.
+   */
+  merge(path: string, base: string, ours: string, theirs: string): Promise<{ text: string; conflicts: number }>;
 }
 
 /**
@@ -299,6 +343,11 @@ const dropboxBackend: DropboxBackend = {
   signInFinish: (code) => call<DropboxStatus>("dropbox_sign_in_finish", { code: code ?? null }),
   signInCancel: () => call<void>("dropbox_sign_in_cancel"),
   signOut: () => call<string | null>("dropbox_sign_out"),
+  projects: (recent) => call<DropboxProject[]>("dropbox_projects", { recent }),
+  openProject: (folder, recent) => call<ProjectSnapshot>("dropbox_open_project", { folder, recent }),
+  putProject: (root) => call<SyncOutcome>("dropbox_put_project", { root }),
+  sync: (root) => call<SyncResult>("sync_project", { root }),
+  merge: (path, base, ours, theirs) => call<{ text: string; conflicts: number }>("merge_text", { path, base, ours, theirs }),
 };
 
 const appBackend: Omit<Backend, "canOpenFolders"> = {

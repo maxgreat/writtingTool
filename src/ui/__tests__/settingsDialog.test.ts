@@ -739,6 +739,12 @@ describe("Dropbox", () => {
         signInFinish: vi.fn().mockResolvedValue(status(ACCOUNT, true)),
         signInCancel: vi.fn().mockResolvedValue(undefined),
         signOut: vi.fn().mockResolvedValue(null),
+        // Sync isn't part of Settings.
+        projects: vi.fn(),
+        openProject: vi.fn(),
+        putProject: vi.fn(),
+        sync: vi.fn(),
+        merge: vi.fn(),
       };
     });
 

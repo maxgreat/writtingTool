@@ -19,10 +19,12 @@ pub struct ProjectEntry {
     pub title: String,
     /// In the app's own projects folder, rather than opened from elsewhere.
     pub in_app_folder: bool,
+    /// Synced with Dropbox.
+    pub in_dropbox: bool,
 }
 
 /// The title in project.json, or else the folder name.
-fn title_of(root: &Path) -> String {
+pub(crate) fn title_of(root: &Path) -> String {
     fs::read_to_string(root.join("project.json"))
         .ok()
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
@@ -71,6 +73,7 @@ fn entry_for(root: &ProjectRoot, in_app_folder: bool) -> ProjectEntry {
         path: root.path().to_string_lossy().into_owned(),
         title: title_of(root.path()),
         in_app_folder,
+        in_dropbox: crate::sync::engine::read_state(root.path()).is_ok_and(|state| state.is_some()),
     }
 }
 

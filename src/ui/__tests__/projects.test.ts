@@ -3,6 +3,7 @@ import { act, createElement, Fragment, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_VERSION, PRIVACY_POLICY_URL } from "../../core/about";
+import type { DropboxProject } from "../../core/backend";
 import type { ProjectEntry } from "../../core/projects";
 import {
   folderName,
@@ -10,6 +11,7 @@ import {
   ProjectsButton,
   ProjectsDialog,
   useProjectsDialog,
+  type ProjectsDropbox,
   type ProjectsIntent,
   type ProjectsSource,
 } from "../Projects";
@@ -581,5 +583,230 @@ describe("the version and the privacy policy", () => {
     await render({ phone: true });
     await openView();
     expect(document.querySelector(".bottom-sheet.is-open .projects-about a")?.textContent).toBe("Privacy policy");
+  });
+});
+
+describe("with Dropbox", () => {
+  const SALT: DropboxProject = { folder: "/Salt Roads", title: "Salt Roads", local: null };
+  const ORCHARD: DropboxProject = { folder: "/Winter Orchard", title: "Winter Orchard", local: null };
+  /** In Dropbox and on this device: opened from the list above, not offered again. */
+  const HERE: DropboxProject = { folder: "/The Lighthouse", title: AWAY.title, local: AWAY.path };
+
+  const put = vi.fn<() => Promise<void>>();
+  const cloudList = vi.fn<() => Promise<DropboxProject[]>>();
+  const cloudOpen = vi.fn<(folder: string) => Promise<void>>();
+
+  function withDropbox(connection: ProjectsDropbox["connection"] = "connected"): Partial<ProjectsSource> {
+    return { dropbox: { connection, put, list: cloudList, open: cloudOpen } };
+  }
+
+  const putButton = () => button("Put in Dropbox") ?? button("Putting in Dropbox…");
+  const cloud = () => dialog()?.querySelector<HTMLElement>(".projects-cloud") ?? null;
+  const cloudRows = () => [...(dialog()?.querySelectorAll<HTMLButtonElement>(".projects-list--cloud .project-row") ?? [])];
+  const cloudRow = (title: string) => cloudRows().find((r) => r.querySelector(".project-title")?.textContent === title);
+  const cloudSkeletons = () => cloud()?.querySelectorAll(".skeleton").length ?? 0;
+  const marker = (el: HTMLElement | undefined) => el?.querySelector(".project-state")?.textContent ?? null;
+  const announced = () => dialog()?.querySelector('.projects > [role="status"]')?.textContent;
+
+  beforeEach(() => {
+    put.mockReset().mockResolvedValue(undefined);
+    cloudList.mockReset().mockResolvedValue([HERE, SALT, ORCHARD]);
+    cloudOpen.mockReset().mockResolvedValue(undefined);
+  });
+
+  describe("the projects on this device", () => {
+    it("marks those in Dropbox with a quiet word, read out as such", async () => {
+      list.mockResolvedValue([DEBT, { ...AWAY, inDropbox: true }]);
+      await render(withDropbox());
+      await openView();
+      expect(marker(row(AWAY.title))).toBe("Dropbox");
+      expect(row(AWAY.title)?.textContent).toContain(", in Dropbox");
+      expect(marker(row(DEBT.title))).toBeNull();
+    });
+
+    it("marks nothing where the build has no Dropbox", async () => {
+      list.mockResolvedValue([DEBT, { ...AWAY, inDropbox: true }]);
+      await render();
+      await openView();
+      expect(marker(row(AWAY.title))).toBeNull();
+      expect(putButton()).toBeUndefined();
+      expect(cloud()).toBeNull();
+      expect(dialog()?.textContent).not.toContain("Dropbox");
+    });
+
+    it("keeps focus for the first project to open, not Put in Dropbox", async () => {
+      await render(withDropbox());
+      await openView();
+      expect(putButton()).toBeDefined();
+      expect(document.activeElement).toBe(row(AWAY.title));
+    });
+  });
+
+  describe("Put in Dropbox", () => {
+    it("is offered on the open project only, while it isn't in Dropbox", async () => {
+      await render(withDropbox());
+      await openView();
+      expect(row(DEBT.title)?.contains(putButton()!)).toBe(true);
+      expect(dialog()?.querySelectorAll(".project-put")).toHaveLength(1);
+    });
+
+    it("isn't offered for a project already there", async () => {
+      list.mockResolvedValue([{ ...DEBT, inDropbox: true }, AWAY]);
+      await render(withDropbox());
+      await openView();
+      expect(putButton()).toBeUndefined();
+      expect(marker(row(DEBT.title))).toBe("Dropbox");
+    });
+
+    it("puts the project there, showing progress, then marks it and reads the list again", async () => {
+      const answer = deferred<void>();
+      put.mockReturnValue(answer.promise);
+      await render(withDropbox());
+      await openView();
+      // A press focuses the button, as browsers do.
+      await act(async () => putButton()!.focus());
+      await click(putButton());
+      expect(put).toHaveBeenCalledTimes(1);
+      expect(putButton()?.textContent).toBe("Putting in Dropbox…");
+      expect(putButton()?.disabled).toBe(true);
+      expect((row(AWAY.title) as HTMLButtonElement).disabled).toBe(true);
+      expect(cloudRow(SALT.title)?.disabled).toBe(true);
+      expect(button("Create")?.disabled).toBe(true);
+      expect(announced()).toBe("Putting the project in Dropbox…");
+      // It can't be closed meanwhile.
+      await press("Escape");
+      expect(dialog()).not.toBeNull();
+
+      list.mockResolvedValue([{ ...DEBT, inDropbox: true }, AWAY]);
+      await act(async () => answer.resolve());
+      expect(list).toHaveBeenCalledTimes(2);
+      expect(putButton()).toBeUndefined();
+      expect(marker(row(DEBT.title))).toBe("Dropbox");
+      expect(announced()).toBe("The Ferryman’s Debt is in Dropbox now.");
+      expect(alerts()).toEqual([]);
+      // It stays open, focus resting on the view, not moved to another project.
+      expect(dialog()).not.toBeNull();
+      expect(document.activeElement).toBe(dialog()?.querySelector(".projects"));
+    });
+
+    it("says why it couldn't, under the open project, and can be tried again", async () => {
+      put.mockRejectedValueOnce(new Error("Cannot reach Dropbox: no connection"));
+      await render(withDropbox());
+      await openView();
+      await click(putButton());
+      const alert = row(DEBT.title)!.closest("li")?.querySelector('[role="alert"]');
+      expect(alert?.textContent).toBe("Cannot reach Dropbox: no connection");
+      expect(putButton()?.textContent).toBe("Put in Dropbox");
+      expect(putButton()?.disabled).toBe(false);
+      expect(putButton()?.getAttribute("aria-describedby")).toBe(alert?.id);
+      expect(dialog()).not.toBeNull();
+
+      await click(putButton());
+      expect(put).toHaveBeenCalledTimes(2);
+      expect(alerts()).toEqual([]);
+    });
+
+    it("says where to connect Dropbox when no account is, instead of offering it", async () => {
+      await render(withDropbox("none"));
+      await openView();
+      expect(putButton()).toBeUndefined();
+      expect(cloud()).toBeNull();
+      expect(cloudList).not.toHaveBeenCalled();
+      expect(dialog()?.querySelector(".projects-note")?.textContent).toBe(
+        "To keep projects in Dropbox and open them on your other devices, connect Dropbox in Settings.",
+      );
+    });
+
+    it("waits while the connection is being read", async () => {
+      await render(withDropbox("checking"));
+      await openView();
+      expect(putButton()).toBeUndefined();
+      expect(cloud()).toBeNull();
+      expect(dialog()?.querySelector(".projects-note")).toBeNull();
+    });
+  });
+
+  describe("In your Dropbox", () => {
+    it("lists the projects there that aren't on this device, with placeholder rows until they arrive", async () => {
+      const answer = deferred<DropboxProject[]>();
+      cloudList.mockReturnValue(answer.promise);
+      await render(withDropbox());
+      await openView();
+      expect(cloud()?.querySelector("h3")?.textContent).toBe("In your Dropbox");
+      expect(cloud()?.getAttribute("aria-busy")).toBe("true");
+      expect(cloudSkeletons()).toBeGreaterThan(0);
+
+      await act(async () => answer.resolve([HERE, SALT, ORCHARD]));
+      expect(cloudSkeletons()).toBe(0);
+      expect(cloud()?.getAttribute("aria-busy")).toBe("false");
+      expect(cloudRows().map((r) => r.querySelector(".project-title")?.textContent)).toEqual([SALT.title, ORCHARD.title]);
+    });
+
+    it("says when there are none", async () => {
+      cloudList.mockResolvedValue([HERE]);
+      await render(withDropbox());
+      await openView();
+      expect(cloudRows()).toHaveLength(0);
+      expect(cloud()?.querySelector(".empty-note")?.textContent).toBe("No other projects in your Dropbox.");
+    });
+
+    it("says when they can't be listed, and lists them again on Try again", async () => {
+      cloudList.mockRejectedValueOnce(new Error("Cannot reach Dropbox: no connection"));
+      await render(withDropbox());
+      await openView();
+      expect(cloud()?.querySelector('[role="alert"]')?.textContent).toBe("Cannot reach Dropbox: no connection");
+      await click(cloud()?.querySelector<HTMLButtonElement>("button") ?? undefined);
+      expect(cloudList).toHaveBeenCalledTimes(2);
+      expect(cloudRows()).toHaveLength(2);
+      expect(cloud()?.querySelector('[role="alert"]')).toBeNull();
+    });
+
+    it("downloads and opens one, showing progress on its row, then closes", async () => {
+      const answer = deferred<void>();
+      cloudOpen.mockReturnValue(answer.promise);
+      await render(withDropbox());
+      await openView();
+      await click(cloudRow(SALT.title));
+      expect(cloudOpen).toHaveBeenCalledWith(SALT.folder);
+      expect(cloudRow(SALT.title)?.textContent).toContain("Downloading…");
+      expect(cloudRow(ORCHARD.title)?.disabled).toBe(true);
+      expect(putButton()?.disabled).toBe(true);
+      expect(announced()).toBe("Downloading the project…");
+      await press("Escape");
+      expect(dialog()).not.toBeNull();
+
+      // useProject reads the new project (`loads` goes up) before the call resolves.
+      await render({ ...withDropbox(), current: "/data/projects/Salt Roads", loads: 2 });
+      await act(async () => answer.resolve());
+      expect(dialog()).toBeNull();
+      expect(document.activeElement).toBe(titleButton());
+    });
+
+    it("stays open with the reason under the row when it can't be downloaded", async () => {
+      cloudOpen.mockRejectedValue(new Error("Cannot download Salt Roads: disk full"));
+      await render(withDropbox());
+      await openView();
+      await click(cloudRow(SALT.title));
+      expect(dialog()).not.toBeNull();
+      expect(cloudRow(SALT.title)?.closest("li")?.querySelector('[role="alert"]')?.textContent).toBe(
+        "Cannot download Salt Roads: disk full",
+      );
+      expect(cloudRow(SALT.title)?.disabled).toBe(false);
+      expect(cloudRow(SALT.title)?.textContent).not.toContain("Downloading…");
+    });
+
+    it("tells projects with the same title apart by their folders", async () => {
+      cloudList.mockResolvedValue([SALT, { folder: "/Salt Roads 2", title: SALT.title, local: null }]);
+      await render(withDropbox());
+      await openView();
+      expect(cloudRows().map((r) => r.querySelector(".path")?.textContent)).toEqual(["Salt Roads", "Salt Roads 2"]);
+    });
+
+    it("is part of the sheet on phones", async () => {
+      await render({ ...withDropbox(), phone: true });
+      await openView();
+      expect(document.querySelector(".bottom-sheet.is-open .projects-cloud h3")?.textContent).toBe("In your Dropbox");
+      expect(document.querySelectorAll(".bottom-sheet.is-open .projects-list--cloud .project-row")).toHaveLength(2);
+    });
   });
 });

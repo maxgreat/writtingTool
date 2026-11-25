@@ -7,7 +7,9 @@
 
 mod api;
 mod credentials;
+mod files;
 mod oauth;
+pub mod projects;
 
 use std::fs;
 use std::io;
@@ -217,7 +219,7 @@ impl DropboxState {
     }
 }
 
-fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path().app_data_dir().map_err(|e| format!("Cannot find the app data folder: {e}"))
 }
 

@@ -8,6 +8,8 @@ export interface ProjectEntry {
   title: string;
   /** In the app's own projects folder, rather than a folder opened from elsewhere. */
   inAppFolder: boolean;
+  /** Synced with Dropbox. Absent where there is no Dropbox (the browser preview). */
+  inDropbox?: boolean;
 }
 
 /** What a new project holds, for the core to create. */

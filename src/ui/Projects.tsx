@@ -1,10 +1,23 @@
-import { Check, ChevronDown, FolderOpen, X } from "lucide-react";
+import { Check, ChevronDown, CloudDownload, CloudUpload, FolderOpen, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent, type MouseEvent, type RefObject } from "react";
 import { APP_VERSION, PRIVACY_POLICY_URL } from "../core/about";
+import type { DropboxProject } from "../core/backend";
 import { defaultLanguage, LANGUAGES, type ProjectEntry } from "../core/projects";
 import { BottomSheet } from "./BottomSheet";
 import { cx, errorMessage, focusLost, revealIn } from "./dom";
 import { Popover, type CloseReason } from "./Popover";
+
+/** What the Projects view needs for Dropbox, where the build has it. */
+export interface ProjectsDropbox {
+  /** Whether an account is connected on this device (useDropbox's view); "checking" while that is read. */
+  connection: "checking" | "connected" | "none";
+  /** useProject's putInDropbox: puts the open project in Dropbox. Rejects with the reason. */
+  put(): Promise<void>;
+  /** useProject's listDropboxProjects. */
+  list(): Promise<DropboxProject[]>;
+  /** useProject's openFromDropbox: downloads a project not on this device, then opens it. */
+  open(folder: string): Promise<void>;
+}
 
 /** What the Projects view needs from useProject and the backend. */
 export interface ProjectsSource {
@@ -28,6 +41,8 @@ export interface ProjectsSource {
   busy: boolean;
   /** Phones get a sheet from the bottom instead of a dialog under the title. */
   phone: boolean;
+  /** Dropbox; absent where the build has none, and in the browser preview. */
+  dropbox?: ProjectsDropbox;
 }
 
 /** The last part of a folder path, whichever separator it uses. */
@@ -234,13 +249,26 @@ type ListState =
   | { status: "ready"; projects: ProjectEntry[] }
   | { status: "error"; message: string };
 
+/** The projects in Dropbox that aren't on this device. */
+type CloudState =
+  | { status: "loading" }
+  | { status: "ready"; projects: DropboxProject[] }
+  | { status: "error"; message: string };
+
 /** The action under way, shown on the control that started it. */
-type Pending = { kind: "open"; path: string } | { kind: "folder" } | { kind: "create" };
+type Pending =
+  | { kind: "open"; path: string }
+  | { kind: "folder" }
+  | { kind: "create" }
+  | { kind: "put" }
+  | { kind: "download"; folder: string };
 
 /**
  * Where a failure shows: under a project's row ("project:" and its path), under Open folder
- * ("folder"), or under the form: a project that couldn't be created
- * ("create"), or a missing title ("title", which marks the field).
+ * ("folder"), under the open project's Put in Dropbox ("put"), under a
+ * project in Dropbox ("dropbox:" and its folder), or under the form: a
+ * project that couldn't be created ("create"), or a missing title
+ * ("title", which marks the field).
  */
 interface Failure {
   at: string;
@@ -248,11 +276,19 @@ interface Failure {
 }
 
 const SKELETON_ROWS = ["medium", "short", "long"] as const;
+const CLOUD_SKELETON_ROWS = ["medium", "short"] as const;
 
 const FOLDER = "folder";
 const CREATE = "create";
 const TITLE = "title";
+const PUT = "put";
 const rowKey = (path: string) => `project:${path}`;
+const cloudKey = (folder: string) => `dropbox:${folder}`;
+
+/** A project in Dropbox whose title another one there has too gets its folder's name, so the two can be told apart. */
+function cloudDetail(entry: DropboxProject, all: readonly DropboxProject[]): string | null {
+  return all.some((other) => other !== entry && other.title === entry.title) ? folderName(entry.folder) : null;
+}
 
 interface ProjectsViewProps {
   source: ProjectsSource;
@@ -269,13 +305,22 @@ interface ProjectsViewProps {
  * there is a folder picker; and a new project's title and language, with
  * Create as the view's one primary action. A failure shows by the control
  * that failed, and what was typed stays.
+ *
+ * With Dropbox connected, projects there are marked, the open project can
+ * be put there, and the projects there that aren't on this device are
+ * listed, to download and open. Not connected, one line says where to
+ * connect it.
  */
 function ProjectsView({ source, intent, headingId, onClose, onPendingChange }: ProjectsViewProps) {
-  const { list, current, canCreate, openFolder } = source;
+  const { list, current, canCreate, openFolder, dropbox } = source;
   const [state, setState] = useState<ListState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
+  const [cloud, setCloud] = useState<CloudState>({ status: "loading" });
+  const [cloudAttempt, setCloudAttempt] = useState(0);
   const [pending, setPending] = useState<Pending | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
+  /** What an action that went through left to say, for screen readers: the open project is in Dropbox now. */
+  const [notice, setNotice] = useState("");
   const [title, setTitle] = useState("");
   const [language, setLanguage] = useState(() => defaultLanguage(navigator.languages));
   const root = useRef<HTMLDivElement>(null);
@@ -297,6 +342,21 @@ function ProjectsView({ source, intent, headingId, onClose, onPendingChange }: P
     };
   }, [list, attempt]);
 
+  // The projects in Dropbox, once an account is connected: those not on this device are offered.
+  const connection = dropbox?.connection;
+  const listCloud = dropbox?.list;
+  useEffect(() => {
+    if (connection !== "connected" || !listCloud) return;
+    let live = true;
+    listCloud().then(
+      (projects) => live && setCloud({ status: "ready", projects: projects.filter((p) => p.local === null) }),
+      (error: unknown) => live && setCloud({ status: "error", message: errorMessage(error) }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [connection, listCloud, cloudAttempt]);
+
   // Desktop: focus starts on the view, and moves to the first project that
   // can be opened once the list is in, unless it has been moved meanwhile.
   // Phones focus the sheet's close button instead (BottomSheet), so no
@@ -315,10 +375,23 @@ function ProjectsView({ source, intent, headingId, onClose, onPendingChange }: P
     }
   }, [desktop, startInForm]);
 
+  // Only as the list comes in, not when it is read again in place (after Put in Dropbox).
+  const listed = useRef(false);
   useEffect(() => {
-    if (!desktop || state.status !== "ready" || document.activeElement !== root.current) return;
-    root.current?.querySelector<HTMLElement>(".projects-list button:not(:disabled)")?.focus({ preventScroll: true });
+    if (state.status !== "ready") {
+      listed.current = false;
+      return;
+    }
+    if (listed.current) return;
+    listed.current = true;
+    if (!desktop || document.activeElement !== root.current) return;
+    root.current?.querySelector<HTMLElement>(".projects-list button.project-row:not(:disabled)")?.focus({ preventScroll: true });
   }, [desktop, state]);
+
+  // Put in Dropbox went through and its button is gone: focus rests on the view.
+  useEffect(() => {
+    if (notice !== "" && focusLost()) root.current?.focus({ preventScroll: true });
+  }, [notice]);
 
   // A failed action: focus goes back to its control if it went nowhere while that was disabled.
   useEffect(() => {
@@ -331,6 +404,7 @@ function ProjectsView({ source, intent, headingId, onClose, onPendingChange }: P
     if (locked) return;
     setPending(next);
     setFailure(null);
+    setNotice("");
     onPendingChange(true);
     try {
       await action();
@@ -352,7 +426,24 @@ function ProjectsView({ source, intent, headingId, onClose, onPendingChange }: P
     void run({ kind: "create" }, CREATE, () => source.create(title, language));
   };
 
-  const errorId = (at: string) => `${ids}-error-${at.startsWith("project:") ? "row" : at}`;
+  /**
+   * Put in Dropbox: the open project goes there and its first sync runs.
+   * Once it has, the project is marked at once and the list is read again
+   * in place.
+   */
+  const putInDropbox = (put: () => Promise<void>, projectTitle: string) =>
+    run({ kind: "put" }, PUT, async () => {
+      await put();
+      setState((s) =>
+        s.status === "ready"
+          ? { ...s, projects: s.projects.map((p) => (p.path === current ? { ...p, inDropbox: true } : p)) }
+          : s,
+      );
+      setAttempt((n) => n + 1);
+      setNotice(`${projectTitle} is in Dropbox now.`);
+    });
+
+  const errorId = (at: string) => `${ids}-error-${at.startsWith("project:") || at.startsWith("dropbox:") ? "row" : at}`;
   const failureAt = (at: string, className?: string) =>
     failure?.at === at ? (
       <p id={errorId(at)} className={cx("inline-error", className)} role="alert">
@@ -402,6 +493,8 @@ function ProjectsView({ source, intent, headingId, onClose, onPendingChange }: P
           const isOpen = entry.path === current;
           const key = rowKey(entry.path);
           const detail = projectDetail(entry, state.projects);
+          const opening = pending?.kind === "open" && pending.path === entry.path;
+          const inDropbox = dropbox !== undefined && entry.inDropbox === true;
           const content = (
             <>
               <span className="check-slot" aria-hidden>
@@ -415,17 +508,42 @@ function ProjectsView({ source, intent, headingId, onClose, onPendingChange }: P
                   </span>
                 )}
               </span>
-              {pending?.kind === "open" && pending.path === entry.path && (
+              {opening ? (
                 <span className="project-state">Opening…</span>
+              ) : (
+                inDropbox && (
+                  <>
+                    <span className="project-state" aria-hidden>
+                      Dropbox
+                    </span>
+                    <span className="visually-hidden">, in Dropbox</span>
+                  </>
+                )
               )}
             </>
           );
+          // The open project, not in Dropbox yet, can be put there once an account is connected.
+          const put = isOpen && !inDropbox && connection === "connected" ? dropbox?.put : undefined;
           return (
             <li key={entry.path}>
               {isOpen ? (
                 <div className="project-row is-open">
                   {content}
                   <span className="visually-hidden">, open now</span>
+                  {put && (
+                    <button
+                      type="button"
+                      className="btn project-put"
+                      data-action={PUT}
+                      disabled={locked}
+                      aria-busy={pending?.kind === "put" || undefined}
+                      aria-describedby={describedBy(PUT)}
+                      onClick={() => void putInDropbox(put, entry.title)}
+                    >
+                      <CloudUpload aria-hidden />
+                      {pending?.kind === "put" ? "Putting in Dropbox…" : "Put in Dropbox"}
+                    </button>
+                  )}
                 </div>
               ) : (
                 <button
@@ -439,7 +557,7 @@ function ProjectsView({ source, intent, headingId, onClose, onPendingChange }: P
                   {content}
                 </button>
               )}
-              {failureAt(key, "project-error")}
+              {failureAt(isOpen ? PUT : key, "project-error")}
             </li>
           );
         })}
@@ -447,8 +565,109 @@ function ProjectsView({ source, intent, headingId, onClose, onPendingChange }: P
     );
   }
 
+  let inCloud = null;
+  if (dropbox && connection === "connected") {
+    let content;
+    if (cloud.status === "loading") {
+      content = (
+        <ul className="projects-list" aria-hidden>
+          {CLOUD_SKELETON_ROWS.map((width, i) => (
+            <li key={i} className="project-row">
+              <span className="check-slot" />
+              <span className={`skeleton skeleton--${width}`} />
+            </li>
+          ))}
+        </ul>
+      );
+    } else if (cloud.status === "error") {
+      content = (
+        <div className="projects-error">
+          <p id={`${ids}-cloud-error`} className="inline-error" role="alert">
+            {cloud.message}
+          </p>
+          <button
+            type="button"
+            className="btn btn--quiet"
+            aria-describedby={`${ids}-cloud-error`}
+            onClick={() => {
+              // The button goes with the message: focus waits on the view for the list.
+              root.current?.focus({ preventScroll: true });
+              setCloud({ status: "loading" });
+              setCloudAttempt((n) => n + 1);
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      );
+    } else if (cloud.projects.length === 0) {
+      content = <p className="empty-note">No other projects in your Dropbox.</p>;
+    } else {
+      content = (
+        <ul className="projects-list projects-list--cloud">
+          {cloud.projects.map((entry) => {
+            const key = cloudKey(entry.folder);
+            const detail = cloudDetail(entry, cloud.projects);
+            return (
+              <li key={entry.folder}>
+                <button
+                  type="button"
+                  className="project-row"
+                  data-action={key}
+                  disabled={locked}
+                  aria-describedby={describedBy(key)}
+                  onClick={() =>
+                    void run({ kind: "download", folder: entry.folder }, key, () => dropbox.open(entry.folder))
+                  }
+                >
+                  <span className="check-slot" aria-hidden>
+                    <CloudDownload />
+                  </span>
+                  <span className="project-text">
+                    <span className="project-title">{entry.title}</span>
+                    {detail && (
+                      <span className="project-detail" title={detail}>
+                        <span className="path">{detail}</span>
+                      </span>
+                    )}
+                  </span>
+                  {pending?.kind === "download" && pending.folder === entry.folder && (
+                    <span className="project-state">Downloading…</span>
+                  )}
+                </button>
+                {failureAt(key, "project-error")}
+              </li>
+            );
+          })}
+        </ul>
+      );
+    }
+    inCloud = (
+      <div className="projects-cloud" role="group" aria-labelledby={`${ids}-cloud`} aria-busy={cloud.status === "loading"}>
+        <h3 id={`${ids}-cloud`} className="section-label">
+          In your Dropbox
+        </h3>
+        {content}
+      </div>
+    );
+  } else if (dropbox && connection === "none") {
+    inCloud = (
+      <p className="projects-note muted">
+        To keep projects in Dropbox and open them on your other devices, connect Dropbox in Settings.
+      </p>
+    );
+  }
+
   const status =
-    pending?.kind === "create" ? "Creating the project…" : pending ? "Opening the project…" : "";
+    pending?.kind === "create"
+      ? "Creating the project…"
+      : pending?.kind === "put"
+        ? "Putting the project in Dropbox…"
+        : pending?.kind === "download"
+          ? "Downloading the project…"
+          : pending
+            ? "Opening the project…"
+            : notice;
 
   return (
     <div
@@ -500,6 +719,8 @@ function ProjectsView({ source, intent, headingId, onClose, onPendingChange }: P
           </>
         )}
       </div>
+
+      {inCloud}
 
       {canCreate ? (
         <form className="new-project" aria-labelledby={`${ids}-new`} noValidate onSubmit={onCreate}>

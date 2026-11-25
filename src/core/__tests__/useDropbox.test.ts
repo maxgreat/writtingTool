@@ -58,6 +58,16 @@ beforeEach(() => {
       for (const f of finishes) f.reject(new Error(DROPBOX_SIGN_IN_CANCELLED));
     }),
     signOut: vi.fn(async () => null),
+    // Sync isn't part of the connection.
+    projects: vi.fn(async () => []),
+    openProject: vi.fn(async (): Promise<never> => {
+      throw new Error("not used here");
+    }),
+    putProject: vi.fn(async (): Promise<never> => {
+      throw new Error("not used here");
+    }),
+    sync: vi.fn(async () => ({ state: "off" as const })),
+    merge: vi.fn(async (_path: string, _base: string, ours: string) => ({ text: ours, conflicts: 0 })),
   };
   root = createRoot(document.createElement("div"));
 });

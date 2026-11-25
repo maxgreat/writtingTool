@@ -445,10 +445,36 @@ button.project-row--action:hover:not(:disabled) {
   font-size: var(--text-xs);
 }
 
+/* What is under way on a row ("Opening…"), or, quieter still at rest, that the project is in Dropbox. */
 .project-state {
   flex: none;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
+}
+
+/* The open project's Put in Dropbox: an action, in the text's colour and
+   with its icon, where other rows have the quieter Dropbox mark. As tall as
+   the row's text, and pulled out by its padding to end where the marks do. */
+.project-put {
+  flex: none;
+  min-height: calc(var(--size-control) - 2 * var(--space-1));
+  margin-inline-end: calc(var(--space-2) * -1);
+  font-size: var(--text-xs);
+}
+
+/* Projects in Dropbox, not on this device: their heading in line with the view's, as New project's is. */
+.projects-cloud {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.projects-cloud > .section-label {
+  padding-inline: var(--space-2);
+}
+
+.projects-list--cloud .check-slot {
+  color: var(--color-text-muted);
 }
 
 /* Notes and errors line up with the heading; a row's error with its title. */
