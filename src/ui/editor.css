@@ -265,6 +265,43 @@
 }
 
 /*
+ * Find in book's matches (SearchPanel.tsx), while its panel is open: a warm
+ * highlight, unlike a name's accent tint or line, over every other mark. The
+ * result opened from the panel is deeper, as focus stays in the panel and the
+ * text's own selection doesn't show. All the text inside, dimmed markers too,
+ * is in the text colour, which keeps AA on both (see tokens.css). Scoped to
+ * the text: the panel's list marks its matches with the same class.
+ */
+.editor-surface .search-match,
+.editor-surface .search-current {
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.editor-surface .search-match *,
+.editor-surface .search-current * {
+  color: inherit;
+}
+
+.editor-surface .search-match {
+  background: var(--color-search-match);
+}
+
+/* A name inside a match gives up its tint, so the match reads as one. */
+.editor-surface .search-match .name-mark,
+.editor-surface .search-current .name-mark {
+  background: transparent;
+}
+
+/* The result opened, whichever way the two marks nest; last, so it wins where they are one element. */
+.editor-surface .search-current,
+.editor-surface .search-current .search-match {
+  background: var(--color-search-current);
+}
+
+/*
  * Summary card on hover (desktop), and a refusal from the native text menu
  * or the main menu, shown where the menu was (AddName.tsx). Neither takes
  * the pointer.

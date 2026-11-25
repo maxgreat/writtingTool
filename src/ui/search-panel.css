@@ -1,0 +1,258 @@
+/*
+ * Find in book (SearchPanel.tsx): in the inspector's place on desktop, as the inspector's overlay
+ * on phones, from 260 to 480 px wide. The heading and fields stay at the top; the results scroll
+ * under them. Groups and rows are set apart by space, not lines.
+ */
+
+/* Its place in the inspector's column, kept out of sight while the inspector shows a sheet. */
+.search-slot {
+  height: 100%;
+}
+
+.search-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.search-top {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+}
+
+/* The close button is taller than the heading's line: pulled into the padding above and below,
+   so it doesn't push the fields down, and out by its padding, so its icon ends with the content. */
+.search-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-block: calc((var(--size-control) - var(--text-lg) * var(--leading-tight)) / -2);
+}
+
+.search-title {
+  min-width: 0;
+  font-size: var(--text-lg);
+}
+
+.search-close {
+  margin-inline-end: calc((var(--size-control) - var(--size-icon)) / -2);
+}
+
+/* Find, then Match case and Whole word. Their pressed background ends with the content. */
+.search-find {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-options {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+/* Replace: pulled out by its padding and the chevron's own room, so the chevron's stroke lines up
+   with the fields' edge. The chevron turns down while the replacement shows. */
+.search-replace-toggle {
+  align-self: flex-start;
+  gap: var(--space-1);
+  margin-block: calc(var(--space-1) * -1);
+  margin-inline-start: calc((var(--space-2) + var(--space-1)) * -1);
+}
+
+.search-disclosure {
+  transition: rotate var(--duration-fast) var(--ease-standard);
+}
+
+.search-replace-toggle[aria-expanded="true"] .search-disclosure {
+  rotate: 90deg;
+}
+
+/* The replacement and Replace all, the panel's one primary action; Replace all wraps under the
+   field in a narrow panel. Then the question it asks, and what it did. */
+.search-replace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.search-replace-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.search-replace-input {
+  flex: 1 1 var(--size-input-min);
+  min-width: 0;
+}
+
+.search-replace-all {
+  flex: none;
+}
+
+.search-confirm {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+.search-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.search-hint,
+.search-summary {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+/* The panel's sentences don't end on a lone word. */
+.search-confirm p,
+.search-hint,
+.search-summary,
+.search-note {
+  text-wrap: pretty;
+}
+
+/* The note's live region is always there; empty, it gives back the gap before it. */
+.search-replace-status:empty {
+  margin-top: calc(var(--space-2) * -1);
+}
+
+/* Results ----------------------------------------------------------------- */
+
+.search-results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 var(--space-4) var(--space-6);
+}
+
+.search-group + .search-group {
+  margin-top: var(--space-3);
+}
+
+/* The chapter's title, cut short in a narrow panel, and how many results it holds. */
+.search-group-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-0-5);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.search-group-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-group-count {
+  flex: none;
+  color: var(--color-text-muted);
+  font-weight: var(--weight-regular);
+}
+
+/* A result, then its Replace while the replacement shows, or why it can't be replaced here. */
+.search-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-1);
+}
+
+/* One line: a few words before the match, the match, and what follows, cut at the row's end.
+   Pulled out by its padding, so the text lines up with the content. */
+.search-result {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  min-height: var(--size-control);
+  margin-inline: calc(var(--space-2) * -1);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-muted);
+  text-align: start;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+/* Its Replace ends the line instead, pulled out in its place. */
+.search-result--with-action {
+  margin-inline-end: 0;
+}
+
+.search-result:hover {
+  background: var(--color-hover);
+}
+
+.search-excerpt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The match, highlighted as it is in the text. */
+.search-excerpt .search-match {
+  border-radius: var(--radius-sm);
+  background: var(--color-search-match);
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+/* The result open in the editor, marked as the binder marks the open chapter. */
+.search-result[aria-current="true"],
+.search-result[aria-current="true"]:hover {
+  background: var(--color-active-bg);
+}
+
+.search-result[aria-current="true"] .search-match {
+  background: transparent;
+  color: var(--color-accent);
+}
+
+/* Pulled out by its padding, so its icon ends with the content. */
+.search-replace-one {
+  margin-inline-end: calc((var(--size-control) - var(--size-icon)) / -2);
+}
+
+.search-replace-one:disabled {
+  color: var(--color-text-disabled);
+}
+
+/* Under the result's line, lined up with its text. */
+.search-note {
+  flex-basis: 100%;
+  padding-bottom: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.search-more {
+  margin-top: var(--space-3);
+}

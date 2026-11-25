@@ -53,6 +53,12 @@ export interface EditorPaneProps {
   editorRef: RefObject<EditorHandle | null>;
   /** Where the caret goes when the editor mounts, if anywhere. */
   initialCaret: TextPosition | null;
+  /**
+   * A range of the chapter's Markdown to select when the editor mounts,
+   * instead of placing the caret: a search result opened in this chapter
+   * from the search panel, which keeps focus.
+   */
+  initialSelection: { from: number; to: number } | null;
   onChange(chapterId: string, markdown: string): void;
   onFormatChange(state: FormatState): void;
   /**
@@ -99,6 +105,8 @@ export interface EditorPaneProps {
   typingAids: TypingAids | null;
   /** Keeps the line being typed in the middle of the screen. */
   typewriter: boolean;
+  /** The search panel's pattern, whose matches are marked in the text: null while it is closed, and in focus mode. */
+  search: RegExp | null;
   /**
    * The desktop app's native menu for the text (Backend.popupTextMenu),
    * which a right-click shows; absent in the browser preview and on phones.
@@ -137,6 +145,7 @@ export function EditorPane({
   readOnly,
   editorRef,
   initialCaret,
+  initialSelection,
   onChange,
   onFormatChange,
   onOpenSheet,
@@ -149,6 +158,7 @@ export function EditorPane({
   grammarSource,
   typingAids,
   typewriter,
+  search,
   popupTextMenu,
   touch,
   sheetsById,
@@ -581,6 +591,7 @@ export function EditorPane({
     markdown: chapter.text,
     matcher,
     initialCaret,
+    initialSelection,
     onChange: (markdown: string) => onChange(chapter.id, markdown),
     onFormatChange,
     onNameClick,
@@ -592,6 +603,7 @@ export function EditorPane({
     onGrammarClick,
     typingAids,
     typewriter,
+    search,
     readOnly,
     ariaLabel: "Chapter text",
   };

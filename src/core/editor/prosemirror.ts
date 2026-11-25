@@ -8,7 +8,7 @@ import { nameFromSelection, wordAround } from "../possibleNames";
 import { wordToCheckAt } from "../spelling";
 import type { GrammarProblem } from "../backend";
 import type { EditorWord } from "./types";
-import { paragraphMarks } from "./nameMarks";
+import { paragraphMarks, SEARCH_CURRENT_CLASS } from "./nameMarks";
 
 export const nameHighlightKey = new PluginKey<DecorationSet>("nameHighlight");
 /** Transaction meta that makes the plugin re-scan the whole chapter (new matcher or possible names). */
@@ -26,6 +26,8 @@ interface Sources {
   getMisspelled: () => ReadonlySet<string>;
   /** Grammar problems to mark (see ChapterEditorProps.grammar). */
   getGrammar: () => ReadonlyMap<string, readonly GrammarProblem[]>;
+  /** The search panel's pattern (see ChapterEditorProps.search). */
+  getSearch: () => RegExp | null;
 }
 
 const NO_PROBLEMS: ReadonlyMap<string, readonly GrammarProblem[]> = new Map();
@@ -44,6 +46,7 @@ function decorateBlock(sources: Sources, block: PMNode, pos: number): Decoration
     suggestions: sources.getSuggestions(),
     misspelled: sources.getMisspelled(),
     grammar: sources.getGrammar(),
+    search: sources.getSearch(),
     heading,
   });
   return marks.map((m) =>
@@ -110,13 +113,51 @@ function nameHighlightPlugin(sources: Sources): Plugin<DecorationSet> {
   });
 }
 
+const searchResultKey = new PluginKey<DecorationSet>("searchResult");
+
+/** The search result shown (see selectSearchResult), marked until the selection or the text changes. */
+function searchResultPlugin(): Plugin<DecorationSet> {
+  return new Plugin<DecorationSet>({
+    key: searchResultKey,
+    state: {
+      init: () => DecorationSet.empty,
+      apply(tr, shown) {
+        const range = tr.getMeta(searchResultKey) as { from: number; to: number } | undefined;
+        if (range) {
+          if (range.from >= range.to) return DecorationSet.empty;
+          return DecorationSet.create(tr.doc, [Decoration.inline(range.from, range.to, { class: SEARCH_CURRENT_CLASS })]);
+        }
+        return tr.docChanged || tr.selectionSet ? DecorationSet.empty : shown;
+      },
+    },
+    props: {
+      decorations: (state) => searchResultKey.getState(state),
+    },
+  });
+}
+
+/** Selects a search result (positions in the document) and scrolls it into view, marked, without taking focus. */
+export function selectSearchResult(view: EditorView, from: number, to: number): void {
+  const { doc } = view.state;
+  const selection = TextSelection.between(doc.resolve(from), doc.resolve(to));
+  const range = { from: selection.from, to: selection.to };
+  view.dispatch(view.state.tr.setSelection(selection).setMeta(searchResultKey, range).scrollIntoView());
+}
+
+/** Takes away the shown search result's mark (Find was closed). */
+export function clearSearchResult(view: EditorView): void {
+  if (searchResultKey.getState(view.state)?.find().length) {
+    view.dispatch(view.state.tr.setMeta(searchResultKey, { from: 0, to: 0 }));
+  }
+}
+
 export const NameHighlight = Extension.create<Sources>({
   name: "nameHighlight",
   addOptions() {
-    return { getMatcher: () => EMPTY_MATCHER, getSuggestions: () => NO_WORDS, getMisspelled: () => NO_WORDS, getGrammar: () => NO_PROBLEMS };
+    return { getMatcher: () => EMPTY_MATCHER, getSuggestions: () => NO_WORDS, getMisspelled: () => NO_WORDS, getGrammar: () => NO_PROBLEMS, getSearch: () => null };
   },
   addProseMirrorPlugins() {
-    return [nameHighlightPlugin(this.options)];
+    return [nameHighlightPlugin(this.options), searchResultPlugin()];
   },
 });
 

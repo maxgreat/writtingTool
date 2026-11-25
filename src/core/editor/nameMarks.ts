@@ -141,7 +141,20 @@ export interface MarkSources {
   grammar?: ReadonlyMap<string, readonly GrammarProblem[]>;
   /** The text is a line of Markdown (the plain editor), not a paragraph's text as it reads (the formatted one). */
   markdown?: boolean;
+  /** The search panel's pattern (see searchPattern): every match is marked, over any other mark. */
+  search?: RegExp | null;
 }
+
+/** A search result in the text: an element with this class. */
+export const SEARCH_MARK_CLASS = "search-match";
+
+/**
+ * The search result opened from the search panel (EditorHandle.selectMarkdown):
+ * an element with this class, until the selection or the text changes. It
+ * shows where the result is while focus stays in the panel, which hides the
+ * editor's own selection.
+ */
+export const SEARCH_CURRENT_CLASS = "search-current";
 
 const NO_PROBLEMS: ReadonlyMap<string, readonly GrammarProblem[]> = new Map();
 
@@ -164,7 +177,14 @@ export interface ParagraphMark {
  * spelling check leaves possible names out.
  */
 export function paragraphMarks(text: string, matcher: NameMatcher, sources: MarkSources = {}): ParagraphMark[] {
-  const { suggestions = NO_WORDS, misspelled = NO_WORDS, heading = false, grammar = NO_PROBLEMS, markdown = false } = sources;
+  const {
+    suggestions = NO_WORDS,
+    misspelled = NO_WORDS,
+    heading = false,
+    grammar = NO_PROBLEMS,
+    markdown = false,
+    search = null,
+  } = sources;
   const matches = matcher.find(text);
   const marks: ParagraphMark[] = [];
   if (matches.length > 0) {
@@ -190,7 +210,7 @@ export function paragraphMarks(text: string, matcher: NameMatcher, sources: Mark
     const problems = grammar.get(readable ? readable.text : text) ?? [];
     const taken = marks.slice();
     for (const problem of problems) {
-      const from = readable ? readable.at[problem.from] : problem.from;
+      const from = readable ? readable.starts[problem.from] : problem.from;
       const to = readable ? readable.at[problem.to - 1] + 1 : problem.to;
       if (from === undefined || Number.isNaN(to) || to > text.length || from >= to) continue;
       // Names and misspelled words keep their own marks.
@@ -201,6 +221,19 @@ export function paragraphMarks(text: string, matcher: NameMatcher, sources: Mark
       const fixable = text.slice(from, to) === covered;
       const shown = fixable ? problem : { ...problem, fixes: [] };
       marks.push({ from, to, attributes: grammarMarkAttributes(shown, covered, from, to) });
+    }
+  }
+  if (search) {
+    // Found as the paragraph reads, as the search panel finds it, then mapped back into Markdown.
+    const readable = markdown ? readableLine(text) : null;
+    const reads = readable ? readable.text : text;
+    for (const match of reads.matchAll(new RegExp(search.source, search.flags.includes("g") ? search.flags : `${search.flags}g`))) {
+      if (match[0] === "") continue;
+      const start = match.index;
+      const end = start + match[0].length;
+      const from = readable ? readable.starts[start] : start;
+      const to = readable ? readable.at[end - 1] + 1 : end;
+      marks.push({ from, to, attributes: { class: SEARCH_MARK_CLASS } });
     }
   }
   if (marks.length > matches.length) marks.sort((a, b) => a.from - b.from);

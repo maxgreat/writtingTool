@@ -73,6 +73,19 @@ export interface EditorHandle {
    * editor's.
    */
   markRange(mark: Element): EditorWord | null;
+  /**
+   * Selects a range of the chapter's Markdown (offsets into it, as
+   * findInChapter gives them) and scrolls it into view, without taking
+   * focus: a search result shown from the search panel. The range is
+   * marked (SEARCH_CURRENT_CLASS) until the selection or the text changes.
+   */
+  selectMarkdown(from: number, to: number): void;
+  /**
+   * Puts `markdown` in place of the chapter's text as one step Undo takes
+   * back, the caret kept where it was (Replace all). False, changing
+   * nothing, when the editor takes no edits.
+   */
+  setMarkdown(markdown: string): boolean;
 }
 
 /**
@@ -85,6 +98,12 @@ export interface ChapterEditorProps {
   matcher: NameMatcher;
   /** Where to put the caret on mount, for example the caret of the other mode. */
   initialCaret?: TextPosition | null;
+  /**
+   * A range of the Markdown to select on mount instead, as selectMarkdown
+   * does: a search result opened in another chapter. The editor then leaves
+   * focus where it is, in the search panel.
+   */
+  initialSelection?: { from: number; to: number } | null;
   onChange(markdown: string): void;
   onFormatChange?(state: FormatState): void;
   /** A highlighted name was clicked; the caret is still placed as usual. */
@@ -116,6 +135,8 @@ export interface ChapterEditorProps {
   typingAids?: TypingAids | null;
   /** Keeps the line being typed in the middle of the screen. Can change while mounted. */
   typewriter?: boolean;
+  /** The search panel's pattern: its matches are marked in the text; null marks none. */
+  search?: RegExp | null;
   /**
    * Formatted editor only: the chapter uses Markdown outside the chapter
    * subset, which this editor cannot save without losing it. The editor is

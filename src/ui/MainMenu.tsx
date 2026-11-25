@@ -1,6 +1,6 @@
 import { Menu } from "lucide-react";
 import type { RefObject } from "react";
-import { shortcut } from "./dom";
+import { isMac, shortcut } from "./dom";
 import { MenuButton, MenuItem } from "./Popover";
 
 /** What the main menu does: Workspace's commands, which the shortcuts run too. */
@@ -16,6 +16,10 @@ export interface MainMenuCommands {
   onSave(): void;
   /** A save is being written: Save waits for it. */
   saving: boolean;
+  /** Find in book, in the inspector's place (an overlay on phones), the selection in Find. */
+  onFind(): void;
+  /** The same, with the replacement showing. */
+  onReplace(): void;
   /** The Settings dialog (a sheet on phones). */
   onSettings(): void;
   /** Enters or leaves focus mode; absent where the bar couldn't be brought back (touch screens). */
@@ -39,10 +43,13 @@ interface MainMenuProps {
   triggerRef: RefObject<HTMLButtonElement | null>;
 }
 
+/** Find in book's replace shortcut: Ctrl+H, or ⌘⌥F on a Mac, where ⌘H hides the app. */
+export const REPLACE_KEYS: string[] = isMac ? ["mod", "alt", "F"] : ["mod", "H"];
+
 /**
  * The app's commands, from the far left of the bar: projects, saving,
- * export (not there yet), settings, focus mode and quitting. Groups are set
- * apart by space, in the order a File menu has them.
+ * export (not there yet), finding, settings, focus mode and quitting. Groups
+ * are set apart by space, in the order a File menu has them.
  */
 export function MainMenu({ commands, focusMode, open, onOpenChange, triggerRef }: MainMenuProps) {
   const hint = (...keys: string[]) => (commands.showShortcuts ? shortcut(...keys) : undefined);
@@ -85,6 +92,13 @@ export function MainMenu({ commands, focusMode, open, onOpenChange, triggerRef }
           </MenuItem>
           <MenuItem noCheck disabled hint="Coming soon" onSelect={() => undefined}>
             Export…
+          </MenuItem>
+          <div className="popover-gap" role="none" />
+          <MenuItem noCheck hint={hint("mod", "shift", "F")} onSelect={choose(commands.onFind)}>
+            Find in book…
+          </MenuItem>
+          <MenuItem noCheck hint={hint(...REPLACE_KEYS)} onSelect={choose(commands.onReplace)}>
+            Replace in book…
           </MenuItem>
           <div className="popover-gap" role="none" />
           <MenuItem noCheck hint={hint("mod", ",")} onSelect={choose(commands.onSettings)}>

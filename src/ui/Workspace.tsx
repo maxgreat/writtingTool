@@ -5,6 +5,7 @@ import type { BlockStyle, EditorHandle, FormatState } from "../core/editor/types
 import { NameIndex } from "../core/nameIndex";
 import type { IgnoredName } from "../core/names";
 import { holdsNames, type Project } from "../core/project";
+import { findInChapter, matchOffsets, replaceInChapter, searchPattern, type SearchMatch, type SearchOptions } from "../core/search";
 import type { EditorMode, ViewSettings } from "../core/settings";
 import { addToPersonalDictionary, readPersonalDictionary } from "../core/spelling";
 import { useNameSuggestions } from "../core/useNameSuggestions";
@@ -18,7 +19,7 @@ import { BACK_AGAIN, BackLayer, useBackLayer, useLeaveOnBack, type Leave } from 
 import { Binder } from "./Binder";
 import { SheetPreview } from "./BottomSheet";
 import { CloseDialog } from "./CloseDialog";
-import { cx, errorMessage, focusLost, hasMod, shortcut } from "./dom";
+import { cx, errorMessage, focusLost, hasMod, isMac, shortcut } from "./dom";
 import { EditorPane } from "./EditorPane";
 import { FormatBar } from "./FormatBar";
 import type { GrammarSource } from "./GrammarMenu";
@@ -30,6 +31,7 @@ import type { MainMenuCommands } from "./MainMenu";
 import type { SuggestionSource } from "./PossibleNameMenu";
 import { ProjectsDialog, useProjectsDialog, type ProjectsIntent, type ProjectsSource } from "./Projects";
 import { ResizeHandle } from "./ResizeHandle";
+import { SearchPanel, type SearchSource } from "./SearchPanel";
 import { SettingsDialog } from "./SettingsDialog";
 import type { SpellingSource } from "./SpellingMenu";
 import { StatusBar } from "./StatusBar";
@@ -102,6 +104,17 @@ function letter(event: KeyboardEvent): string {
 /** mod and a letter, with no other modifier: Save, Open project and Quit. */
 function isModLetter(event: KeyboardEvent, key: string): boolean {
   return hasMod(event) && !event.altKey && !event.shiftKey && !event.getModifierState("AltGraph") && letter(event) === key;
+}
+
+/** Find in book: Ctrl+Shift+F, ⌘⇧F on a Mac. */
+function isFindKey(event: KeyboardEvent): boolean {
+  return hasMod(event) && event.shiftKey && !event.altKey && !event.getModifierState("AltGraph") && letter(event) === "f";
+}
+
+/** Find in book with the replacement showing: Ctrl+H, or ⌘⌥F on a Mac, where ⌘H hides the app (see REPLACE_KEYS). */
+function isReplaceKey(event: KeyboardEvent): boolean {
+  if (!isMac) return isModLetter(event, "h");
+  return hasMod(event) && event.altKey && !event.shiftKey && letter(event) === "f";
 }
 
 /** mod and a key that isn't a letter, with no other modifier: "," for Settings. */
@@ -201,6 +214,25 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   /** Save was chosen and has finished, with nothing changed since: the status bar shows a check. */
   const [saveConfirmed, setSaveConfirmed] = useState(false);
 
+  /**
+   * Find in book, in the inspector's place: closed, shown, or kept out of
+   * sight with all it holds while the inspector shows a sheet (a name
+   * clicked in the text, say), until Find is asked for again.
+   */
+  const [searchState, setSearchState] = useState<"closed" | "shown" | "kept">("closed");
+  /** How Find was last asked for: Replace shows the replacement. */
+  const [searchMode, setSearchMode] = useState<"find" | "replace">("find");
+  /** The text's selection when Find was asked for, which it searches for. */
+  const [searchSeed, setSearchSeed] = useState("");
+  /** Goes up each time Find is asked for: focus goes to its field. */
+  const [searchRequest, setSearchRequest] = useState(0);
+  /** What Find searches for, marked in the text while it shows; null for nothing. */
+  const [searchMarks, setSearchMarks] = useState<RegExp | null>(null);
+  /** The inspector was hidden when Find showed it: closing Find hides it again. */
+  const hideInspectorAfterSearch = useRef(false);
+  /** Where Find is, to tell whether it is asked for again from inside it. */
+  const searchSlotRef = useRef<HTMLDivElement>(null);
+
   // A chapter with Markdown the formatted editor can't keep is shown in Plain
   // until another chapter is opened. The mode setting itself doesn't change.
   const [plainOnlyId, setPlainOnlyId] = useState<string | null>(null);
@@ -211,6 +243,9 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   const [mountCaret, setMountCaret] = useState<{ key: string; caret: TextPosition } | null>(null);
   const carets = useRef(new Map<string, TextPosition>());
   const caretKey = (id: string) => `${api.loads}:${id}`;
+  // A search result opened in another chapter: selected when its editor mounts,
+  // in place of the caret, focus left in the search panel.
+  const [mountSelection, setMountSelection] = useState<{ key: string; from: number; to: number } | null>(null);
 
   // A project read from disk, another one or the same folder again: the mount
   // caret, the plain-only flag and the inspector's place belong to the old
@@ -222,6 +257,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   if (seenLoads !== api.loads) {
     setSeenLoads(api.loads);
     setMountCaret(null);
+    setMountSelection(null);
     setPlainOnlyId(null);
     const back =
       trashedSheet !== null &&
@@ -239,6 +275,15 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     setSaveConfirmed(false);
   }
 
+  // Another project: Find, and the inspector it showed, belonged to the last one.
+  const [seenRoot, setSeenRoot] = useState(project.root);
+  if (seenRoot !== project.root) {
+    setSeenRoot(project.root);
+    setSearchState("closed");
+    setSearchMarks(null);
+    hideInspectorAfterSearch.current = false;
+  }
+
   // The check goes as soon as there is something to save again, or the save failed.
   if (saveConfirmed && api.save.status !== "saved") setSaveConfirmed(false);
 
@@ -246,6 +291,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   const mode: EditorMode = plainOnly ? "plain" : settings.mode;
   const editorKey = chapter ? `${chapter.id}:${mode}` : "";
   const initialCaret = mountCaret?.key === editorKey ? mountCaret.caret : null;
+  const initialSelection = mountSelection?.key === editorKey ? mountSelection : null;
 
   const binderVisible = !focusMode && (isPhone ? phonePanel === "binder" : settings.binderOpen);
   const inspectorVisible = !focusMode && (isPhone ? phonePanel === "inspector" : settings.inspectorOpen);
@@ -304,8 +350,14 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     [focusMode, isPhone, settings.binderOpen, settings.inspectorOpen, update],
   );
 
-  /** Shows the inspector if it is hidden; on a phone it slides in, in place of the binder. */
+  /**
+   * Shows the inspector if it is hidden; on a phone it slides in, in place of
+   * the binder. Find, if it is in the inspector's place, makes way, kept as
+   * it is until it is asked for again.
+   */
   const revealInspector = useCallback(() => {
+    setSearchState((state) => (state === "shown" ? "kept" : state));
+    hideInspectorAfterSearch.current = false;
     if (isPhone) setPhonePanel("inspector");
     else if (!settings.inspectorOpen) update({ inspectorOpen: true });
   }, [isPhone, settings.inspectorOpen, update]);
@@ -445,6 +497,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     if (openChapterId && editorRef.current) carets.current.set(caretKey(openChapterId), editorRef.current.getCaret());
     const caret = carets.current.get(caretKey(id));
     setMountCaret(caret ? { key: `${id}:${settings.mode}`, caret } : null);
+    setMountSelection(null);
     setPlainOnlyId(null);
     setFormat(NO_FORMAT);
     api.openChapter(id);
@@ -455,6 +508,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     if (next === mode || plainOnly) return;
     const caret = editorRef.current?.getCaret();
     setMountCaret(chapter && caret ? { key: `${chapter.id}:${next}`, caret } : null);
+    setMountSelection(null);
     update({ mode: next });
   };
 
@@ -465,6 +519,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   const showInPlain = useCallback((id: string) => {
     setPlainOnlyId(id);
     setMountCaret((m) => (m?.key === `${id}:formatted` ? { key: `${id}:plain`, caret: m.caret } : m));
+    setMountSelection((m) => (m?.key === `${id}:formatted` ? { ...m, key: `${id}:plain` } : m));
   }, []);
 
   /** The binder created a chapter and opened it: on a phone, the panel makes way for it. */
@@ -517,6 +572,158 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     if (!pointerInBar.current && !menuOpen.current) setBarRevealed(false);
   };
 
+  /* Find in book ------------------------------------------------------------ */
+
+  /**
+   * Find, from the main menu or its shortcuts: the panel takes the
+   * inspector's place, showing the inspector's column if it is hidden (on a
+   * phone, as its overlay), with focus in Find. The text's selection, if it
+   * is on one line, is searched for; asked for again from the panel itself,
+   * Find keeps what it holds.
+   */
+  const openSearch = (mode: "find" | "replace") => {
+    const active = document.activeElement;
+    const inPanel = searchSlotRef.current?.contains(active) ?? false;
+    // A field in the inspector is left first, as a click elsewhere would leave it, so its edit is taken.
+    if (!inPanel && active instanceof HTMLElement && active.closest("#inspector")) active.blur();
+    setSearchSeed(inPanel ? "" : (editorRef.current?.selectedName() ?? ""));
+    setSearchMode(mode);
+    setSearchRequest((n) => n + 1);
+    if (searchState === "closed") hideInspectorAfterSearch.current = false;
+    setSearchState("shown");
+    if (focusMode) leaveFocus();
+    if (isPhone) setPhonePanel("inspector");
+    else if (!settings.inspectorOpen) {
+      hideInspectorAfterSearch.current = true;
+      update({ inspectorOpen: true });
+    }
+  };
+
+  /**
+   * The panel's close button, or Escape: the inspector comes back, or hides
+   * again if Find showed it, and the caret goes back to the text, where the
+   * last result opened is selected. On a phone the overlay slides away, and
+   * focus isn't put in the text, which would bring the on-screen keyboard up.
+   */
+  const closeSearch = () => {
+    setSearchState("closed");
+    setSearchMarks(null);
+    if (isPhone) {
+      setPhonePanel((panel) => (panel === "inspector" ? null : panel));
+      return;
+    }
+    if (hideInspectorAfterSearch.current) update({ inspectorOpen: false });
+    hideInspectorAfterSearch.current = false;
+    editorRef.current?.focus();
+  };
+
+  /** What the panel searches for, marked in the text. */
+  const markSearch = useCallback((query: string, options: SearchOptions) => {
+    let pattern: RegExp | null = null;
+    try {
+      pattern = searchPattern(query, options);
+    } catch {
+      // The panel says why it couldn't search.
+    }
+    setSearchMarks(pattern);
+  }, []);
+
+  /**
+   * A result chosen in the panel: selected in the text and scrolled into
+   * view, marked, focus left in the panel, so Enter goes on to the next one.
+   * In another chapter, that chapter opens with the result selected. On a
+   * phone the panel slides away to show it; the inspector's button, or a
+   * swipe, brings it back.
+   */
+  const openSearchResult = (match: SearchMatch) => {
+    const target = project.chapters[match.chapterId];
+    if (!target) return;
+    const { from, to } = matchOffsets(target.text, match);
+    if (isPhone) setPhonePanel(null);
+    if (match.chapterId === openChapterId && editorRef.current) {
+      editorRef.current.selectMarkdown(from, to);
+      return;
+    }
+    if (openChapterId && editorRef.current) carets.current.set(caretKey(openChapterId), editorRef.current.getCaret());
+    setMountCaret(null);
+    setMountSelection({ key: `${match.chapterId}:${settings.mode}`, from, to });
+    setPlainOnlyId(null);
+    setFormat(NO_FORMAT);
+    api.openChapter(match.chapterId);
+  };
+
+  /**
+   * Replace and Replace all: each chapter's results replaced in its text,
+   * the open chapter's through its editor, as one step Undo takes back, the
+   * others saved as an edit is. `searched` is each chapter's text when it
+   * was searched: one that has changed since is refused, as are edits while
+   * the open chapter takes none, changing nothing. Returns how many were
+   * replaced: results partly in italics or bold never are, nor the rare ones
+   * whose new text would change the formatting around them, their italics or
+   * bold or the paragraphs and headings on either side (see
+   * replaceInChapter).
+   */
+  const replaceSearchResults = (
+    matches: SearchMatch[],
+    replacement: string,
+    searched: ReadonlyMap<string, string>,
+  ): number => {
+    if (api.switching) throw new Error("The project is changing on disk. Try again in a moment.");
+    const byChapter = new Map<string, SearchMatch[]>();
+    for (const match of matches) {
+      const found = byChapter.get(match.chapterId);
+      if (found) found.push(match);
+      else byChapter.set(match.chapterId, [match]);
+    }
+    const changes: { id: string; text: string; replaced: number }[] = [];
+    for (const [id, found] of byChapter) {
+      const text = project.chapters[id]?.text;
+      if (text === undefined || text !== searched.get(id)) {
+        throw new Error("The text has changed since this search. Check the results and try again.");
+      }
+      const result = replaceInChapter(text, found, replacement);
+      if (result.replaced > 0) changes.push({ id, ...result });
+    }
+    // The open chapter first: if its editor takes no edits, no chapter changes.
+    const inEditor = changes.find((c) => c.id === openChapterId);
+    if (inEditor && !editorRef.current?.setMarkdown(inEditor.text)) {
+      throw new Error("The open chapter can’t be changed right now.");
+    }
+    for (const change of changes) if (change !== inEditor) api.updateChapter(change.id, change.text);
+    return changes.reduce((total, change) => total + change.replaced, 0);
+  };
+
+  /** Find's results per chapter, so typing in one chapter only searches that one again. */
+  const searchCache = useRef(new Map<string, { text: string; key: string; matches: SearchMatch[] }>());
+  /** The panel's actions as this render has them, so its source only changes with the book's text. */
+  const searchActions = useRef({ open: openSearchResult, replace: replaceSearchResults });
+  searchActions.current = { open: openSearchResult, replace: replaceSearchResults };
+
+  /** The book as Find reads it: a new one whenever a chapter's text, title or place changes, and it searches again. */
+  const { chapters: chaptersById, chapterOrder } = project;
+  const { switching } = api;
+  const searchSource = useMemo<SearchSource>(() => {
+    const book = chapterOrder.flatMap((id) => (chaptersById[id] ? [chaptersById[id]] : []));
+    const searched = new Map(book.map((c) => [c.id, c.text]));
+    const cache = searchCache.current;
+    return {
+      chapters: book.map(({ id, title }) => ({ id, title })),
+      find: (query, options) => {
+        const key = `${Number(options.matchCase)}${Number(options.wholeWord)}${query}`;
+        return book.flatMap(({ id, text }) => {
+          const kept = cache.get(id);
+          if (kept && kept.text === text && kept.key === key) return kept.matches;
+          const matches = findInChapter(id, text, query, options);
+          cache.set(id, { text, key, matches });
+          return matches;
+        });
+      },
+      open: (match) => searchActions.current.open(match),
+      replace: (matches, replacement) => searchActions.current.replace(matches, replacement, searched),
+      busy: switching,
+    };
+  }, [chaptersById, chapterOrder, switching]);
+
   /* Back (phones) ---------------------------------------------------------- */
 
   // Back leaves focus mode as Escape does, once whatever is open over it is closed.
@@ -533,9 +740,16 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     setPhonePanel(null);
   };
 
-  /** Back in the inspector: a sheet opened from one of its pages goes back to that page; else the panel closes. */
+  /**
+   * Back in the inspector: Find in its place closes; a sheet opened from one
+   * of its pages goes back to that page; else the panel closes.
+   */
   const backFromInspector = () => {
     leavePanelField();
+    if (searchState === "shown") {
+      closeSearch();
+      return;
+    }
     const view = inspectorView;
     if (view.kind === "sheet" && view.from && sheetsById.has(view.id)) setInspectorView(view.from);
     else setPhonePanel(null);
@@ -939,6 +1153,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
       void save();
     },
     saving: api.save.status === "saving",
+    onFind: () => openSearch("find"),
+    onReplace: () => openSearch("replace"),
     onSettings: () => setSettingsOpen(true),
     // The bar comes back with the pointer at the top edge, which touch screens don't have.
     onToggleFocus:
@@ -973,8 +1189,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   };
 
   const asking = closeAsk !== null;
-  const keys = useRef({ togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit, asking, settingsOpen });
-  keys.current = { togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit, asking, settingsOpen };
+  const keys = useRef({ togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit, asking, settingsOpen, openSearch });
+  keys.current = { togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit, asking, settingsOpen, openSearch };
 
   useEffect(() => {
     // Capture phase, so these work whichever editor has focus.
@@ -1002,6 +1218,14 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
       } else if (isModKey(event, ",")) {
         event.preventDefault();
         if (!event.repeat) setSettingsOpen(true);
+      } else if (isFindKey(event)) {
+        // Never the browser's own find.
+        event.preventDefault();
+        if (!event.repeat) k.openSearch("find");
+      } else if (isReplaceKey(event)) {
+        // Never the browser's history (Ctrl+H).
+        event.preventDefault();
+        if (!event.repeat) k.openSearch("replace");
       } else if (event.altKey && event.code === "KeyB") {
         event.preventDefault();
         k.togglePanel("binder");
@@ -1155,6 +1379,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           readOnly={api.switching}
           editorRef={editorRef}
           initialCaret={initialCaret}
+          initialSelection={initialSelection}
           onChange={api.updateChapter}
           onFormatChange={setFormat}
           onOpenSheet={focusMode ? null : openSheetFromText}
@@ -1168,6 +1393,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           grammarSource={focusMode ? null : grammarSource}
           typingAids={typingAids}
           typewriter={settings.typewriter}
+          // Find's matches, while it is in the inspector's place; focus mode hides them with the panel.
+          search={searchState === "shown" && !focusMode ? searchMarks : null}
           popupTextMenu={popupTextMenu}
           touch={!canHover}
           sheetsById={sheetsById}
@@ -1191,33 +1418,50 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
               />
             )}
             <div className="panel-inner">
-              <Inspector
-                project={project}
-                chapter={chapter}
-                matcher={matcher}
-                index={nameIndex}
-                sheetsById={sheetsById}
-                view={inspectorView}
-                onViewChange={changeInspectorView}
-                onOpenSheet={openSheetFromInspector}
-                onOpenChapter={openChapter}
-                onChapterDetails={api.updateChapterDetails}
-                onCreateSheet={api.createSheet}
-                onUpdateSheet={updateSheet}
-                onTrashSheet={trashSheet}
-                ignoring={ignoring}
-                suggestions={suggestions}
-                onMarkNotName={api.markNotName}
-                busy={api.switching}
-                versions={{
-                  list: api.listVersions,
-                  restore: api.restoreVersion,
-                  saveStatus: api.save.status,
-                  loads: api.loads,
-                  busy: api.switching,
-                }}
-                visible={inspectorVisible}
-              />
+              {searchState !== "closed" && (
+                // Kept out of sight, nothing in it is for Back to close.
+                <BackLayer open={false} hidden={searchState === "kept"} onBack={closeSearch}>
+                  <div ref={searchSlotRef} className="search-slot" hidden={searchState === "kept"}>
+                    <SearchPanel
+                      source={searchSource}
+                      focusRequest={searchRequest}
+                      initialMode={searchMode}
+                      initialQuery={searchSeed}
+                      onSearchChange={markSearch}
+                      onClose={closeSearch}
+                    />
+                  </div>
+                </BackLayer>
+              )}
+              {searchState !== "shown" && (
+                <Inspector
+                  project={project}
+                  chapter={chapter}
+                  matcher={matcher}
+                  index={nameIndex}
+                  sheetsById={sheetsById}
+                  view={inspectorView}
+                  onViewChange={changeInspectorView}
+                  onOpenSheet={openSheetFromInspector}
+                  onOpenChapter={openChapter}
+                  onChapterDetails={api.updateChapterDetails}
+                  onCreateSheet={api.createSheet}
+                  onUpdateSheet={updateSheet}
+                  onTrashSheet={trashSheet}
+                  ignoring={ignoring}
+                  suggestions={suggestions}
+                  onMarkNotName={api.markNotName}
+                  busy={api.switching}
+                  versions={{
+                    list: api.listVersions,
+                    restore: api.restoreVersion,
+                    saveStatus: api.save.status,
+                    loads: api.loads,
+                    busy: api.switching,
+                  }}
+                  visible={inspectorVisible}
+                />
+              )}
             </div>
           </div>
         </BackLayer>
@@ -1226,7 +1470,9 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           <button
             type="button"
             className={cx("scrim", phonePanel && "is-open")}
-            aria-label={phonePanel === "binder" ? "Close binder" : "Close inspector"}
+            aria-label={
+              phonePanel === "binder" ? "Close binder" : searchState === "shown" ? "Hide Find in book" : "Close inspector"
+            }
             tabIndex={-1}
             inert={!phonePanel}
             onClick={() => setPhonePanel(null)}

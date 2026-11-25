@@ -18,6 +18,9 @@ import {
   plainSpellingWordAt,
   plainWordAt,
   refreshNames,
+  clearSearchResult,
+  searchResultField,
+  selectSearchResult,
   setLineStyle,
   toggleMarker,
 } from "./codemirror";
@@ -39,6 +42,7 @@ export function PlainEditor({
   markdown,
   matcher,
   initialCaret,
+  initialSelection,
   onChange,
   onFormatChange,
   onNameClick,
@@ -50,6 +54,7 @@ export function PlainEditor({
   onGrammarClick,
   typingAids = null,
   typewriter = false,
+  search = null,
   readOnly = false,
   className,
   ariaLabel,
@@ -61,18 +66,18 @@ export function PlainEditor({
   const editableExtensions = (on: boolean) => [EditorView.editable.of(on), EditorState.readOnly.of(!on)];
   const initialReadOnly = useRef(readOnly);
   const latest = useRef({
-    matcher, suggestions, misspelled, grammar, typingAids, typewriter,
+    matcher, suggestions, misspelled, grammar, typingAids, typewriter, search,
     onChange, onFormatChange, onNameClick, onSuggestionClick, onSpellingClick, onGrammarClick,
   });
   latest.current = {
-    matcher, suggestions, misspelled, grammar, typingAids, typewriter,
+    matcher, suggestions, misspelled, grammar, typingAids, typewriter, search,
     onChange, onFormatChange, onNameClick, onSuggestionClick, onSpellingClick, onGrammarClick,
   };
   // Read once, when the editor is created; remount to load other text.
-  const initial = useRef({ markdown, initialCaret, ariaLabel });
+  const initial = useRef({ markdown, initialCaret, initialSelection, ariaLabel });
 
   useEffect(() => {
-    const { markdown: doc, initialCaret: caret, ariaLabel: label } = initial.current;
+    const { markdown: doc, initialCaret: caret, initialSelection: result, ariaLabel: label } = initial.current;
     const anchor = caret ? positionToMarkdownOffset(doc, caret) : 0;
     let lastFormat: FormatState | null = null;
     const report = (state: EditorState) => {
@@ -101,12 +106,14 @@ export function PlainEditor({
           typewriterExtension(() => latest.current.typewriter),
           syntaxHighlighting(markdownClasses),
           EditorView.lineWrapping,
+          searchResultField,
           nameHighlight(
             () => latest.current.matcher,
             () => ({
               suggestions: latest.current.suggestions,
               misspelled: latest.current.misspelled,
               grammar: latest.current.grammar,
+              search: latest.current.search,
               markdown: true,
             }),
           ),
@@ -134,8 +141,10 @@ export function PlainEditor({
       }),
     });
     view.current = editor;
-    editor.dispatch({ effects: EditorView.scrollIntoView(anchor, { y: "center" }) });
-    if (!initialReadOnly.current && shouldFocusOnMount()) editor.focus();
+    if (result) selectSearchResult(editor, result.from, result.to);
+    else editor.dispatch({ effects: EditorView.scrollIntoView(anchor, { y: "center" }) });
+    // A search result leaves focus in the search panel.
+    if (!result && !initialReadOnly.current && shouldFocusOnMount()) editor.focus();
     report(editor.state);
     return () => {
       editor.destroy();
@@ -150,7 +159,14 @@ export function PlainEditor({
   // A new matcher (a sheet was added or renamed), new possible names or misspelled words: mark everything again.
   useEffect(() => {
     view.current?.dispatch({ effects: refreshNames.of(null) });
-  }, [matcher, suggestions, misspelled, grammar]);
+  }, [matcher, suggestions, misspelled, grammar, search]);
+
+  // Find closed (a search turned off): no search marks at all, the result it showed included.
+  const searched = useRef(search);
+  useEffect(() => {
+    if (searched.current !== null && search === null && view.current) clearSearchResult(view.current);
+    searched.current = search;
+  }, [search]);
 
   useImperativeHandle(
     ref,
@@ -181,6 +197,25 @@ export function PlainEditor({
       markRange: (mark) => (view.current ? plainMarkRange(view.current, mark) : null),
       replaceWord: (word, text) =>
         view.current !== null && !view.current.state.readOnly && plainReplaceWord(view.current, word, text),
+      selectMarkdown: (from, to) => {
+        if (view.current) selectSearchResult(view.current, from, to);
+      },
+      setMarkdown: (markdown) => {
+        const v = view.current;
+        if (!v || v.state.readOnly) return false;
+        // Only what differs is replaced, so the caret and the rest of the text stay put.
+        const old = v.state.doc.toString();
+        let start = 0;
+        while (start < old.length && start < markdown.length && old[start] === markdown[start]) start++;
+        let end = 0;
+        while (end < old.length - start && end < markdown.length - start && old[old.length - 1 - end] === markdown[markdown.length - 1 - end]) end++;
+        if (start === old.length && start === markdown.length) return true;
+        v.dispatch({
+          changes: { from: start, to: old.length - end, insert: markdown.slice(start, markdown.length - end) },
+          userEvent: "input.replace",
+        });
+        return true;
+      },
     }),
     [],
   );

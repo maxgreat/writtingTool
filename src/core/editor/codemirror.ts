@@ -1,12 +1,12 @@
 import { HighlightStyle, syntaxTree } from "@codemirror/language";
-import { EditorSelection, RangeSetBuilder, StateEffect, type EditorState, type Text } from "@codemirror/state";
+import { EditorSelection, RangeSetBuilder, StateEffect, StateField, type EditorState, type Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import type { NameMatcher } from "../names";
 import { nameFromSelection, wordAround } from "../possibleNames";
 import { markdownText } from "../readable";
 import { wordToCheckAt } from "../spelling";
-import { paragraphMarks, type MarkSources } from "./nameMarks";
+import { paragraphMarks, SEARCH_CURRENT_CLASS, type MarkSources } from "./nameMarks";
 import type { BlockStyle, EditorWord, FormatState } from "./types";
 
 /**
@@ -66,6 +66,40 @@ export function nameHighlight(getMatcher: () => NameMatcher, getSources: () => M
     },
     { decorations: (plugin) => plugin.decorations },
   );
+}
+
+/** Marks a range as the search result shown (see selectSearchResult). */
+const showSearchResult = StateEffect.define<{ from: number; to: number }>();
+
+const searchResultMark = Decoration.mark({ class: SEARCH_CURRENT_CLASS });
+
+/** The search result shown, marked until the selection or the text changes. */
+export const searchResultField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(marks, tr) {
+    for (const effect of tr.effects) {
+      if (!effect.is(showSearchResult)) continue;
+      const { from, to } = effect.value;
+      return from < to ? Decoration.set([searchResultMark.range(from, to)]) : Decoration.none;
+    }
+    return tr.docChanged || tr.selection ? Decoration.none : marks;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
+
+/** Selects a search result (positions in the document) in the middle of the view, marked, without taking focus. */
+export function selectSearchResult(view: EditorView, from: number, to: number): void {
+  const length = view.state.doc.length;
+  const range = EditorSelection.range(Math.min(from, length), Math.min(to, length));
+  view.dispatch({
+    selection: EditorSelection.create([range]),
+    effects: [showSearchResult.of({ from: range.from, to: range.to }), EditorView.scrollIntoView(range, { y: "center" })],
+  });
+}
+
+/** Takes away the shown search result's mark (Find was closed). */
+export function clearSearchResult(view: EditorView): void {
+  if (view.state.field(searchResultField, false)?.size) view.dispatch({ effects: showSearchResult.of({ from: 0, to: 0 }) });
 }
 
 function starsBefore(doc: Text, pos: number): number {

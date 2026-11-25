@@ -205,6 +205,33 @@ const SCENES = [
       await page.getByRole("menu", { name: "Elena Voss" }).waitFor();
     },
   },
+  {
+    name: "desktop-search",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // Find in book, from its shortcut, in the inspector's place: Elena in every chapter, listed by chapter and
+      // highlighted in the text. The third result is opened: selected in the text, focus left in the panel.
+      await page.keyboard.press("Control+Shift+F");
+      await page.getByRole("searchbox", { name: "Find" }).fill("Elena");
+      await page.locator(".search-panel .search-result").nth(2).click();
+      await page.locator(".ProseMirror .search-current").waitFor();
+    },
+  },
+  {
+    name: "desktop-search-replace",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // Replace in book (Ctrl+H) in this British English project: Harbor to Harbour. Replace all asks first, as Undo
+      // only reaches the open chapter.
+      await page.keyboard.press("Control+h");
+      await page.getByRole("searchbox", { name: "Find" }).fill("Harbor");
+      await page.getByRole("textbox", { name: "Replace with" }).fill("Harbour");
+      await page.locator(".search-panel .search-replace-all").click();
+      await page.locator(".search-panel .search-confirm").waitFor();
+    },
+  },
   { name: "phone", ...PHONE, colorScheme: "light" },
   {
     name: "phone-binder",
@@ -245,6 +272,18 @@ const SCENES = [
     colorScheme: "light",
     // The same settings in a sheet from the bottom, as tall as a sheet goes, with a close button for Done.
     setup: (page) => openSettings(page),
+  },
+  {
+    name: "phone-search",
+    ...PHONE,
+    colorScheme: "light",
+    setup: async (page) => {
+      // Find in book from the main menu, in the inspector's overlay. A tap on a result slides it away to show it.
+      await page.getByRole("button", { name: "Main menu" }).click();
+      await page.getByRole("menuitem", { name: "Find in book…" }).click();
+      await page.getByRole("searchbox", { name: "Find" }).fill("Elena");
+      await page.locator(".search-panel .search-result").first().waitFor();
+    },
   },
 ];
 

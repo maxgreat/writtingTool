@@ -300,18 +300,22 @@ describe("the main menu button", () => {
       "Open folder…",
       "Save",
       "Export…",
+      "Find in book…",
+      "Replace in book…",
       "Settings…",
       "Focus mode",
       "Quit",
     ]);
     expect(hint("Open project…")).toBe("Ctrl+O");
     expect(hint("Save")).toBe("Ctrl+S");
+    expect(hint("Find in book…")).toBe("Ctrl+Shift+F");
+    expect(hint("Replace in book…")).toBe("Ctrl+H");
     expect(hint("Settings…")).toBe("Ctrl+,");
     expect(hint("Focus mode")).toBe("F11");
     expect(hint("Quit")).toBe("Ctrl+Q");
     expect(hint("New project…")).toBeNull();
     // Groups are set apart by space.
-    expect(menu()!.querySelectorAll(".popover-gap")).toHaveLength(4);
+    expect(menu()!.querySelectorAll(".popover-gap")).toHaveLength(5);
   });
 
   it("closes once a command is chosen", async () => {
@@ -488,6 +492,72 @@ describe("Export…", () => {
   });
 });
 
+describe("Find in book… and Replace in book…", () => {
+  const searchPanel = () => container.querySelector<HTMLElement>("#inspector .search-panel");
+  const findField = () => searchPanel()?.querySelector<HTMLInputElement>('input[aria-label="Find"]') ?? null;
+  const replaceField = () => searchPanel()?.querySelector<HTMLInputElement>('input[aria-label="Replace with"]') ?? null;
+
+  it("opens Find in the inspector's place, its field ready, and the inspector comes back on close", async () => {
+    await mount();
+    await choose("Find in book…");
+    expect(searchPanel()).not.toBeNull();
+    expect(container.querySelector("#inspector .inspector")).toBeNull();
+    expect(document.activeElement).toBe(findField());
+    expect(replaceField()).toBeNull();
+    await click(searchPanel()!.querySelector<HTMLButtonElement>('button[aria-label="Close Find in book"]')!);
+    expect(searchPanel()).toBeNull();
+    expect(container.querySelector("#inspector .inspector")).not.toBeNull();
+    expect(caretInText()).toBe(true);
+  });
+
+  it("opens it with the replacement showing", async () => {
+    await mount();
+    await choose("Replace in book…");
+    expect(replaceField()).not.toBeNull();
+    expect(document.activeElement).toBe(findField());
+  });
+
+  it("shows the hidden inspector for it, and hides it again on close", async () => {
+    await mount({ settings: { inspectorOpen: false } });
+    await choose("Find in book…");
+    expect(update).toHaveBeenCalledWith({ inspectorOpen: true });
+    update.mockClear();
+    await key({ key: "Escape" }, findField()!);
+    expect(searchPanel()).toBeNull();
+    expect(update).toHaveBeenCalledWith({ inspectorOpen: false });
+  });
+
+  it("opens with Ctrl+Shift+F and Ctrl+H from the text, never the browser's own", async () => {
+    await mount();
+    await focusText();
+    const find = await key({ key: "F", code: "KeyF", ctrlKey: true, shiftKey: true });
+    expect(find.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(findField());
+    expect(replaceField()).toBeNull();
+    const replace = await key({ key: "h", code: "KeyH", ctrlKey: true });
+    expect(replace.defaultPrevented).toBe(true);
+    expect(replaceField()).not.toBeNull();
+    expect(document.activeElement).toBe(findField());
+  });
+
+  it("leaves Ctrl+F and Ctrl+Alt+H alone", async () => {
+    await mount();
+    expect((await ctrl("f")).defaultPrevented).toBe(false);
+    expect((await key({ key: "h", code: "KeyH", ctrlKey: true, altKey: true })).defaultPrevented).toBe(false);
+    expect(searchPanel()).toBeNull();
+  });
+
+  it("opens in the inspector's overlay on phones, and Escape closes both", async () => {
+    await mount({ isPhone: true, backend: app({ folders: false, quit: false }) });
+    await choose("Find in book…");
+    expect(container.querySelector("#inspector")!.classList.contains("is-open")).toBe(true);
+    expect(document.activeElement).toBe(findField());
+    await key({ key: "Escape" }, findField()!);
+    expect(searchPanel()).toBeNull();
+    expect(container.querySelector("#inspector")!.classList.contains("is-open")).toBe(false);
+  });
+});
+
 describe("Settings…", () => {
   it("opens the Settings dialog, and Done puts the caret back in the text", async () => {
     await mount();
@@ -544,12 +614,22 @@ describe("Focus mode", () => {
     // The phone app: no folder picker, no window to close.
     await mount({ isPhone: true, backend: app({ folders: false, quit: false }) });
     await openMenu();
-    expect(labels()).toEqual(["New project…", "Open project…", "Save", "Export…", "Settings…"]);
+    expect(labels()).toEqual([
+      "New project…",
+      "Open project…",
+      "Save",
+      "Export…",
+      "Find in book…",
+      "Replace in book…",
+      "Settings…",
+    ]);
     expect(items().map((i) => i.querySelector(".menu-hint")?.textContent ?? null)).toEqual([
       null,
       null,
       null,
       "Coming soon",
+      null,
+      null,
       null,
     ]);
   });

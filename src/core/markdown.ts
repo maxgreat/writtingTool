@@ -1,7 +1,8 @@
 import type { Editor, Extensions, JSONContent } from "@tiptap/core";
 import HorizontalRule from "@tiptap/extension-horizontal-rule";
-import { Markdown } from "@tiptap/markdown";
+import { Markdown, MarkdownManager } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
+import { escapeParagraphStart } from "./readable";
 
 /**
  * Scene breaks are stored as `***`, the separator the chapter file rules use.
@@ -65,32 +66,39 @@ export function trimBlockEdges(node: JSONContent): JSONContent {
   return { ...node, content };
 }
 
-/**
- * A paragraph typed to start like a heading, list, quote or rule
- * ("- Bonjour", "1984. The river froze.", "> ") would read back as that block.
- */
-function escapeParagraphStart(text: string): string {
-  return text
-    .replace(/^(?=#{1,6}(?:[ \t]|$))/u, "\\")
-    .replace(/^(?=[-+](?:[ \t]|$))/u, "\\")
-    .replace(/^(?=-[ \t]*-[ \t]*-[- \t]*$)/u, "\\")
-    .replace(/^(\d{1,9})(?=[.)](?:[ \t]|$))/u, "$1\\")
-    .replace(/^(?=>)/u, "\\");
+type Encoder = (text: string, node?: JSONContent, parent?: JSONContent) => string;
+type Serializer = (doc: JSONContent | JSONContent[]) => string;
+
+/** Makes a Markdown manager write chapter text as described above: escaped, and trimmed at block edges. */
+function writeAsChapter(manager: { encodeTextForMarkdown: Encoder; serialize: Serializer }): void {
+  manager.encodeTextForMarkdown = escapeChapterText;
+  // editor.getMarkdown() calls manager.serialize, so every save is trimmed.
+  const serialize = manager.serialize.bind(manager);
+  manager.serialize = (doc) => serialize(Array.isArray(doc) ? doc.map(trimBlockEdges) : trimBlockEdges(doc));
 }
 
 const ChapterMarkdown = Markdown.extend({
   onBeforeCreate(event) {
     this.parent?.(event);
-    type Encoder = (text: string, node?: JSONContent, parent?: JSONContent) => string;
-    type Serializer = (doc: JSONContent | JSONContent[]) => string;
     const manager = this.editor.markdown as { encodeTextForMarkdown: Encoder; serialize: Serializer } | undefined;
-    if (!manager) return;
-    manager.encodeTextForMarkdown = escapeChapterText;
-    // editor.getMarkdown() calls manager.serialize, so every save is trimmed.
-    const serialize = manager.serialize.bind(manager);
-    manager.serialize = (doc) => serialize(Array.isArray(doc) ? doc.map(trimBlockEdges) : trimBlockEdges(doc));
+    if (manager) writeAsChapter(manager);
   },
 });
+
+let standalone: MarkdownManager | null = null;
+
+/**
+ * A Markdown manager that reads and writes chapter text as the formatted
+ * editor does (the same parser, the same writing), without an editor.
+ */
+export function chapterMarkdown(): MarkdownManager {
+  if (!standalone) {
+    const manager = new MarkdownManager({ extensions: chapterExtensions() });
+    writeAsChapter(manager as unknown as { encodeTextForMarkdown: Encoder; serialize: Serializer });
+    standalone = manager;
+  }
+  return standalone;
+}
 
 /**
  * The editor schema for a chapter: the small Markdown subset fiction needs

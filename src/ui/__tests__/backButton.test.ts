@@ -12,6 +12,7 @@ import type { ProjectSnapshot } from "../../core/project";
 import type { ProjectEntry } from "../../core/projects";
 import { BACK_AGAIN } from "../BackStack";
 import { HOVER_QUERY, PHONE_QUERY } from "../hooks";
+import { SEARCH_DELAY_MS } from "../SearchPanel";
 
 const ROOT = "/data/projects/Test";
 const CHAPTER = "manuscript/01 Arrival.md";
@@ -394,6 +395,33 @@ describe("Back closes one thing per press, the one on top", () => {
     await pressBack();
     expect(inspectorOpen()).toBe(false);
     expect(exitApp).not.toHaveBeenCalled();
+  });
+
+  it("Find in book's question before Replace all, then Find in book, which gives the inspector its place back", async () => {
+    await mount();
+    await click(barButton("Main menu"));
+    await click(menuItem("Find in book…"));
+    expect(inspectorOpen()).toBe(true);
+    const panel = () => inspector().querySelector<HTMLElement>(".search-panel");
+    await click([...panel()!.querySelectorAll("button")].find((b) => b.textContent === "Replace"));
+    await type(panel()!.querySelector<HTMLInputElement>('input[aria-label="Find"]')!, "Elena");
+    await type(panel()!.querySelector<HTMLInputElement>('input[aria-label="Replace with"]')!, "Mira");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, SEARCH_DELAY_MS + 20));
+    });
+    await click(panel()!.querySelector(".search-replace-all"));
+    expect(panel()!.querySelector(".search-confirm")).not.toBeNull();
+
+    await pressBack();
+    expect(panel()!.querySelector(".search-confirm")).toBeNull();
+    expect(inspectorOpen()).toBe(true);
+
+    await pressBack();
+    expect(panel()).toBeNull();
+    expect(inspectorOpen()).toBe(false);
+    expect(exitApp).not.toHaveBeenCalled();
+    await showInspector();
+    expect(inspector().querySelector(".inspector")).not.toBeNull();
   });
 
   it("nothing left open in a panel that was closed: it is off screen, so Back closes the app", async () => {
