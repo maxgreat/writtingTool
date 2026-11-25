@@ -16,6 +16,8 @@ export interface MainMenuCommands {
   onSave(): void;
   /** A save is being written: Save waits for it. */
   saving: boolean;
+  /** The Export window: the format, its settings and a preview of the pages. */
+  onExport(): void;
   /** Find in book, in the inspector's place (an overlay on phones), the selection in Find. */
   onFind(): void;
   /** The same, with the replacement showing. */
@@ -47,8 +49,8 @@ interface MainMenuProps {
 export const REPLACE_KEYS: string[] = isMac ? ["mod", "alt", "F"] : ["mod", "H"];
 
 /**
- * The app's commands, from the far left of the bar: projects, saving,
- * export (not there yet), finding, settings, focus mode and quitting. Groups
+ * The app's commands, from the far left of the bar: projects, saving and
+ * exporting, finding, settings, focus mode and quitting. Groups
  * are set apart by space, in the order a File menu has them.
  */
 export function MainMenu({ commands, focusMode, open, onOpenChange, triggerRef }: MainMenuProps) {
@@ -90,7 +92,7 @@ export function MainMenu({ commands, focusMode, open, onOpenChange, triggerRef }
           <MenuItem noCheck disabled={commands.saving} hint={hint("mod", "S")} onSelect={choose(commands.onSave)}>
             Save
           </MenuItem>
-          <MenuItem noCheck disabled hint="Coming soon" onSelect={() => undefined}>
+          <MenuItem noCheck onSelect={choose(commands.onExport)}>
             Export…
           </MenuItem>
           <div className="popover-gap" role="none" />

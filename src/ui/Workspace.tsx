@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } fr
 import type { Backend, GrammarProblem, GrammarServer } from "../core/backend";
 import type { TextPosition } from "../core/caret";
 import type { BlockStyle, EditorHandle, FormatState } from "../core/editor/types";
+import { bookContent, bookOutline, exportFileName, readExportMemory } from "../core/exportBook";
+import { BUILT_IN_PRESETS, EXTENSIONS } from "../core/exportSettings";
 import { NameIndex } from "../core/nameIndex";
 import type { IgnoredName } from "../core/names";
 import { holdsNames, type Project } from "../core/project";
@@ -21,6 +23,7 @@ import { SheetPreview } from "./BottomSheet";
 import { CloseDialog } from "./CloseDialog";
 import { cx, errorMessage, focusLost, hasMod, isMac, shortcut } from "./dom";
 import { EditorPane } from "./EditorPane";
+import { ExportDialog, type ExportChoice, type ExportSource } from "./ExportDialog";
 import { FormatBar } from "./FormatBar";
 import type { GrammarSource } from "./GrammarMenu";
 import { HOVER_QUERY, useMediaQuery } from "./hooks";
@@ -233,6 +236,9 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   /** Where Find is, to tell whether it is asked for again from inside it. */
   const searchSlotRef = useRef<HTMLDivElement>(null);
 
+  /** The Export window, from the main menu: full screen on phones. */
+  const [exportOpen, setExportOpen] = useState(false);
+
   // A chapter with Markdown the formatted editor can't keep is shown in Plain
   // until another chapter is opened. The mode setting itself doesn't change.
   const [plainOnlyId, setPlainOnlyId] = useState<string | null>(null);
@@ -282,6 +288,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     setSearchState("closed");
     setSearchMarks(null);
     hideInspectorAfterSearch.current = false;
+    setExportOpen(false);
   }
 
   // The check goes as soon as there is something to save again, or the save failed.
@@ -1137,6 +1144,64 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     });
   }, [isPhone]);
 
+  /** The Export window closes as Settings does: back to the text on desktop, focus left alone on phones. */
+  const closeExport = useCallback(() => {
+    setExportOpen(false);
+    if (isPhone) return;
+    void nextFrame().then(() => {
+      if (focusLost()) editorRef.current?.focus();
+    });
+  }, [isPhone]);
+
+  /** The project as this render has it, for the Export window to read when it lays out pages or writes the file. */
+  const projectNow = useRef(project);
+  projectNow.current = project;
+
+  /**
+   * What the Export window works from, while it is open: the book's parts
+   * and chapters, the built-in presets and the project's own, the last
+   * export's settings, and the core's layout, pages and export. Made again
+   * only when one of those changes, not on every render, so the window isn't
+   * handed a new source while it is open. The chapters' text is read when
+   * the pages are laid out or the file is written, so the latest edits are in.
+   */
+  const { binder, title: projectTitle, json: projectJson } = project;
+  const { saveExportPreset, rememberExport } = api;
+  const exportSource = useMemo<ExportSource | null>(() => {
+    if (!exportOpen) return null;
+    const memory = readExportMemory(projectJson);
+    const first = BUILT_IN_PRESETS[0];
+    const book = (choice: ExportChoice) => bookContent(projectNow.current, choice.chapterIds, choice.author);
+    const layOutBook = backend.layOutBook?.bind(backend);
+    const bookPage = backend.bookPage?.bind(backend);
+    const exportBook = backend.exportBook?.bind(backend);
+    const source: ExportSource = {
+      // Reads only the binder and the chapters' titles, which the memo follows.
+      outline: bookOutline(project),
+      title: projectTitle,
+      author: memory.author,
+      presets: [
+        ...BUILT_IN_PRESETS.map((p) => ({ ...p, builtIn: true })),
+        ...memory.presets.map((p) => ({ ...p, builtIn: false })),
+      ],
+      initial: memory.last ?? { presetName: first.name, settings: first.settings, format: "pdf" },
+      export: async (choice) => {
+        if (!exportBook) throw new Error("The browser preview can’t save files. Use the desktop or Android app.");
+        const fileName = exportFileName(projectNow.current.title, EXTENSIONS[choice.format]);
+        return exportBook(book(choice), choice.settings, choice.format, fileName);
+      },
+      savePreset: (name, settings) => {
+        // useProject would leave project.json as it is meanwhile, and the window would show the preset as saved.
+        if (switching) throw new Error("The project is changing on disk. Try again in a moment.");
+        saveExportPreset(name, settings);
+      },
+      remember: rememberExport,
+    };
+    if (layOutBook) source.layOut = async (choice) => layOutBook(book(choice), choice.settings);
+    if (bookPage) source.page = bookPage;
+    return source;
+  }, [exportOpen, binder, chaptersById, projectTitle, projectJson, backend, switching, saveExportPreset, rememberExport]);
+
   const mainMenu: MainMenuCommands = {
     canCreateProjects: backend.canCreateProjects,
     onNewProject: () => showProjects("new"),
@@ -1153,6 +1218,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
       void save();
     },
     saving: api.save.status === "saving",
+    onExport: () => setExportOpen(true),
     onFind: () => openSearch("find"),
     onReplace: () => openSearch("replace"),
     onSettings: () => setSettingsOpen(true),
@@ -1189,15 +1255,15 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   };
 
   const asking = closeAsk !== null;
-  const keys = useRef({ togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit, asking, settingsOpen, openSearch });
-  keys.current = { togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit, asking, settingsOpen, openSearch };
+  const keys = useRef({ togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit, asking, settingsOpen, exportOpen, openSearch });
+  keys.current = { togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit, asking, settingsOpen, exportOpen, openSearch };
 
   useEffect(() => {
     // Capture phase, so these work whichever editor has focus.
     const onShortcut = (event: KeyboardEvent) => {
       const k = keys.current;
-      // The close dialog is a decision, and Settings has its own keys (Escape, Tab): nothing changes behind them.
-      if (k.asking || k.settingsOpen) return;
+      // The close dialog is a decision, and Settings and Export have their own keys (Escape, Tab): nothing changes behind them.
+      if (k.asking || k.settingsOpen || k.exportOpen) return;
       if (event.key === "F11") {
         event.preventDefault();
         if (k.focusMode) k.leaveFocus();
@@ -1244,7 +1310,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       const k = keys.current;
-      if (k.asking || k.settingsOpen) return;
+      if (k.asking || k.settingsOpen || k.exportOpen) return;
       if (k.phonePanel) setPhonePanel(null);
       else if (k.focusMode) k.leaveFocus();
     };
@@ -1528,6 +1594,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
         onLanguageChange={api.setLanguage}
         openUrl={backend.openUrl}
       />
+
+      {exportSource && <ExportDialog open source={exportSource} onClose={closeExport} isPhone={isPhone} />}
 
       <CloseDialog
         open={closeAsk !== null}

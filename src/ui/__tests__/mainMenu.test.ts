@@ -224,6 +224,7 @@ const alerted = () => container.querySelector('.workspace > p.visually-hidden[ro
 const caretInText = () => document.activeElement?.closest(".editor-pane") != null;
 const isFocusMode = () => container.querySelector(".workspace")!.classList.contains("is-focus");
 const settingsDialog = () => document.querySelector<HTMLElement>('.settings-dialog[role="dialog"]');
+const exportDialog = () => document.querySelector<HTMLElement>('.export-dialog[role="dialog"]');
 /** A switch in the Settings dialog, by its label. */
 const settingsSwitch = (label: string) =>
   [...(settingsDialog()?.querySelectorAll<HTMLElement>('[role="switch"]') ?? [])].find(
@@ -484,11 +485,64 @@ describe("Save", () => {
 });
 
 describe("Export…", () => {
-  it("is there, but not yet: disabled, and says so", async () => {
+  it("opens the Export window, with no shortcut, and Cancel puts the caret back in the text", async () => {
     await mount();
     await openMenu();
-    expect(item("Export…")?.disabled).toBe(true);
-    expect(hint("Export…")).toBe("Coming soon");
+    expect(item("Export…")?.disabled).toBe(false);
+    expect(hint("Export…")).toBeNull();
+    await click(item("Export…"));
+    const dialog = exportDialog();
+    expect(dialog?.getAttribute("aria-modal")).toBe("true");
+    expect(document.getElementById(dialog!.getAttribute("aria-labelledby")!)?.textContent).toBe("Export");
+    expect(dialog!.contains(document.activeElement)).toBe(true);
+    await click([...dialog!.querySelectorAll("button")].find((b) => b.textContent === "Cancel"));
+    expect(exportDialog()).toBeNull();
+    await afterFrame();
+    expect(caretInText()).toBe(true);
+  });
+
+  it("leaves Export its keys: nothing else happens behind it, and Escape closes it", async () => {
+    await mount({ save: { status: "pending" } });
+    await focusText();
+    await choose("Export…");
+    await key({ key: "F11" });
+    expect(isFocusMode()).toBe(false);
+    await ctrl("s");
+    expect(saveNow).not.toHaveBeenCalled();
+    await ctrl("o");
+    expect(projectsView()).toBeNull();
+    await ctrlComma();
+    expect(settingsDialog()).toBeNull();
+    await key({ key: "B", code: "KeyB", ctrlKey: true, altKey: true });
+    expect(update).not.toHaveBeenCalled();
+    await ctrl("q");
+    expect(closeWindow).not.toHaveBeenCalled();
+    expect(exportDialog()).not.toBeNull();
+    await key({ key: "Escape" });
+    expect(exportDialog()).toBeNull();
+    await afterFrame();
+    expect(caretInText()).toBe(true);
+    // Back to work: the shortcuts are there again.
+    await ctrl("s");
+    expect(saveNow).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the close dialog ask above it: Escape cancels the close, and the window stays as it was", async () => {
+    await mount();
+    await choose("Export…");
+    const before = document.activeElement;
+    // The window's own close button.
+    await act(async () => {
+      void closeWindow();
+    });
+    const ask = document.querySelector<HTMLElement>('[role="alertdialog"]');
+    expect(ask).not.toBeNull();
+    expect(ask!.contains(document.activeElement)).toBe(true);
+    await key({ key: "Escape" });
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(closed).not.toHaveBeenCalled();
+    expect(exportDialog()).not.toBeNull();
+    expect(document.activeElement).toBe(before);
   });
 });
 
@@ -627,7 +681,7 @@ describe("Focus mode", () => {
       null,
       null,
       null,
-      "Coming soon",
+      null,
       null,
       null,
       null,

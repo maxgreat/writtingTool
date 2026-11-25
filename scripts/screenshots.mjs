@@ -232,6 +232,19 @@ const SCENES = [
       await page.locator(".search-panel .search-confirm").waitFor();
     },
   },
+  {
+    name: "desktop-export",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // Export…, from the main menu: the first built-in preset, Paperback A5, as a PDF, its settings beside the
+      // real pages, which the dev server's copy of the core lays out with Typst (building it the first time, hence
+      // the long wait). The Chapters menu goes to the first chapter, which starts on a right-hand page.
+      await openExport(page);
+      await pagesDrawn(page);
+      await goToFirstChapter(page);
+    },
+  },
   { name: "phone", ...PHONE, colorScheme: "light" },
   {
     name: "phone-binder",
@@ -285,6 +298,19 @@ const SCENES = [
       await page.locator(".search-panel .search-result").first().waitFor();
     },
   },
+  {
+    name: "phone-export",
+    ...PHONE,
+    colorScheme: "light",
+    setup: async (page) => {
+      // On a phone the Export window fills the screen, its settings and the pages as two tabs; Preview shows one
+      // page at a time, here the first chapter's.
+      await openExport(page);
+      await page.getByRole("tab", { name: "Preview" }).click();
+      await pagesDrawn(page);
+      await goToFirstChapter(page);
+    },
+  },
 ];
 
 /** Settings, from the main menu: a dialog on desktop, a sheet from the bottom on phones. */
@@ -292,6 +318,41 @@ async function openSettings(page) {
   await page.getByRole("button", { name: "Main menu" }).click();
   await page.getByRole("menuitem", { name: "Settings…" }).click();
   await page.getByRole("dialog", { name: "Settings" }).waitFor();
+}
+
+/** Export…, from the main menu: a window over the app, full screen on phones. */
+async function openExport(page) {
+  await page.getByRole("button", { name: "Main menu" }).click();
+  await page.getByRole("menuitem", { name: "Export…" }).click();
+  await page.getByRole("dialog", { name: "Export" }).waitFor();
+}
+
+/**
+ * Waits until each page in the Export window's view is drawn: its picture loaded, none kept from an earlier
+ * layout. The first layout may wait for the dev core to be built.
+ */
+async function pagesDrawn(page) {
+  await page.waitForFunction(
+    () => {
+      const shown = [...document.querySelectorAll(".export-stage .export-page:not(.is-empty)")];
+      return (
+        shown.length > 0 &&
+        shown.every((slot) => {
+          const img = slot.querySelector("img");
+          return img !== null && img.dataset.stale === undefined && img.complete && img.naturalWidth > 0;
+        })
+      );
+    },
+    null,
+    { timeout: 300_000 },
+  );
+}
+
+/** The Export window's Chapters menu: the first chapter's pages. */
+async function goToFirstChapter(page) {
+  await page.locator(".export-chapter-trigger").click();
+  await page.getByRole("menu", { name: "Go to chapter" }).getByRole("menuitemradio").first().click();
+  await pagesDrawn(page);
 }
 
 /** A chapter's row in the binder, by its title. */

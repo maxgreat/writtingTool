@@ -1,0 +1,554 @@
+/*
+ * The export window (ExportDialog.tsx): the format as tabs and the preset
+ * menu on top, the settings on the left, the pages on the right, the status
+ * and Export below. Full screen on phones, with Settings and Preview as two
+ * tabs. Above the side panels; its own menus (popovers) go above it.
+ */
+
+/* A grid, so the window fills it, inset from the edges. */
+.export-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog-scrim);
+  display: grid;
+  padding: var(--space-8);
+  background: var(--color-scrim);
+  animation: export-fade var(--duration-fast) var(--ease-standard);
+}
+
+.export-dialog {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-overlay);
+  outline: var(--size-hairline) solid var(--color-separator);
+  animation: export-in var(--duration-fast) var(--ease-standard);
+}
+
+/* Focus rests on the window itself when it opens: no ring. */
+.export-dialog:focus-visible {
+  outline: var(--size-hairline) solid var(--color-separator);
+}
+
+/* Header ------------------------------------------------------------------ */
+
+.export-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+}
+
+.export-title {
+  font-size: var(--text-lg);
+}
+
+.export-formats {
+  display: flex;
+  gap: var(--space-0-5);
+}
+
+/* The chosen format, marked as the inspector's tabs are. */
+.export-format[aria-selected="true"] {
+  background: var(--color-active-bg);
+  color: var(--color-accent);
+  font-weight: var(--weight-medium);
+}
+
+.export-header-end {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin-inline-start: auto;
+}
+
+/* Pulled out by its padding, so the label ends where the preview's controls do. */
+.export-preset {
+  min-width: 0;
+  margin-inline-end: calc(var(--space-2) * -1);
+}
+
+.export-preset-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Body -------------------------------------------------------------------- */
+
+.export-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/*
+ * The settings: groups set apart by space alone. One grid for all of them
+ * (each group a subgrid), so every control starts on the same line, after
+ * the longest label. The column takes up to a side panel's share of the
+ * window, between a card's width and a dialog's.
+ */
+.export-settings {
+  display: grid;
+  flex: none;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-content: start;
+  gap: var(--space-6) var(--space-4);
+  width: min(var(--size-dialog), max(var(--size-card), var(--panel-max-share)));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-2) var(--space-4) var(--space-6);
+}
+
+.export-settings > * {
+  grid-column: 1 / -1;
+}
+
+.export-note {
+  color: var(--color-text-muted);
+}
+
+.export-group {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  grid-template-columns: subgrid;
+  row-gap: var(--space-2);
+}
+
+.export-group > .section-label {
+  grid-column: 1 / -1;
+}
+
+/* Label and control side by side; each label sits on its control's text. */
+.export-fields {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: max-content minmax(0, 1fr);
+  grid-template-columns: subgrid;
+  align-items: baseline;
+  row-gap: var(--space-1);
+}
+
+.export-fields > label:not(.export-check),
+.export-label-top,
+.export-label-end {
+  color: var(--color-text-muted);
+}
+
+/* Something under the line above it, in the controls' column. */
+.export-control {
+  grid-column: 2;
+}
+
+.export-wide {
+  grid-column: 1 / -1;
+}
+
+/* A label beside controls that stand in a column, lined up with the first of them. */
+.export-label-top {
+  align-self: start;
+  padding-top: calc((var(--size-control) - var(--leading-normal) * 1em) / 2);
+}
+
+/* A label beside fields named above them (the margins), lined up with the fields. */
+.export-label-end {
+  align-self: end;
+  padding-bottom: calc((var(--size-control) - var(--leading-normal) * 1em) / 2);
+}
+
+.export-short {
+  width: var(--size-input-min);
+}
+
+.export-quantity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.export-number {
+  width: var(--space-16);
+}
+
+/* Inside, outside, top and bottom on one line, each named above its field; two lines in a narrow column. */
+.export-margins {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--space-12), 1fr));
+  gap: var(--space-2);
+}
+
+.export-margin {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.export-margin .export-quantity,
+.export-margin .export-number {
+  width: 100%;
+  font-size: var(--text-ui);
+}
+
+/* What a number field takes, while what is typed there isn't applied. */
+.export-range {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.export-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-height: var(--size-control);
+  cursor: pointer;
+}
+
+.export-check input {
+  flex: none;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  margin: 0;
+  accent-color: var(--color-accent-fill);
+  cursor: inherit;
+}
+
+.export-checks {
+  display: flex;
+  flex-direction: column;
+}
+
+.export-checks--grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--space-4);
+}
+
+/* Chosen chapters: each part's box, its chapters under it, lined up with its name. */
+.export-chapters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.export-count {
+  color: var(--color-text-muted);
+}
+
+.export-part-label {
+  font-weight: var(--weight-medium);
+}
+
+.export-part ul {
+  padding-inline-start: calc(var(--size-icon) + var(--space-1-5));
+}
+
+.export-chapters .export-check span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Preview ----------------------------------------------------------------- */
+
+.export-preview {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--color-surface);
+}
+
+.export-settings[hidden],
+.export-preview[hidden] {
+  display: none;
+}
+
+.export-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+}
+
+.export-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Wide enough for "212–213 of 214", so the arrows don't move as the pages turn. */
+.export-position {
+  display: flex;
+  justify-content: center;
+  min-width: var(--size-input-min);
+}
+
+/* Where the page count goes, until the first layout gives it. */
+.export-position-skeleton {
+  width: var(--skeleton-medium);
+}
+
+/* Pulled out by its padding, so its label ends where the preset's does. */
+.export-chapter-trigger {
+  margin-inline-end: calc(var(--space-2) * -1);
+}
+
+.export-chapter-menu .menu-hint {
+  font-variant-numeric: tabular-nums;
+}
+
+.export-preview-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding: 0 var(--space-4);
+  overflow-wrap: anywhere;
+}
+
+/* The pages, as large as the room allows: container units measure it. */
+.export-stage {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  min-height: 0;
+  padding: var(--space-6);
+  overflow: hidden;
+  container-type: size;
+}
+
+.export-stage:focus-visible {
+  outline-offset: calc(var(--size-focus-ring) * -1);
+}
+
+/* --spread-ratio and --page-ratio are the layout's own page shape, set from script. */
+.export-spread {
+  display: flex;
+  width: min(100cqw, 100cqh * var(--spread-ratio));
+}
+
+.export-page {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  aspect-ratio: var(--page-ratio);
+  outline: var(--size-hairline) solid var(--color-separator);
+}
+
+/* A page kept from the layout before keeps its own shape until the new one arrives. */
+.export-page img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* The left of page 1's spread: no page there. */
+.export-page.is-empty {
+  visibility: hidden;
+}
+
+.export-page.is-loading {
+  background: var(--color-skeleton);
+  animation: skeleton-pulse var(--duration-pulse) ease-in-out infinite;
+}
+
+.export-page.is-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* Why there are no pages: centred in the room they would take. */
+.export-preview-note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: var(--size-card);
+  margin: auto;
+  padding: var(--space-6);
+  color: var(--color-text-muted);
+  text-align: center;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+.export-preview-note-title {
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.export-preview-note.is-error .export-preview-note-title,
+.export-preview-note.is-error .export-reason {
+  color: var(--color-danger);
+}
+
+/* Footer ------------------------------------------------------------------ */
+
+.export-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+}
+
+/* Error messages and paths can be long, and paths have no spaces to break at. */
+.export-status {
+  flex: 1 1 var(--size-input-min);
+  min-width: 0;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.export-status.is-error {
+  color: var(--color-danger);
+}
+
+.export-status.is-done {
+  color: var(--color-text);
+}
+
+.export-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* The primary action waiting for its file. */
+.export-button[aria-busy="true"] {
+  cursor: progress;
+}
+
+/* Save as preset ---------------------------------------------------------- */
+
+.export-save {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+}
+
+.export-save .input {
+  width: 100%;
+}
+
+/* Always there, empty or not, so screen readers announce what comes in it. */
+.export-save-note {
+  font-size: var(--text-xs);
+}
+
+.export-save-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* The form's own action, in the accent, without a fill: Export stays the window's one filled button. */
+.export-save-submit {
+  color: var(--color-accent);
+  font-weight: var(--weight-medium);
+}
+
+/* Phones ------------------------------------------------------------------ */
+
+.export-scrim.is-phone {
+  padding: 0;
+}
+
+.export-dialog.is-phone {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
+}
+
+/* The close button ends the line, its icon lined up with the content's end. */
+.is-phone .export-close {
+  margin-inline-end: calc((var(--size-control) - var(--size-icon)) / -2);
+}
+
+.is-phone .export-formats {
+  order: 1;
+  width: 100%;
+}
+
+.export-views {
+  margin: 0 var(--space-4) var(--space-2);
+}
+
+.export-views .segmented-option[aria-selected="true"] {
+  background: var(--color-surface-raised);
+  color: var(--color-accent);
+  font-weight: var(--weight-medium);
+}
+
+.is-phone .export-settings {
+  flex: 1;
+  width: auto;
+}
+
+.export-preset-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.is-phone .export-stage {
+  padding: var(--space-4);
+}
+
+.is-phone .export-footer {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* In a column, the line's flex basis would be a height: it is as tall as its text. */
+.is-phone .export-status {
+  flex: none;
+}
+
+.is-phone .export-actions .btn--primary {
+  flex: 1;
+}
+
+/* Motion ------------------------------------------------------------------ */
+
+@keyframes export-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes export-in {
+  from {
+    opacity: 0;
+    translate: 0 var(--space-1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .export-scrim,
+  .export-dialog,
+  .export-page.is-loading {
+    animation: none;
+  }
+}

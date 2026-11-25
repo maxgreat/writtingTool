@@ -13,6 +13,7 @@ import "./ui/search-panel.css";
 import "./ui/status-bar.css";
 import "./ui/screens.css";
 import "./ui/settings-dialog.css";
+import "./ui/export-dialog.css";
 import "./ui/close-dialog.css";
 
 createRoot(document.getElementById("root")!).render(

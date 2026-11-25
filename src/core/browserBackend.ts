@@ -1,4 +1,5 @@
 import type { Backend, GrammarProblem, Version } from "./backend";
+import type { BookLayout } from "./exportSettings";
 import { applyChange, type MemoryTree } from "./memoryFiles";
 import { buildProject, type ProjectSnapshot } from "./project";
 
@@ -85,13 +86,30 @@ async function devGrammar(body: object): Promise<GrammarProblem[][] | null> {
   return answer.result ?? null;
 }
 
-const spelling: Pick<Backend, "checkWords" | "suggestWords" | "checkGrammar"> = import.meta.env.DEV
+/** The export preview's pages, from the dev server's copy of the Rust core. */
+async function devCore<T>(request: "layout" | "page", body: object): Promise<T> {
+  const response = await fetch(`/__dev/core/${request}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const answer = (await response.json()) as { result?: T; error?: string };
+  if (!response.ok || answer.error !== undefined || answer.result === undefined) {
+    throw new Error(answer.error ?? `The dev server couldn't lay out the pages (${response.status}).`);
+  }
+  return answer.result;
+}
+
+/** What the dev server answers for the preview (spelling, grammar, export pages); nothing in a build. */
+const devServer: Pick<Backend, "checkWords" | "suggestWords" | "checkGrammar" | "layOutBook" | "bookPage"> = import.meta.env.DEV
   ? {
       checkWords: async (language, words) =>
         (await devSpelling<{ correct: boolean[] | null }>("check", { language, words })).correct,
       suggestWords: async (language, word) =>
         (await devSpelling<{ suggestions: string[] | null }>("suggest", { language, word })).suggestions,
       checkGrammar: (language, paragraphs, server) => devGrammar({ language, paragraphs, server }),
+      layOutBook: (book, settings) => devCore<BookLayout>("layout", { book, settings }),
+      bookPage: (generation, index) => devCore<string>("page", { generation, index }),
     }
   : {};
 
@@ -110,7 +128,7 @@ function snapshot(): ProjectSnapshot {
 }
 
 export const browserBackend: Backend = {
-  ...spelling,
+  ...devServer,
   kind: "browser",
   canOpenFolders: false,
   canCreateProjects: false,

@@ -1,15 +1,19 @@
-// The Rust core's grammar check for the browser preview, served by Vite's
-// dev server only (`npm run dev`, and `npm run screenshots`, which runs it).
+// The Rust core's grammar check and export preview for the browser preview,
+// served by Vite's dev server only (`npm run dev`, and `npm run screenshots`,
+// which runs it).
 // The preview has no Rust core, so this runs the same code as a small
 // program kept running beside the server (src-tauri/examples/dev_core.rs),
 // built the first time it is asked for. It is never part of a build.
 //
 //   POST /__dev/core/grammar  { language, paragraphs, server }  →  { result } | { error }
+//   POST /__dev/core/layout   { book, settings }                →  { result: { generation, pages, … } }
+//   POST /__dev/core/page     { generation, index }             →  { result: "<svg…" }
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
-const MAX_BODY = 4 * 1024 * 1024;
+/** A whole book's text goes in a layout request. */
+const MAX_BODY = 32 * 1024 * 1024;
 
 /** The request's JSON body. One larger than MAX_BODY is refused, and the rest of it never read. */
 function readJson(req) {
@@ -83,7 +87,7 @@ function core(root) {
   return { ask, stop };
 }
 
-/** A Vite plugin that answers the browser preview's grammar checks with the Rust core, in the dev server only. */
+/** A Vite plugin that answers the browser preview's grammar checks and export pages with the Rust core, in the dev server only. */
 export function devCore(root) {
   const { ask, stop } = core(root);
   return {
@@ -103,6 +107,12 @@ export function devCore(root) {
           if (req.url === "/grammar") {
             const { language, paragraphs, server: grammarServer } = body;
             return reply(200, { result: await ask({ kind: "grammar", language, paragraphs, server: grammarServer ?? null }) });
+          }
+          if (req.url === "/layout") {
+            return reply(200, { result: await ask({ kind: "layOut", book: body.book, settings: body.settings }) });
+          }
+          if (req.url === "/page") {
+            return reply(200, { result: await ask({ kind: "page", generation: body.generation, index: body.index }) });
           }
           return reply(404, { error: "Unknown request" });
         } catch (error) {

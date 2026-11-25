@@ -1,5 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { Change } from "./binder";
+import type { BookContent } from "./exportBook";
+import type { BookLayout, ExportFormat, ExportSettings } from "./exportSettings";
 import type { ProjectSnapshot } from "./project";
 import type { NewProject, ProjectEntry } from "./projects";
 
@@ -110,6 +112,21 @@ export interface Backend {
    * when a server can't be reached or refuses. Absent in the browser preview.
    */
   checkGrammar?(language: string, paragraphs: string[], server: GrammarServer | null): Promise<GrammarProblem[][] | null>;
+  /**
+   * Lays the book out into pages with Typst, for the export preview; the
+   * core keeps the pages for bookPage. Absent where pages can't be drawn
+   * (the browser preview without its dev server).
+   */
+  layOutBook?(book: BookContent, settings: ExportSettings): Promise<BookLayout>;
+  /** One page of a layout as SVG; rejects once a newer layout replaced it. There exactly where layOutBook is. */
+  bookPage?(generation: number, index: number): Promise<string>;
+  /**
+   * Writes the book in `format` where the writer chooses in the system's
+   * save dialog (`fileName` suggested). Resolves to where it went, "" when
+   * the system doesn't say (Android's save dialog gives no path), or null
+   * when the dialog was cancelled. Absent in the browser preview.
+   */
+  exportBook?(book: BookContent, settings: ExportSettings, format: ExportFormat, fileName: string): Promise<string | null>;
   /**
    * Desktop app only: shows the text's context menu, native, at a point in
    * the window (client coordinates): `items` first, in groups set apart by
@@ -256,6 +273,10 @@ const appBackend: Omit<Backend, "canOpenFolders"> = {
   suggestWords: (language, word) => call<string[] | null>("suggest_words", { language, word }),
   checkGrammar: (language, paragraphs, server) =>
     call<GrammarProblem[][] | null>("check_grammar", { language, paragraphs, server }),
+  layOutBook: (book, settings) => call<BookLayout>("lay_out_book", { book, settings }),
+  bookPage: (generation, index) => call<string>("book_page", { generation, index }),
+  exportBook: (book, settings, format, fileName) =>
+    call<string | null>("export_book", { book, settings, format, fileName }),
   popupTextMenu(items, x, y) {
     // One at a time, so each menu frees the one before it.
     const shown = textMenus.then(() => showTextMenu(items, x, y));

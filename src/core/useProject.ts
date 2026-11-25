@@ -6,6 +6,8 @@ import { withIgnoredName, withNotName, type ProjectJsonWrite } from "./nameChoic
 import type { IgnoredName } from "./names";
 import { buildNameMatcher, buildProject, withChapterText, withSheetText, type Project, type ProjectSnapshot } from "./project";
 import { editSheetText, newSheetPath, newSheetText, type SheetEdit } from "./sheetFile";
+import { withExportChoice, withExportPreset } from "./exportBook";
+import type { ExportFormat, ExportSettings } from "./exportSettings";
 import { withLanguage } from "./projectSettings";
 import { spellingKey, withWordAdded } from "./spelling";
 import { newProject, readRecentProjects, rememberRecentProject, type ProjectEntry } from "./projects";
@@ -405,6 +407,23 @@ export function useProject() {
   const setLanguage = useCallback((code: string) => changeJson((p) => withLanguage(p, code)), [changeJson]);
 
   /**
+   * Saves export settings as the project's preset `name`, in project.json
+   * like an edit. Throws, changing nothing, for an empty or built-in name,
+   * or when project.json could not be read.
+   */
+  const saveExportPreset = useCallback(
+    (name: string, settings: ExportSettings) => changeJson((p) => withExportPreset(p, name, settings)),
+    [changeJson],
+  );
+
+  /** Remembers the last export's settings, format, preset and author in project.json, for the next one. */
+  const rememberExport = useCallback(
+    (choice: { format: ExportFormat; settings: ExportSettings; author: string }, presetName: string | null) =>
+      changeJson((p) => withExportChoice(p, choice, presetName)),
+    [changeJson],
+  );
+
+  /**
    * Adds a word to the project's dictionary.txt, which the spelling check
    * accepts, saved like an edit: the word is accepted at once. Does nothing
    * for a word already there. Throws, changing nothing, when dictionary.txt
@@ -617,6 +636,8 @@ export function useProject() {
     markNotName,
     addToDictionary,
     setLanguage,
+    saveExportPreset,
+    rememberExport,
     changeBinder,
     trashSheet,
     listVersions,

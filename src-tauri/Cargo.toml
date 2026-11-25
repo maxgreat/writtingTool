@@ -24,6 +24,17 @@ include_dir = "0.7.4"
 spellbook = "=0.4.2"
 # Grammar for English, offline. Its spelling rules are left out: the dictionaries above check spelling.
 harper-core = { version = "=3.0.0", default-features = false, features = ["concurrent"] }
+# Export: Typst lays out the preview's pages and the PDF; EPUB and Word are written from the same model.
+typst = "=0.15.1"
+typst-layout = "=0.15.1"
+typst-pdf = "=0.15.1"
+typst-svg = "=0.15.1"
+typst-assets = { version = "=0.15.1", features = ["fonts"] }
+pulldown-cmark = { version = "=0.13.4", default-features = false }
+docx-rs = { version = "=0.4.22", default-features = false }
+zip = { version = "8", default-features = false, features = ["deflate"] }
+# Writes an exported file where the save dialog chose, Android's content:// places included.
+tauri-plugin-fs = "=2.7.1"
 # The opt-in LanguageTool connection: rustls with bundled roots, nothing platform-specific on Android.
 ureq = { version = "=3.5.1", default-features = false, features = ["rustls"] }
 

@@ -2,18 +2,24 @@
 //! commands, and the core owns the project folder.
 
 mod dictionary;
+pub mod export;
 pub mod grammar;
 pub mod languagetool;
 mod project;
 mod projects;
 
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use project::{Change, FileWrite, ProjectRoot, ProjectSnapshot, Version};
 use projects::ProjectEntry;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_fs::FsExt;
+use typst_layout::PagedDocument;
 
 /// The open project. The lock is held for a whole command, so two writes or
 /// an open and a write never interleave.
@@ -204,6 +210,96 @@ async fn check_grammar(
     }
 }
 
+
+/// The last pages laid out for the export preview, and the number naming
+/// them: a page is only ever drawn from the layout it was asked for.
+#[derive(Default)]
+struct ExportState {
+    layout: Mutex<Option<(u64, PagedDocument)>>,
+    generation: AtomicU64,
+}
+
+/// The pages laid out for the preview.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BookLayout {
+    generation: u64,
+    pages: usize,
+    /// A page's size in points.
+    width: f64,
+    height: f64,
+    chapter_pages: Vec<usize>,
+}
+
+/// Lays the book out for the export preview, and keeps the pages for book_page.
+#[tauri::command]
+async fn lay_out_book(book: export::Book, settings: export::Settings, state: State<'_, ExportState>) -> Result<BookLayout, String> {
+    let generation = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let document = export::lay_out(&book, &settings)?;
+    let (width, height) = export::page_size_pt(&document);
+    let layout = BookLayout {
+        generation,
+        pages: document.pages().len(),
+        width,
+        height,
+        chapter_pages: export::chapter_pages(&document),
+    };
+    let mut kept = state.layout.lock().map_err(|_| "The preview is unavailable.")?;
+    // A slower, older layout never replaces a newer one.
+    if kept.as_ref().is_none_or(|(g, _)| *g < generation) {
+        *kept = Some((generation, document));
+    }
+    Ok(layout)
+}
+
+/// One page of a layout as SVG. Refused once a newer layout replaced it.
+#[tauri::command]
+async fn book_page(generation: u64, index: usize, state: State<'_, ExportState>) -> Result<String, String> {
+    let kept = state.layout.lock().map_err(|_| "The preview is unavailable.")?;
+    match kept.as_ref() {
+        Some((g, document)) if *g == generation => {
+            export::page_svg(document, index).ok_or_else(|| format!("There is no page {}.", index + 1))
+        }
+        _ => Err("That layout has been replaced.".into()),
+    }
+}
+
+/// Writes the book in `format` where the writer chooses in the system's save
+/// dialog. Resolves to the file's path, "" when the dialog gives an address
+/// that isn't one (Android's content://), or None when it was cancelled.
+#[tauri::command]
+async fn export_book(
+    app: AppHandle,
+    book: export::Book,
+    settings: export::Settings,
+    format: export::Format,
+    file_name: String,
+) -> Result<Option<String>, String> {
+    // Made first, so a failure shows before the dialog asks where.
+    let bytes = export::write(&book, &settings, format)?;
+    let (label, extension) = format.filter();
+    let Some(path) = app
+        .dialog()
+        .file()
+        .set_file_name(&file_name)
+        .add_filter(label, &[extension])
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+    // Where it went, to show: a path on desktop. Android's save dialog gives a content:// address,
+    // which says nothing to the writer, who has just chosen the place: "" then.
+    let shown = match &path {
+        tauri_plugin_fs::FilePath::Path(p) => p.display().to_string(),
+        tauri_plugin_fs::FilePath::Url(url) => url.to_file_path().map(|p| p.display().to_string()).unwrap_or_default(),
+    };
+    let mut options = tauri_plugin_fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    let mut file = app.fs().open(path, options).map_err(|e| format!("Cannot write the file: {e}"))?;
+    file.write_all(&bytes).map_err(|e| format!("Cannot write the file: {e}"))?;
+    Ok(Some(shown))
+}
+
 /// Set by `.githooks/verify-launch` to check that a build starts.
 const LAUNCH_CHECK_VAR: &str = "WRITING_TOOL_LAUNCH_CHECK";
 
@@ -223,7 +319,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_fs::init())
         .manage(AppState::default())
+        .manage(ExportState::default())
         .invoke_handler(tauri::generate_handler![
             open_sample_project,
             open_project,
@@ -238,6 +336,9 @@ pub fn run() {
             check_words,
             suggest_words,
             check_grammar,
+            lay_out_book,
+            book_page,
+            export_book,
             frontend_ready
         ])
         .run(tauri::generate_context!())
