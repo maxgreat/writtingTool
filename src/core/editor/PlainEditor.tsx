@@ -11,13 +11,15 @@ import {
   nameHighlight,
   plainFormat,
   plainSelectedName,
+  plainReplaceWord,
   plainSelectionContains,
+  plainSpellingWordAt,
   plainWordAt,
   refreshNames,
   setLineStyle,
   toggleMarker,
 } from "./codemirror";
-import { nameMarkAt, suggestionMarkAt } from "./nameMarks";
+import { nameMarkAt, spellingMarkAt, suggestionMarkAt } from "./nameMarks";
 import { sameFormat, shouldFocusOnMount, type ChapterEditorProps, type FormatState } from "./types";
 
 const NO_WORDS: ReadonlySet<string> = new Set();
@@ -37,6 +39,8 @@ export function PlainEditor({
   onNameClick,
   suggestions = NO_WORDS,
   onSuggestionClick,
+  misspelled = NO_WORDS,
+  onSpellingClick,
   readOnly = false,
   className,
   ariaLabel,
@@ -47,8 +51,8 @@ export function PlainEditor({
   const editable = useRef(new Compartment());
   const editableExtensions = (on: boolean) => [EditorView.editable.of(on), EditorState.readOnly.of(!on)];
   const initialReadOnly = useRef(readOnly);
-  const latest = useRef({ matcher, suggestions, onChange, onFormatChange, onNameClick, onSuggestionClick });
-  latest.current = { matcher, suggestions, onChange, onFormatChange, onNameClick, onSuggestionClick };
+  const latest = useRef({ matcher, suggestions, misspelled, onChange, onFormatChange, onNameClick, onSuggestionClick, onSpellingClick });
+  latest.current = { matcher, suggestions, misspelled, onChange, onFormatChange, onNameClick, onSuggestionClick, onSpellingClick };
   // Read once, when the editor is created; remount to load other text.
   const initial = useRef({ markdown, initialCaret, ariaLabel });
 
@@ -82,7 +86,7 @@ export function PlainEditor({
           EditorView.lineWrapping,
           nameHighlight(
             () => latest.current.matcher,
-            () => latest.current.suggestions,
+            () => ({ suggestions: latest.current.suggestions, misspelled: latest.current.misspelled }),
           ),
           EditorView.editorAttributes.of({ class: "chapter-text-plain" }),
           // The WebView's checker can't learn the project's names.
@@ -93,6 +97,8 @@ export function PlainEditor({
               if (hit) latest.current.onNameClick?.(hit);
               const suggestion = hit ? null : suggestionMarkAt(event.target);
               if (suggestion) latest.current.onSuggestionClick?.(suggestion);
+              const misspelling = hit || suggestion ? null : spellingMarkAt(event.target);
+              if (misspelling) latest.current.onSpellingClick?.(misspelling);
               return false;
             },
           }),
@@ -117,10 +123,10 @@ export function PlainEditor({
     view.current?.dispatch({ effects: editable.current.reconfigure(editableExtensions(!readOnly)) });
   }, [readOnly]);
 
-  // A new matcher (a sheet was added or renamed) or new possible names: mark everything again.
+  // A new matcher (a sheet was added or renamed), new possible names or misspelled words: mark everything again.
   useEffect(() => {
     view.current?.dispatch({ effects: refreshNames.of(null) });
-  }, [matcher, suggestions]);
+  }, [matcher, suggestions, misspelled]);
 
   useImperativeHandle(
     ref,
@@ -147,6 +153,9 @@ export function PlainEditor({
       wordAt: (x, y) => (view.current ? plainWordAt(view.current, x, y) : null),
       selectedName: () => (view.current ? plainSelectedName(view.current.state) : ""),
       selectionContains: (x, y) => (view.current ? plainSelectionContains(view.current, x, y) : false),
+      spellingWordAt: (x, y) => (view.current ? plainSpellingWordAt(view.current, x, y) : null),
+      replaceWord: (word, text) =>
+        view.current !== null && !view.current.state.readOnly && plainReplaceWord(view.current, word, text),
     }),
     [],
   );

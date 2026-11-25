@@ -3,14 +3,16 @@ import { Selection } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useEffect, useImperativeHandle, useRef } from "react";
 import { chapterExtensions, keepsChapterExactly } from "../markdown";
-import { nameMarkAt, suggestionMarkAt } from "./nameMarks";
+import { nameMarkAt, spellingMarkAt, suggestionMarkAt } from "./nameMarks";
 import {
   NameHighlight,
   REFRESH_NAMES,
   nameHighlightKey,
   pmPositionToText,
   selectedNameIn,
+  replaceWordIn,
   selectionContainsPoint,
+  spellingWordAtPoint,
   textToPmPosition,
   wordAtPoint,
 } from "./prosemirror";
@@ -37,6 +39,8 @@ export function FormattedEditor({
   onNameClick,
   suggestions = NO_WORDS,
   onSuggestionClick,
+  misspelled = NO_WORDS,
+  onSpellingClick,
   onUnsupportedMarkdown,
   readOnly = false,
   className,
@@ -45,20 +49,24 @@ export function FormattedEditor({
   const latest = useRef({
     matcher,
     suggestions,
+    misspelled,
     onChange,
     onFormatChange,
     onNameClick,
     onSuggestionClick,
+    onSpellingClick,
     onUnsupportedMarkdown,
     readOnly,
   });
   latest.current = {
     matcher,
     suggestions,
+    misspelled,
     onChange,
     onFormatChange,
     onNameClick,
     onSuggestionClick,
+    onSpellingClick,
     onUnsupportedMarkdown,
     readOnly,
   };
@@ -88,6 +96,7 @@ export function FormattedEditor({
       NameHighlight.configure({
         getMatcher: () => latest.current.matcher,
         getSuggestions: () => latest.current.suggestions,
+        getMisspelled: () => latest.current.misspelled,
       }),
     ],
     content: markdown,
@@ -105,6 +114,8 @@ export function FormattedEditor({
         if (hit) latest.current.onNameClick?.(hit);
         const suggestion = hit ? null : suggestionMarkAt(event.target);
         if (suggestion) latest.current.onSuggestionClick?.(suggestion);
+        const misspelling = hit || suggestion ? null : spellingMarkAt(event.target);
+        if (misspelling) latest.current.onSpellingClick?.(misspelling);
         return false;
       },
     },
@@ -138,12 +149,12 @@ export function FormattedEditor({
     if (editor && !editor.isDestroyed && created.current) editor.setEditable(takesEdits(), false);
   }, [editor, readOnly]);
 
-  // A new matcher (a sheet was added or renamed) or new possible names: mark everything again.
+  // A new matcher (a sheet was added or renamed), new possible names or misspelled words: mark everything again.
   useEffect(() => {
     if (editor && !editor.isDestroyed) {
       editor.view.dispatch(editor.state.tr.setMeta(nameHighlightKey, REFRESH_NAMES));
     }
-  }, [editor, matcher, suggestions]);
+  }, [editor, matcher, suggestions, misspelled]);
 
   useImperativeHandle(
     ref,
@@ -173,6 +184,8 @@ export function FormattedEditor({
       wordAt: (x, y) => (editor && !editor.isDestroyed ? wordAtPoint(editor.view, x, y) : null),
       selectedName: () => (editor && !editor.isDestroyed ? selectedNameIn(editor.state) : ""),
       selectionContains: (x, y) => (editor && !editor.isDestroyed ? selectionContainsPoint(editor.view, x, y) : false),
+      spellingWordAt: (x, y) => (editor && !editor.isDestroyed ? spellingWordAtPoint(editor.view, x, y) : null),
+      replaceWord: (word, text) => !!editor && !editor.isDestroyed && takesEdits() && replaceWordIn(editor.view, word, text),
     }),
     [editor],
   );

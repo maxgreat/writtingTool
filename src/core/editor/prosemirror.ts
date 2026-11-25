@@ -1,10 +1,12 @@
 import { Extension } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
+import { Plugin, PluginKey, TextSelection, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import type { TextPosition } from "../caret";
 import { NameMatcher } from "../names";
 import { nameFromSelection, wordAround } from "../possibleNames";
+import { wordToCheckAt } from "../spelling";
+import type { EditorWord } from "./types";
 import { paragraphMarks } from "./nameMarks";
 
 export const nameHighlightKey = new PluginKey<DecorationSet>("nameHighlight");
@@ -19,6 +21,8 @@ interface Sources {
   getMatcher: () => NameMatcher;
   /** Possible names to mark (see ChapterEditorProps.suggestions). */
   getSuggestions: () => ReadonlySet<string>;
+  /** Misspelled words to mark (see ChapterEditorProps.misspelled). */
+  getMisspelled: () => ReadonlySet<string>;
 }
 /** Leaf inline nodes count as one character, as they take one position. */
 const LEAF_TEXT = "￼";
@@ -31,7 +35,12 @@ export function blockText(block: PMNode): string {
 function decorateBlock(sources: Sources, block: PMNode, pos: number): Decoration[] {
   const text = blockText(block);
   const heading = block.type.name === "heading";
-  return paragraphMarks(text, sources.getMatcher(), sources.getSuggestions(), heading).map((m) =>
+  const marks = paragraphMarks(text, sources.getMatcher(), {
+    suggestions: sources.getSuggestions(),
+    misspelled: sources.getMisspelled(),
+    heading,
+  });
+  return marks.map((m) =>
     Decoration.inline(pos + 1 + m.from, pos + 1 + m.to, m.attributes),
   );
 }
@@ -98,7 +107,7 @@ function nameHighlightPlugin(sources: Sources): Plugin<DecorationSet> {
 export const NameHighlight = Extension.create<Sources>({
   name: "nameHighlight",
   addOptions() {
-    return { getMatcher: () => EMPTY_MATCHER, getSuggestions: () => NO_WORDS };
+    return { getMatcher: () => EMPTY_MATCHER, getSuggestions: () => NO_WORDS, getMisspelled: () => NO_WORDS };
   },
   addProseMirrorPlugins() {
     return [nameHighlightPlugin(this.options)];
@@ -147,6 +156,26 @@ export function wordAtPoint(view: EditorView, x: number, y: number): string | nu
   const $pos = view.state.doc.resolve(hit.pos);
   if (!$pos.parent.isTextblock) return null;
   return wordAround(blockText($pos.parent), $pos.parentOffset);
+}
+
+/** The word the spelling check reads at a point on screen, with its document positions; null if none. */
+export function spellingWordAtPoint(view: EditorView, x: number, y: number): EditorWord | null {
+  const hit = view.posAtCoords({ left: x, top: y });
+  if (!hit) return null;
+  const $pos = view.state.doc.resolve(hit.pos);
+  if (!$pos.parent.isTextblock) return null;
+  const found = wordToCheckAt(blockText($pos.parent), $pos.parentOffset);
+  const start = $pos.start();
+  return found ? { word: found.word, from: start + found.from, to: start + found.to } : null;
+}
+
+/** Replaces a word found by spellingWordAtPoint, if the text there is still that word; the caret goes after it. */
+export function replaceWordIn(view: EditorView, word: EditorWord, text: string): boolean {
+  const { doc } = view.state;
+  if (word.to > doc.content.size || doc.textBetween(word.from, word.to, "\n", LEAF_TEXT) !== word.word) return false;
+  const tr = view.state.tr.insertText(text, word.from, word.to);
+  view.dispatch(tr.setSelection(TextSelection.create(tr.doc, word.from + text.length)).scrollIntoView());
+  return true;
 }
 
 /** The selection as a name to add; empty when nothing is selected or it spans blocks. */

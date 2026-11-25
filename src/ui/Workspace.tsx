@@ -6,8 +6,10 @@ import { NameIndex } from "../core/nameIndex";
 import type { IgnoredName } from "../core/names";
 import { holdsNames, type Project } from "../core/project";
 import type { EditorMode, ViewSettings } from "../core/settings";
+import { addToPersonalDictionary, readPersonalDictionary } from "../core/spelling";
 import { useNameSuggestions } from "../core/useNameSuggestions";
 import type { useProject } from "../core/useProject";
+import { useSpelling } from "../core/useSpelling";
 import { TextNote } from "./AddName";
 import { BACK_AGAIN, BackLayer, useBackLayer, useLeaveOnBack, type Leave } from "./BackStack";
 import { Binder } from "./Binder";
@@ -24,6 +26,7 @@ import type { MainMenuCommands } from "./MainMenu";
 import type { SuggestionSource } from "./PossibleNameMenu";
 import { ProjectsDialog, useProjectsDialog, type ProjectsIntent, type ProjectsSource } from "./Projects";
 import { ResizeHandle } from "./ResizeHandle";
+import type { SpellingSource } from "./SpellingMenu";
 import { StatusBar } from "./StatusBar";
 import type { SwipeIntent } from "./swipe";
 import { useEdgeSwipe } from "./useEdgeSwipe";
@@ -105,6 +108,22 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   // Possible names across the book, read in the background: marked in the text and listed
   // under This chapter in the inspector.
   const suggestions = useNameSuggestions(backend, project, matcher);
+  // The words the spelling check accepts besides the dictionary's: the project's and this device's.
+  const [personalWords, setPersonalWords] = useState(readPersonalDictionary);
+  const accepted = useMemo(() => new Set([...project.dictionary, ...personalWords]), [project.dictionary, personalWords]);
+  // The open chapter's misspelled words, checked a moment after typing stops.
+  const spelling = useSpelling(backend, project.language, chapter?.text ?? null, matcher, suggestions.words, accepted);
+  /** Corrections and Add to dictionary, for the misspelled words' menus; null without a dictionary. */
+  const { addToDictionary } = api;
+  const spellingSource = useMemo<SpellingSource | null>(() => {
+    const suggestWords = backend.suggestWords?.bind(backend);
+    if (!suggestWords || spelling.available !== true) return null;
+    return {
+      suggest: (word) => suggestWords(project.language, word),
+      addToProject: addToDictionary,
+      addToPersonal: (word) => setPersonalWords(addToPersonalDictionary(word)),
+    };
+  }, [backend, project.language, spelling.available, addToDictionary]);
 
   const editorRef = useRef<EditorHandle>(null);
   const [format, setFormat] = useState<FormatState>(NO_FORMAT);
@@ -1061,6 +1080,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           // Focus mode is for writing without distractions: no marks, no menu.
           suggestions={focusMode ? NO_WORDS : suggestions.words}
           suggesting={focusMode ? null : suggesting}
+          misspelled={focusMode ? NO_WORDS : spelling.misspelled}
+          spelling={focusMode ? null : spellingSource}
           popupTextMenu={popupTextMenu}
           touch={!canHover}
           sheetsById={sheetsById}

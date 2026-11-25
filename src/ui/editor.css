@@ -234,6 +234,24 @@
 }
 
 /*
+ * Misspelled words: a wave under the word, in the danger colour, so it
+ * reads as a fault to fix and never as a name (tinted, or a straight,
+ * dotted or dashed line in the accent or muted colour). The wave runs
+ * unbroken under descenders, as spelling marks do elsewhere. On the page:
+ * 6.3:1 light, 10:1 dark. A right-click, or a tap on a touch screen, opens
+ * its corrections; a click only places the caret, so the pointer stays
+ * the text's.
+ */
+.spelling-mark {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-thickness: var(--size-spelling-wave);
+  text-decoration-color: var(--color-danger);
+  text-decoration-skip-ink: none;
+  text-underline-offset: var(--spelling-underline-offset);
+}
+
+/*
  * Summary card on hover (desktop), and a refusal from the native text menu
  * or the main menu, shown where the menu was (AddName.tsx). Neither takes
  * the pointer.
@@ -293,9 +311,31 @@
   margin-top: var(--space-0-5);
 }
 
-/* The menu for text chosen by hand is titled with that text, which may be long. */
-.add-name-title {
+/* The menus for text chosen by hand and for a misspelled word are titled with it, which may be long. */
+.add-name-title,
+.spelling-title {
   overflow-wrap: anywhere;
+}
+
+/* A misspelled word's corrections: the choices the menu is for, so they lead it. */
+.spelling-correction {
+  font-weight: var(--weight-semibold);
+}
+
+/* Where the corrections will be, while they are looked up: a bar per row, as tall as a row. */
+.spelling-loading-row {
+  display: flex;
+  align-items: center;
+  min-height: var(--size-control);
+  padding: 0 var(--space-2);
+}
+
+.spelling-loading-bar {
+  width: var(--skeleton-medium);
+}
+
+.spelling-loading-bar--short {
+  width: var(--skeleton-short);
 }
 
 /*

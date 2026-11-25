@@ -22,6 +22,10 @@ static SAMPLE_PROJECT: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../sample-pro
 const SAMPLE_FOLDER: &str = "MyNovel";
 
 const PROJECT_FILE: &str = "project.json";
+/// The project's own words for the spelling check, one per line.
+const DICTIONARY_FILE: &str = "dictionary.txt";
+const DICTIONARY_NOT_UTF8: &str = "dictionary.txt is not UTF-8 text, so its words aren't used, \
+     and words can't be added to it until it is saved as UTF-8.";
 /// Folders whose Markdown files the interface reads and may write.
 const TEXT_FOLDERS: [&str; 2] = ["manuscript", "sheets"];
 /// The binder's folders: chapters and parts move inside and between these.
@@ -59,6 +63,12 @@ pub struct ProjectSnapshot {
     pub root: String,
     pub folder_name: String,
     pub project_json: Option<String>,
+    /// dictionary.txt, when the project has one that can be read.
+    pub dictionary: Option<String>,
+    /// Why dictionary.txt was left out (it isn't UTF-8 text, or can't be
+    /// read), as a sentence for the writer. Words can't be added to it then:
+    /// that would replace what it holds.
+    pub dictionary_problem: Option<String>,
     pub files: Vec<ProjectFile>,
     /// manuscript/ and trash/ and every folder in them, so empty parts show.
     pub folders: Vec<String>,
@@ -162,6 +172,15 @@ pub struct ProjectRoot {
     root: PathBuf,
 }
 
+/// A file's text, or None when there is no such file.
+fn read_if_present(path: &Path) -> io::Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message.into())
 }
@@ -245,10 +264,20 @@ impl ProjectRoot {
     }
 
     pub fn snapshot(&self) -> io::Result<ProjectSnapshot> {
-        let project_json = match fs::read_to_string(self.root.join(PROJECT_FILE)) {
-            Ok(text) => Some(text),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-            Err(e) => return Err(e),
+        let project_json = read_if_present(&self.root.join(PROJECT_FILE))?;
+        // The project's words are a convenience: a dictionary that can't be read is reported, never in the way.
+        let (dictionary, dictionary_problem) = match fs::read(self.root.join(DICTIONARY_FILE)) {
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(text) => (Some(text), None),
+                Err(_) => (None, Some(DICTIONARY_NOT_UTF8.to_string())),
+            },
+            Err(e) if e.kind() == io::ErrorKind::NotFound => (None, None),
+            Err(e) => (
+                None,
+                Some(format!(
+                    "dictionary.txt could not be read ({e}), so its words aren't used, and words can't be added to it."
+                )),
+            ),
         };
         let mut files = Vec::new();
         let mut folders = Vec::new();
@@ -281,6 +310,8 @@ impl ProjectRoot {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default(),
             project_json,
+            dictionary,
+            dictionary_problem,
             files,
             folders,
             skipped,
@@ -347,6 +378,13 @@ impl ProjectRoot {
     /// leaves half a chapter.
     pub fn write(&self, relative: &str, text: &str) -> io::Result<()> {
         let target = self.resolve_writable(relative)?;
+        // The interface never read a dictionary that isn't UTF-8, so it can only be replacing it.
+        if relative == DICTIONARY_FILE {
+            match fs::read(&target) {
+                Ok(bytes) if std::str::from_utf8(&bytes).is_err() => return Err(invalid(DICTIONARY_NOT_UTF8)),
+                _ => {}
+            }
+        }
         atomic_write(&target, text.as_bytes())
     }
 
@@ -738,20 +776,20 @@ impl ProjectRoot {
         Ok(())
     }
 
-    /// Only project.json and Markdown files inside manuscript/ or sheets/ can
-    /// be written, and only through plain relative paths whose folder
-    /// resolves inside the project.
+    /// Only project.json, dictionary.txt and Markdown files inside
+    /// manuscript/ or sheets/ can be written, and only through plain relative
+    /// paths whose folder resolves inside the project.
     fn resolve_writable(&self, relative: &str) -> io::Result<PathBuf> {
         let parts = plain_segments(relative)?;
         let path: PathBuf = parts.iter().collect();
         let allowed = match parts.as_slice() {
-            [only] => *only == PROJECT_FILE,
+            [only] => *only == PROJECT_FILE || *only == DICTIONARY_FILE,
             [first, .., _] => TEXT_FOLDERS.contains(first) && is_markdown(&path),
             [] => false,
         };
         if !allowed {
             return Err(invalid(format!(
-                "{relative} is not a project file (project.json, or a .md file in manuscript/ or sheets/)"
+                "{relative} is not a project file (project.json, dictionary.txt, or a .md file in manuscript/ or sheets/)"
             )));
         }
 
@@ -833,6 +871,7 @@ mod tests {
         assert!(paths.contains(&"manuscript/Part 1 - Arrival/01 The arrival.md"));
         assert!(paths.contains(&"sheets/characters/Elena Voss.md"));
         assert!(!paths.iter().any(|p| p.ends_with("dictionary.txt")));
+        assert_eq!(snapshot.dictionary.as_deref().map(str::trim), Some("Lowmere"));
         let mut sorted = paths.clone();
         sorted.sort();
         assert_eq!(paths, sorted);
@@ -872,8 +911,34 @@ mod tests {
     fn writes_project_json_and_new_sheets() {
         let (_dir, root) = sample();
         root.write("project.json", "{}").unwrap();
+        root.write("dictionary.txt", "Lowmere\nVarn\n").unwrap();
+        assert_eq!(root.snapshot().unwrap().dictionary.as_deref(), Some("Lowmere\nVarn\n"));
+        assert_eq!(root.snapshot().unwrap().dictionary_problem, None);
         root.write("sheets/places/Lowmere.md", "---\nname: Lowmere\n---\n").unwrap();
         assert!(root.root.join("sheets/places/Lowmere.md").is_file());
+    }
+
+    #[test]
+    fn opens_a_project_whose_dictionary_is_not_utf8_and_keeps_that_file() {
+        let (_dir, root) = sample();
+        let latin1 = b"caf\xe9\nLowmere\n";
+        fs::write(root.root.join("dictionary.txt"), latin1).unwrap();
+        let snapshot = root.snapshot().unwrap();
+        assert_eq!(snapshot.dictionary, None);
+        assert!(snapshot.dictionary_problem.unwrap().contains("not UTF-8"));
+        assert!(!snapshot.files.is_empty());
+        assert!(root.write("dictionary.txt", "Varn\n").is_err());
+        assert_eq!(fs::read(root.root.join("dictionary.txt")).unwrap(), latin1);
+    }
+
+    #[test]
+    fn opens_a_project_whose_dictionary_cannot_be_read() {
+        let (_dir, root) = sample();
+        fs::remove_file(root.root.join("dictionary.txt")).unwrap();
+        fs::create_dir(root.root.join("dictionary.txt")).unwrap();
+        let snapshot = root.snapshot().unwrap();
+        assert_eq!(snapshot.dictionary, None);
+        assert!(snapshot.dictionary_problem.unwrap().contains("could not be read"));
     }
 
     #[test]
@@ -888,7 +953,8 @@ mod tests {
             "manuscript\\..\\..\\x.md",
             "C:/x.md",
             "notes.md",
-            "dictionary.txt",
+            "sheets/dictionary.txt",
+            "Dictionary.txt",
             "manuscript/chapter.txt",
             "manuscript",
             "manuscript/.hidden.md",

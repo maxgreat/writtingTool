@@ -31,6 +31,16 @@ export interface SuggestionHit {
   rect: DOMRect;
 }
 
+/**
+ * A word in an editor, as the spelling check reads it, with where it is:
+ * positions of that editor, valid until its text changes.
+ */
+export interface EditorWord {
+  word: string;
+  from: number;
+  to: number;
+}
+
 /** Commands the formatting bar and the mode switch use; both editors implement them. */
 export interface EditorHandle {
   focus(): void;
@@ -46,6 +56,14 @@ export interface EditorHandle {
   selectedName(): string;
   /** Whether a point on screen (client coordinates) is on the selected text; false when nothing is selected. */
   selectionContains(x: number, y: number): boolean;
+  /** The word the spelling check reads at a point on screen (client coordinates); null between words. */
+  spellingWordAt(x: number, y: number): EditorWord | null;
+  /**
+   * Replaces a word found by spellingWordAt with `text`, as typing would
+   * (one undo step, the word's formatting kept). False, changing nothing,
+   * when the word is no longer there or the editor takes no edits.
+   */
+  replaceWord(word: EditorWord, text: string): boolean;
 }
 
 /**
@@ -70,6 +88,14 @@ export interface ChapterEditorProps {
   suggestions?: ReadonlySet<string>;
   /** A word marked as a possible name was clicked; the caret is still placed as usual. */
   onSuggestionClick?(hit: SuggestionHit): void;
+  /**
+   * Misspelled words to mark in the text (wavy underline), as spelling
+   * keys; see useSpelling.ts. Give the same set while its words don't
+   * change: a new one marks the whole chapter again.
+   */
+  misspelled?: ReadonlySet<string>;
+  /** A word marked as misspelled was clicked; the caret is still placed as usual. */
+  onSpellingClick?(hit: SuggestionHit): void;
   /**
    * Formatted editor only: the chapter uses Markdown outside the chapter
    * subset, which this editor cannot save without losing it. The editor is

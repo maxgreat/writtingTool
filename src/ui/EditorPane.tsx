@@ -1,14 +1,15 @@
 import { Info } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import type { Backend } from "../core/backend";
+import { TEXT_MENU_SEPARATOR, type Backend, type TextMenuEntry } from "../core/backend";
 import type { TextPosition } from "../core/caret";
 import { FormattedEditor } from "../core/editor/FormattedEditor";
 import { nameMarkAt, NAME_MARK_CLASS } from "../core/editor/nameMarks";
 import { PlainEditor } from "../core/editor/PlainEditor";
-import type { EditorHandle, FormatState, NameHit, SuggestionHit } from "../core/editor/types";
+import type { EditorHandle, EditorWord, FormatState, NameHit, SuggestionHit } from "../core/editor/types";
 import type { IgnoredName, NameMatcher } from "../core/names";
 import type { Chapter, Sheet, SheetType } from "../core/project";
 import type { EditorMode, ViewSettings } from "../core/settings";
+import { spellingKey } from "../core/spelling";
 import {
   AddNameButton,
   AddNameMenu,
@@ -18,11 +19,19 @@ import {
   useSelectionOffer,
   type NameTarget,
 } from "./AddName";
-import { errorMessage, tokenMs } from "./dom";
+import { errorMessage, tokenMs, tokenPx } from "./dom";
 import type { IgnoreSource } from "./IgnoreHere";
 import { editorStyle } from "./layoutStyle";
 import { NameCard, NameChoice } from "./NameCard";
 import { PossibleNameMenu, type SuggestionSource } from "./PossibleNameMenu";
+import {
+  spellingCopy,
+  SpellingMenu,
+  spellingTextMenuItems,
+  WORD_CHANGED,
+  type Corrections,
+  type SpellingSource,
+} from "./SpellingMenu";
 
 /** The note saying why a chapter is open in Plain; the mode switch points to it. */
 export const PLAIN_ONLY_NOTE_ID = "plain-only-note";
@@ -63,6 +72,17 @@ export interface EditorPaneProps {
    */
   suggesting: SuggestionSource | null;
   /**
+   * Misspelled words to mark in the text (useSpelling's words, as spelling
+   * keys): none in focus mode. The same set while its words don't change.
+   */
+  misspelled: ReadonlySet<string>;
+  /**
+   * Corrections and Add to dictionary, offered for a misspelled word
+   * right-clicked, or tapped on a touch screen; null in focus mode, and
+   * where there is no dictionary for the project's language.
+   */
+  spelling: SpellingSource | null;
+  /**
    * The desktop app's native menu for the text (Backend.popupTextMenu),
    * which a right-click shows; absent in the browser preview and on phones.
    */
@@ -96,6 +116,8 @@ export function EditorPane({
   ignoring,
   suggestions,
   suggesting,
+  misspelled,
+  spelling,
   popupTextMenu,
   touch,
   sheetsById,
@@ -109,11 +131,23 @@ export function EditorPane({
   const openings = useRef(0);
   /** Text chosen by hand to add as a name, whose menu is open: a right-click, or Add as name on a touch screen. */
   const [naming, setNaming] = useState<{ target: NameTarget; anchor: DOMRect; opening: number } | null>(null);
+  /**
+   * The misspelled word whose menu is open: as written, and where it is in
+   * the editor (null if it couldn't be found there, so it can't be corrected).
+   */
+  const [correcting, setCorrecting] = useState<{
+    written: string;
+    word: EditorWord | null;
+    anchor: DOMRect;
+    opening: number;
+  } | null>(null);
+  /** Counts right-clicks in the desktop app: a native menu waiting for its corrections gives way to a later one. */
+  const textMenus = useRef(0);
   /** Why something chosen in the native text menu didn't happen, shown where the menu was. */
   const [refusal, setRefusal] = useState<{ title: string; message: string; at: DOMRect } | null>(null);
   /** A sheet chosen in the native text menu is being made: its items wait. */
   const adding = useRef(false);
-  /** Said to screen readers: what a possible name became. Here, as the menu closes when a sheet is made. */
+  /** Said to screen readers: what a possible name or a misspelled word became. Here, as the menu closes when it is done. */
   const [note, setNote] = useState("");
   const hovered = useRef<Element | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -125,6 +159,7 @@ export function EditorPane({
   // Focus mode takes the marks away, and the menus with them.
   if (!suggesting && suggestion) setSuggestion(null);
   if (!suggesting && naming) setNaming(null);
+  if (!spelling && correcting) setCorrecting(null);
 
   const hideCard = useCallback(() => {
     if (timer.current !== null) clearTimeout(timer.current);
@@ -178,6 +213,7 @@ export function EditorPane({
     if (!onOpenSheet) return;
     setSuggestion(null);
     setNaming(null);
+    setCorrecting(null);
     if (hit.ambiguous) setChoice(hit);
     else onOpenSheet(hit.sheetIds[0], hit.occurrence);
   };
@@ -188,6 +224,7 @@ export function EditorPane({
     if (!suggesting) return;
     setChoice(null);
     setNaming(null);
+    setCorrecting(null);
     openings.current += 1;
     setSuggestion({ hit, opening: openings.current });
   };
@@ -206,6 +243,7 @@ export function EditorPane({
     hideCard();
     setSuggestion(null);
     setChoice(null);
+    setCorrecting(null);
     openings.current += 1;
     setNaming({ target, anchor, opening: openings.current });
     return true;
@@ -231,13 +269,137 @@ export function EditorPane({
     }
   };
 
+  /* Spelling ------------------------------------------------------------- */
+
+  /** The word at a point on screen, if the spelling check marks it and its menu can be offered (a dictionary, no focus mode). */
+  const misspelledAt = (editor: EditorHandle, x: number, y: number): EditorWord | null => {
+    if (!spelling) return null;
+    const word = editor.spellingWordAt(x, y);
+    return word && misspelled.has(spellingKey(word.word)) ? word : null;
+  };
+
+  /**
+   * The misspelled word a right-click is on, whose corrections lead the
+   * menu: none when the click is on a selection that could be a name and is
+   * more than that word, which the menu acts on instead, as before.
+   */
+  const correctionTargetAt = (editor: EditorHandle, x: number, y: number): EditorWord | null => {
+    const word = misspelledAt(editor, x, y);
+    if (!word) return null;
+    const selected = editor.selectionContains(x, y) ? editor.selectedName() : "";
+    return selected === "" || spellingKey(selected) === spellingKey(word.word) ? word : null;
+  };
+
+  /**
+   * A marked word tapped: where it is in the editor. Its middle first; a
+   * word broken over two lines (sea-green) has its middle between them, so
+   * then the ends of its box, on its first and last lines.
+   */
+  const markedWord = (editor: EditorHandle, hit: SuggestionHit): EditorWord | null => {
+    const { left, right, top, bottom } = hit.rect;
+    const inside = Math.min(tokenPx("--space-1"), (bottom - top) / 2);
+    const points: [number, number][] = [
+      [(left + right) / 2, (top + bottom) / 2],
+      [right - inside, top + inside],
+      [left + inside, bottom - inside],
+    ];
+    const key = spellingKey(hit.word);
+    for (const [x, y] of points) {
+      const word = editor.spellingWordAt(x, y);
+      if (word && spellingKey(word.word) === key) return word;
+    }
+    return null;
+  };
+
+  /** The page's menu on a misspelled word, hung from `anchor`. */
+  const openCorrecting = (written: string, word: EditorWord | null, anchor: DOMRect) => {
+    hideCard();
+    setSuggestion(null);
+    setChoice(null);
+    setNaming(null);
+    openings.current += 1;
+    setCorrecting({ written, word, anchor, opening: openings.current });
+  };
+
+  const closeCorrecting = useCallback(() => {
+    setCorrecting(null);
+    editorRef.current?.focus();
+  }, [editorRef]);
+
+  /** Touch screens: a tap on a misspelled word opens its menu, as a tap on a possible name does; the caret is placed too. */
+  const onSpellingClick = (hit: SuggestionHit) => {
+    const editor = editorRef.current;
+    if (!touch || !spelling || !editor) return;
+    openCorrecting(hit.word, markedWord(editor, hit), hit.rect);
+  };
+
+  /** Puts a correction in place of the word, the caret after it; false when the text there has changed. */
+  const replaceWord = (word: EditorWord | null, correction: string): boolean =>
+    word !== null && (editorRef.current?.replaceWord(word, correction) ?? false);
+
+  /** A correction chosen in the native menu: the word replaced, or a refusal where the menu was; the caret goes back to the text. */
+  const correctFromTextMenu = (word: EditorWord, correction: string, at: DOMRect) => {
+    if (replaceWord(word, correction)) setNote(spellingCopy.corrected(word.word, correction));
+    else setRefusal({ title: spellingCopy.cantCorrect(word.word), message: WORD_CHANGED, at });
+    editorRef.current?.focus();
+  };
+
+  /** Add to project or my dictionary, chosen in the native menu: the mark goes at once. */
+  const addWordFromTextMenu = (source: SpellingSource, word: string, personal: boolean, at: DOMRect) => {
+    try {
+      if (personal) source.addToPersonal(word);
+      else source.addToProject(word);
+      setNote(personal ? spellingCopy.addedToPersonal(word) : spellingCopy.addedToProject(word));
+    } catch (error) {
+      const title = personal ? spellingCopy.cantAddToPersonal(word) : spellingCopy.cantAddToProject(word);
+      setRefusal({ title, message: errorMessage(error), at });
+    }
+    editorRef.current?.focus();
+  };
+
+  /**
+   * The native menu for a right-click: for a misspelled word, its
+   * corrections and the dictionaries first, looked up before the menu
+   * shows (a quick local call; without them if they can't be had), then
+   * `names`. Shows nothing if another right-click came meanwhile.
+   */
+  const showNativeMenu = async (
+    show: NonNullable<Backend["popupTextMenu"]>,
+    word: EditorWord | null,
+    names: TextMenuEntry[],
+    at: DOMRect,
+  ) => {
+    const request = ++textMenus.current;
+    let entries = names;
+    const source = spelling;
+    if (word && source) {
+      let corrections: Corrections;
+      try {
+        corrections = (await source.suggest(word.word)) ?? [];
+      } catch {
+        corrections = "failed";
+      }
+      if (request !== textMenus.current) return;
+      const spellingItems = spellingTextMenuItems(word.word, corrections, !readOnly, {
+        replace: (correction) => correctFromTextMenu(word, correction, at),
+        addToProject: () => addWordFromTextMenu(source, word.word, false, at),
+        addToPersonal: () => addWordFromTextMenu(source, word.word, true, at),
+      });
+      entries = [...spellingItems, TEXT_MENU_SEPARATOR, ...names];
+    }
+    await show(entries, at.x, at.y);
+  };
+
   /**
    * A right-click in the chapter text. The desktop app shows its native menu:
-   * Add to each type for the word or the selection (Open for a name), then
-   * Cut, Copy and Paste. The browser preview, with a mouse, shows the page's
-   * own menu over a word or a selection, and leaves its own menu elsewhere.
-   * Touch screens keep the system's: a long-press selects, and the
-   * selection offers Add as name. Focus mode offers no names.
+   * for a misspelled word, its corrections and Add to project or my
+   * dictionary; then Add to each type for the word or the selection (Open
+   * for a name); then Cut, Copy and Paste. The browser preview, with a
+   * mouse, shows the page's own menu over a word or a selection (the
+   * spelling menu over a misspelled word), and leaves its own menu
+   * elsewhere. Touch screens keep the system's: a long-press selects, and
+   * the selection offers Add as name; a tap on a misspelled word opens its
+   * menu. Focus mode offers no names and no corrections.
    */
   const onContextMenu = (event: MouseEvent) => {
     const editor = editorRef.current;
@@ -248,9 +410,15 @@ export function EditorPane({
     const target = source ? nameTargetAt(editor, matcher, event) : null;
     const { clientX: x, clientY: y } = event;
     const at = new DOMRect(x, y, 0, 0);
+    const word = correctionTargetAt(editor, x, y);
 
     if (!popupTextMenu) {
-      if (target && openNaming(target, at)) event.preventDefault();
+      if (word) {
+        event.preventDefault();
+        openCorrecting(word.word, word, at);
+      } else if (target && openNaming(target, at)) {
+        event.preventDefault();
+      }
       return;
     }
 
@@ -263,7 +431,7 @@ export function EditorPane({
             open: (id) => onOpenSheet?.(id, target.occurrence),
           })
         : [];
-    popupTextMenu(items, x, y).catch((error: unknown) =>
+    showNativeMenu(popupTextMenu, word, items, at).catch((error: unknown) =>
       setRefusal({ title: "Couldn’t show the menu", message: errorMessage(error), at }),
     );
   };
@@ -301,6 +469,8 @@ export function EditorPane({
     onNameClick,
     suggestions,
     onSuggestionClick,
+    misspelled,
+    onSpellingClick,
     readOnly,
     ariaLabel: "Chapter text",
   };
@@ -379,6 +549,19 @@ export function EditorPane({
             onOpenSheet?.(id, naming.target.occurrence);
           }}
           onClose={closeNaming}
+          announce={setNote}
+        />
+      )}
+      {correcting && spelling && (
+        <SpellingMenu
+          key={correcting.opening}
+          word={correcting.written}
+          anchor={correcting.anchor}
+          source={spelling}
+          replace={(correction) => replaceWord(correcting.word, correction)}
+          naming={suggesting}
+          busy={readOnly}
+          onClose={closeCorrecting}
           announce={setNote}
         />
       )}

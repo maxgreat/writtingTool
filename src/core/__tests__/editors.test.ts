@@ -318,7 +318,7 @@ describe("possible names in the text", () => {
 
   function plainSuggestions(doc: string) {
     const view = new EditorView({
-      state: EditorState.create({ doc, extensions: [markdownLanguage(), nameHighlight(() => matcher, () => suggestions)] }),
+      state: EditorState.create({ doc, extensions: [markdownLanguage(), nameHighlight(() => matcher, () => ({ suggestions }))] }),
       parent: document.body,
     });
     cleanups.push(() => view.destroy());

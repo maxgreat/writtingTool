@@ -2,7 +2,7 @@
 
 A writing app for novels, in the spirit of Scrivener and novelWriter: a binder of parts and chapters, the chapter in the middle, an inspector with character and place sheets. Chapters are plain Markdown files. The design and the plan are in [Writing App — Development Guide.md](Writing%20App%20—%20Development%20Guide.md).
 
-Phase 1 of the guide, the writing core, is built, with sheet forms from phase 2 and name detection from phase 3: the desktop app (tested on Linux) and the Android app, reading and writing project folders on the device. Cloud sync, spelling and export come in later phases.
+Phase 1 of the guide, the writing core, is built, with sheet forms from phase 2, name detection from phase 3 and the spelling check from phase 4: the desktop app (tested on Linux) and the Android app, reading and writing project folders on the device. Grammar, cloud sync and export come in later phases.
 
 ## Download
 
@@ -58,6 +58,10 @@ These are refreshed with every push, so they always show the app as it is on `ma
 | --- | --- |
 | ![The chapter Upstream open, with the inspector on This chapter. Under Names in this chapter (Arno Kell 2 and Elena Voss 1 under Characters, Sel 1 under Places), Possible names says its words were found 3 or more times in the book with no sheet yet, and lists Mara, 3, with Add to, a menu of Characters and Places, and Not a name. In the text, each Mara has the faint dotted underline of a possible name](docs/screenshots/desktop-possible-names.png) | ![The chapter The arrival after a right-click on "river", in "Morning came grey over the river". River is an ordinary word, so it is never marked as a possible name. A small menu at the pointer, titled with the word in quotes, offers Add to Characters and Add to Places. The browser preview shows the page's own menu; the desktop app puts the same choices, Add "river" to Characters and Add "river" to Places, above Cut, Copy and Paste in the system's menu](docs/screenshots/desktop-add-name-menu.png) |
 
+| A misspelled word | |
+| --- | --- |
+| ![The chapter The arrival after a sentence was typed at the end of a paragraph: "The ferryman's skif was moored at the jety." Skif and jety each have a red wavy underline, unlike the tinted names and the straight underline of places. A right-click on skif opened a small menu titled with the word in quotes: its corrections in bold, best first (skiff, skid, skit, ski, skim, skin), then, after a gap, Add to project dictionary and Add to my dictionary, then Add to Characters and Add to Places, as a misspelled word may be a name. The desktop app puts the same choices above Cut, Copy and Paste in the system's menu, and a tap on the word opens this menu on a touch screen](docs/screenshots/desktop-spelling-menu.png) | |
+
 | Phone | Binder | Inspector |
 | --- | --- | --- |
 | <img src="docs/screenshots/phone.png" width="240" alt="The chapter on a phone"> | <img src="docs/screenshots/phone-binder.png" width="240" alt="The binder slid in on a phone"> | <img src="docs/screenshots/phone-inspector.png" width="240" alt="The inspector slid in on a phone"> |
@@ -109,7 +113,7 @@ npm run screenshots               # retakes the pictures in docs/screenshots (ne
 
 ## What the app has, and what comes next
 
-Built so far (phases 0 and 1 of the guide, sheet forms from phase 2, and name detection from phase 3):
+Built so far (phases 0 and 1 of the guide, sheet forms from phase 2, name detection from phase 3, and spelling from phase 4):
 
 - The binder, the editor and the inspector, with hide buttons, resizable panels, focus mode, a phone layout, and light and dark themes. On phones the panels also slide in with a swipe from the screen edge (on Android with gesture navigation, from the middle of the edge: above and below it the edge stays the system's Back gesture), and the formatting bar docks above the on-screen keyboard while you type.
 - Projects: the project title opens the list of projects on this device, to switch to another or create one with its title and language. On desktop, "Open folder…" opens a project folder from anywhere, and the ones opened recently are listed too.
@@ -123,6 +127,7 @@ Built so far (phases 0 and 1 of the guide, sheet forms from phase 2, and name de
 - Ignore here, for a name that isn't the character there (the character Rose, not a rose on the table). A sheet opened from a name in the text shows the sentence it was clicked in, with Ignore here: the highlight goes at once, and Highlight again in the same place undoes it. The choice for a shared name offers it too, for when the name means neither sheet. It is remembered in `project.json` by its sentence, so the chapter file stays as it is, and each sheet lists its ignored mentions, each with Highlight again.
 - Possible names, marked in the text with a faint dotted underline: capitalized words that aren't at the start of a sentence and have no sheet yet. With a dictionary for the project's language (the app has British and American English, French and Spanish), every such word that isn't a dictionary word is marked from its first use, so "River" or "Monday" isn't; without one (another language, or the browser preview), a word is marked once it is found 3 or more times in the book. Click a marked word for Add to Characters or Add to Places (or any other type that holds names), which makes the sheet and highlights the word everywhere at once, or Not a name, which takes its marks away everywhere, with Undo in the same place. This chapter, in the inspector, lists the chapter's possible names too, with how often each is found in the book. Focus mode hides the marks, and words marked as not names are kept in `project.json`.
 - Any word or phrase added as a name by hand, for names that are also ordinary words ("Rose", "Will") and so are never marked as possible names. Right-click a word, or a selection, to add it to Characters or Places (or any other type that holds names); in the desktop app these items sit above Cut, Copy and Paste in the system's menu, and a right-click on a name offers to open its sheet. On a phone or tablet, select the text with a long-press and tap Add as name, just below it. The new name is highlighted everywhere at once. Focus mode leaves this out.
+- Spelling checked as you write, offline, with the Hunspell dictionaries of the project's language (British and American English, French, Spanish) in the app's Rust core. Misspelled words get a wavy underline a moment after you stop typing; character and place names, possible names and words in capitals are never marked. Right-click one (on a phone or tablet, tap it) for corrections, Add to project dictionary (the project's `dictionary.txt`, which travels with the project) or Add to my dictionary (every project on this device). Focus mode hides the marks. The browser preview checks spelling too, through `npm run dev`'s server.
 - Every sheet but notes lists the chapters that mention it, under their parts, with how many times; clicking one opens that chapter.
 - Sheets made and edited in the app. "New character" (or place, note) at the top of a type's list in the inspector asks for the name, makes `sheets/<type>/<name>.md` and opens its form. A sheet's Edit shows its form: the name, other names (each can match in any case, so the alias "the ferryman" also finds "The ferryman"), the type's fields (characters have a role and an age, places a type; `fields` in a sheet type in `project.json` changes them) plus any you add, and the notes in Markdown. Changes save as you go; a name is saved when you leave its field, and the highlights follow at once. On phones, the name preview has Edit too, which opens the form in the inspector. A sheet whose header can't be read says so and stays read-only.
 - Autosave about a second after typing stops, with atomic writes, and word counts for the chapter, the book and today.
@@ -131,6 +136,6 @@ Built so far (phases 0 and 1 of the guide, sheet forms from phase 2, and name de
 Still to build, following the guide's phases:
 
 - Dropbox sync, presence badges and conflict merging
-- Spelling (spellbook with Hunspell dictionaries) and grammar
+- Grammar, and typing aids (curly quotes, dashes, French spacing)
 - Export: the Typst PDF preview, then EPUB, Word and Markdown
 - Testing the Windows and macOS builds on real machines (CI builds them, but only the Linux and Android apps have been run so far), and code-signing them

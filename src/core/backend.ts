@@ -71,12 +71,26 @@ export interface Backend {
    */
   ordinaryWords?(language: string, words: string[]): Promise<boolean[] | null>;
   /**
-   * Desktop app only: shows the text's context menu, native, at a point in
-   * the window (client coordinates): `items` first, then Cut, Copy, Paste
-   * and Select All, which the system carries out on the text. Absent on
-   * phones and in the browser preview, where the page shows its own menu.
+   * For each word, whether the dictionary of `language` spells it this way.
+   * Resolves to null when there is no dictionary for the language. Absent
+   * where there are no dictionaries (the browser preview without its dev
+   * server).
    */
-  popupTextMenu?(items: TextMenuItem[], x: number, y: number): Promise<void>;
+  checkWords?(language: string, words: string[]): Promise<boolean[] | null>;
+  /**
+   * Corrections for a misspelled word, best first (at most six). Resolves
+   * to null when there is no dictionary for the language. There exactly
+   * where checkWords is.
+   */
+  suggestWords?(language: string, word: string): Promise<string[] | null>;
+  /**
+   * Desktop app only: shows the text's context menu, native, at a point in
+   * the window (client coordinates): `items` first, in groups set apart by
+   * separators, then Cut, Copy, Paste and Select All, which the system
+   * carries out on the text. Absent on phones and in the browser preview,
+   * where the page shows its own menu.
+   */
+  popupTextMenu?(items: TextMenuEntry[], x: number, y: number): Promise<void>;
   /**
    * Desktop app only: closes the window as its own close button does, so
    * `onCloseRequested` runs first and pending saves finish. Absent on phones
@@ -107,6 +121,36 @@ export interface TextMenuItem {
   action(): void;
 }
 
+/** A line between two groups of the app's own entries in the text's context menu. */
+export interface TextMenuSeparator {
+  separator: true;
+}
+
+/** What the app puts in the text's context menu: items, and separators between their groups. */
+export type TextMenuEntry = TextMenuItem | TextMenuSeparator;
+
+export const TEXT_MENU_SEPARATOR: TextMenuSeparator = { separator: true };
+
+export function isTextMenuSeparator(entry: TextMenuEntry): entry is TextMenuSeparator {
+  return "separator" in entry && entry.separator;
+}
+
+/**
+ * The entries as the menu shows them: a separator only between two groups,
+ * never first, last or twice in a row, so a group left empty leaves no
+ * line behind.
+ */
+export function tidyTextMenu(entries: TextMenuEntry[]): TextMenuEntry[] {
+  const tidy: TextMenuEntry[] = [];
+  for (const entry of entries) {
+    const last = tidy.at(-1);
+    if (isTextMenuSeparator(entry) && (last === undefined || isTextMenuSeparator(last))) continue;
+    tidy.push(entry);
+  }
+  if (tidy.length > 0 && isTextMenuSeparator(tidy[tidy.length - 1])) tidy.pop();
+  return tidy;
+}
+
 /** Tauri rejects commands with the string the Rust side returned. */
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -128,14 +172,18 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 let shownTextMenu: { close(): Promise<void> }[] = [];
 let textMenus: Promise<void> = Promise.resolve();
 
-async function showTextMenu(items: TextMenuItem[], x: number, y: number): Promise<void> {
+async function showTextMenu(entries: TextMenuEntry[], x: number, y: number): Promise<void> {
   const { Menu, MenuItem, PredefinedMenuItem } = await import("@tauri-apps/api/menu");
   const { LogicalPosition } = await import("@tauri-apps/api/dpi");
   const previous = shownTextMenu;
   shownTextMenu = [];
   await Promise.allSettled(previous.map((resource) => resource.close()));
   const own = await Promise.all(
-    items.map((item) => MenuItem.new({ text: item.text, enabled: item.enabled ?? true, action: () => item.action() })),
+    tidyTextMenu(entries).map((entry) =>
+      isTextMenuSeparator(entry)
+        ? PredefinedMenuItem.new({ item: "Separator" })
+        : MenuItem.new({ text: entry.text, enabled: entry.enabled ?? true, action: () => entry.action() }),
+    ),
   );
   const separator = own.length > 0 ? [await PredefinedMenuItem.new({ item: "Separator" })] : [];
   const edit = await Promise.all(
@@ -171,6 +219,8 @@ const appBackend: Omit<Backend, "canOpenFolders"> = {
   listVersions: (root, chapter) => call<Version[]>("list_versions", { root, chapter }),
   restoreVersion: (root, chapter, savedAt) => call<string>("restore_version", { root, chapter, savedAt }),
   ordinaryWords: (language, words) => call<boolean[] | null>("ordinary_words", { language, words }),
+  checkWords: (language, words) => call<boolean[] | null>("check_words", { language, words }),
+  suggestWords: (language, word) => call<string[] | null>("suggest_words", { language, word }),
   popupTextMenu(items, x, y) {
     // One at a time, so each menu frees the one before it.
     const shown = textMenus.then(() => showTextMenu(items, x, y));

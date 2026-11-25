@@ -4,8 +4,9 @@ import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate
 import { tags } from "@lezer/highlight";
 import type { NameMatcher } from "../names";
 import { nameFromSelection, wordAround } from "../possibleNames";
-import { paragraphMarks } from "./nameMarks";
-import type { BlockStyle, FormatState } from "./types";
+import { wordToCheckAt } from "../spelling";
+import { paragraphMarks, type MarkSources } from "./nameMarks";
+import type { BlockStyle, EditorWord, FormatState } from "./types";
 
 /**
  * CSS classes for the plain mode's Markdown: `md-mark` is every marker (`#`,
@@ -20,10 +21,10 @@ export const markdownClasses = HighlightStyle.define([
   { tag: tags.contentSeparator, class: "md-scene-break" },
 ]);
 
-/** Dispatch this effect to re-scan names after the matcher or the possible names changed. */
+/** Dispatch this effect to re-scan names after the matcher, the possible names or the misspelled words changed. */
 export const refreshNames = StateEffect.define<null>();
 
-function decorateVisible(view: EditorView, matcher: NameMatcher, suggestions: ReadonlySet<string>): DecorationSet {
+function decorateVisible(view: EditorView, matcher: NameMatcher, sources: MarkSources): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   let lastLine = 0;
   for (const { from, to } of view.visibleRanges) {
@@ -31,7 +32,7 @@ function decorateVisible(view: EditorView, matcher: NameMatcher, suggestions: Re
       const line = view.state.doc.lineAt(pos);
       if (line.number > lastLine) {
         lastLine = line.number;
-        for (const m of paragraphMarks(line.text, matcher, suggestions)) {
+        for (const m of paragraphMarks(line.text, matcher, sources)) {
           builder.add(line.from + m.from, line.from + m.to, Decoration.mark({ attributes: m.attributes }));
         }
       }
@@ -41,24 +42,24 @@ function decorateVisible(view: EditorView, matcher: NameMatcher, suggestions: Re
   return builder.finish();
 }
 
-const NO_WORDS: ReadonlySet<string> = new Set();
+const NO_MARKS: MarkSources = {};
 
 /**
- * Highlights names, and marks possible names (`getSuggestions`, see
- * ChapterEditorProps.suggestions), in the lines on screen; each line is one
- * paragraph.
+ * Highlights names, and marks possible names and misspelled words
+ * (`getSources`, see ChapterEditorProps.suggestions and misspelled), in the
+ * lines on screen; each line is one paragraph.
  */
-export function nameHighlight(getMatcher: () => NameMatcher, getSuggestions: () => ReadonlySet<string> = () => NO_WORDS) {
+export function nameHighlight(getMatcher: () => NameMatcher, getSources: () => MarkSources = () => NO_MARKS) {
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
       constructor(view: EditorView) {
-        this.decorations = decorateVisible(view, getMatcher(), getSuggestions());
+        this.decorations = decorateVisible(view, getMatcher(), getSources());
       }
       update(update: ViewUpdate) {
         const refresh = update.transactions.some((tr) => tr.effects.some((e) => e.is(refreshNames)));
         if (refresh || update.docChanged || update.viewportChanged) {
-          this.decorations = decorateVisible(update.view, getMatcher(), getSuggestions());
+          this.decorations = decorateVisible(update.view, getMatcher(), getSources());
         }
       }
     },
@@ -288,6 +289,28 @@ export function plainWordAt(view: EditorView, x: number, y: number): string | nu
   if (pos == null) return null;
   const line = view.state.doc.lineAt(pos);
   return wordAround(line.text, pos - line.from);
+}
+
+/** The word the spelling check reads at a point on screen, with its offsets in the Markdown; null if none. */
+export function plainSpellingWordAt(view: EditorView, x: number, y: number): EditorWord | null {
+  const pos = view.posAtCoords({ x, y });
+  if (pos == null) return null;
+  const line = view.state.doc.lineAt(pos);
+  const found = wordToCheckAt(line.text, pos - line.from);
+  return found ? { word: found.word, from: line.from + found.from, to: line.from + found.to } : null;
+}
+
+/** Replaces a word found by plainSpellingWordAt, if the text there is still that word. */
+export function plainReplaceWord(view: EditorView, word: EditorWord, text: string): boolean {
+  const { doc } = view.state;
+  if (word.to > doc.length || doc.sliceString(word.from, word.to) !== word.word) return false;
+  view.dispatch({
+    changes: { from: word.from, to: word.to, insert: text },
+    selection: { anchor: word.from + text.length },
+    userEvent: "input.replace",
+    scrollIntoView: true,
+  });
+  return true;
 }
 
 /** The main selection as a name to add; empty when nothing is selected or it spans lines (paragraphs). */

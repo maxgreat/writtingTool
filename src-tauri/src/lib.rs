@@ -172,6 +172,21 @@ async fn ordinary_words(language: String, words: Vec<String>) -> Result<Option<V
     dictionary::ordinary_words(&language, &words)
 }
 
+/// For each word, whether the dictionary of `language` (a project language
+/// such as "fr-CA") spells it this way. None when no dictionary is bundled
+/// for the language.
+#[tauri::command]
+async fn check_words(language: String, words: Vec<String>) -> Result<Option<Vec<bool>>, String> {
+    dictionary::check_words(&language, &words)
+}
+
+/// Corrections for a misspelled word, best first. None when no dictionary
+/// is bundled for the language.
+#[tauri::command]
+async fn suggest_words(language: String, word: String) -> Result<Option<Vec<String>>, String> {
+    dictionary::suggest(&language, &word)
+}
+
 /// Set by `.githooks/verify-launch` to check that a build starts.
 const LAUNCH_CHECK_VAR: &str = "WRITING_TOOL_LAUNCH_CHECK";
 
@@ -203,6 +218,8 @@ pub fn run() {
             restore_version,
             apply_changes,
             ordinary_words,
+            check_words,
+            suggest_words,
             frontend_ready
         ])
         .run(tauri::generate_context!())

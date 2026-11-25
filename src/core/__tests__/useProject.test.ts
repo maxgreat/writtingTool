@@ -540,3 +540,26 @@ describe("sheets", () => {
     expect(api.project?.sheets).toHaveLength(1);
   });
 });
+
+describe("the project's dictionary", () => {
+  it("adds a word as dictionary.txt's last line, saved like an edit, once", async () => {
+    act(() => api.addToDictionary("Lowmere"));
+    act(() => api.addToDictionary("Lowmere"));
+    expect(api.project?.dictionary).toEqual(["Lowmere"]);
+    await settle(AUTOSAVE_DELAY_MS);
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    expect(writeFile).toHaveBeenCalledWith(snapshot.root, "dictionary.txt", "Lowmere\n");
+  });
+
+  it("refuses to add a word to a dictionary.txt that couldn't be read, and says why", async () => {
+    const problem = "dictionary.txt is not UTF-8 text, so its words aren't used.";
+    openProject.mockResolvedValueOnce({ ...snapshot, dictionaryProblem: problem });
+    await act(async () => {
+      await api.openProjectAt("/elsewhere");
+    });
+    expect(api.project?.problems).toContain(problem);
+    expect(() => api.addToDictionary("Lowmere")).toThrow(problem);
+    await settle(AUTOSAVE_DELAY_MS);
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+});

@@ -9,7 +9,7 @@ import { buildProject, type ProjectSnapshot } from "./project";
  */
 const PREFIX = "../../sample-project/MyNovel/";
 
-const sources = import.meta.glob<string>("../../sample-project/MyNovel/**/*.{md,json}", {
+const sources = import.meta.glob<string>("../../sample-project/MyNovel/**/*.{md,json,txt}", {
   query: "?raw",
   import: "default",
   eager: true,
@@ -56,11 +56,38 @@ function checkChapter(root: string, chapter: string): string {
   return text;
 }
 
+/** The project's own words for the spelling check, as in the Rust core. */
+const DICTIONARY = "dictionary.txt";
+
+/**
+ * The spelling check, from the dev server (scripts/dev-spelling.mjs): there
+ * is no Rust core here. Absent from a build, which has no dev server.
+ */
+async function devSpelling<T>(request: "check" | "suggest", body: object): Promise<T> {
+  const response = await fetch(`/__dev/spelling/${request}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`The dev server couldn't check spelling (${response.status}).`);
+  return (await response.json()) as T;
+}
+
+const spelling: Pick<Backend, "checkWords" | "suggestWords"> = import.meta.env.DEV
+  ? {
+      checkWords: async (language, words) =>
+        (await devSpelling<{ correct: boolean[] | null }>("check", { language, words })).correct,
+      suggestWords: async (language, word) =>
+        (await devSpelling<{ suggestions: string[] | null }>("suggest", { language, word })).suggestions,
+    }
+  : {};
+
 function snapshot(): ProjectSnapshot {
   return {
     root: ROOT,
     folderName: "MyNovel",
     projectJson: tree.files.get("project.json") ?? null,
+    dictionary: tree.files.get(DICTIONARY) ?? null,
     files: [...tree.files]
       .filter(([path]) => path.endsWith(".md") && (inBinder(path) || path.startsWith("sheets/")))
       .map(([path, text]) => ({ path, text })),
@@ -70,6 +97,7 @@ function snapshot(): ProjectSnapshot {
 }
 
 export const browserBackend: Backend = {
+  ...spelling,
   kind: "browser",
   canOpenFolders: false,
   canCreateProjects: false,
@@ -88,8 +116,8 @@ export const browserBackend: Backend = {
   async writeFile(root, path, text) {
     checkRoot(root);
     const current = tree.files.get(path);
-    if (current === undefined) throw new Error(`${path} is not part of the sample project.`);
-    if (path.startsWith("manuscript/") && current !== text) keepVersion(path, current, false);
+    if (current === undefined && path !== DICTIONARY) throw new Error(`${path} is not part of the sample project.`);
+    if (path.startsWith("manuscript/") && current !== undefined && current !== text) keepVersion(path, current, false);
     tree.files.set(path, text);
     return null;
   },

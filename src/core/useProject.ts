@@ -6,6 +6,7 @@ import { withIgnoredName, withNotName, type ProjectJsonWrite } from "./nameChoic
 import type { IgnoredName } from "./names";
 import { buildNameMatcher, buildProject, withChapterText, withSheetText, type Project, type ProjectSnapshot } from "./project";
 import { editSheetText, newSheetPath, newSheetText, type SheetEdit } from "./sheetFile";
+import { spellingKey, withWordAdded } from "./spelling";
 import { newProject, readRecentProjects, rememberRecentProject, type ProjectEntry } from "./projects";
 
 export type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
@@ -20,6 +21,8 @@ export type SaveState =
 /** Autosave runs this long after typing stops. */
 export const AUTOSAVE_DELAY_MS = 1000;
 
+/** The project's own words for the spelling check (see spelling.ts). */
+const DICTIONARY_FILE = "dictionary.txt";
 const LAST_PROJECT_KEY = "writingTool.lastProject";
 const lastChapterKey = (root: string) => `writingTool.lastChapter.${root}`;
 const wordsTodayKey = (root: string) => `writingTool.wordsToday.${root}`;
@@ -393,6 +396,24 @@ export function useProject() {
     [changeJson],
   );
 
+  /**
+   * Adds a word to the project's dictionary.txt, which the spelling check
+   * accepts, saved like an edit: the word is accepted at once. Does nothing
+   * for a word already there. Throws, changing nothing, when dictionary.txt
+   * couldn't be read: writing it would replace what it holds.
+   */
+  const addToDictionary = useCallback(
+    (word: string) => {
+      const current = projectRef.current;
+      const key = spellingKey(word.trim());
+      if (!current || switchingRef.current || key === "" || current.dictionary.includes(key)) return;
+      if (current.dictionaryProblem) throw new Error(current.dictionaryProblem);
+      const text = withWordAdded(current.dictionaryText, word.trim());
+      changeLater({ ...current, dictionaryText: text, dictionary: [...current.dictionary, key] }, DICTIONARY_FILE, text);
+    },
+    [changeLater],
+  );
+
   const openChapter = useCallback((id: string) => {
     const current = projectRef.current;
     if (!current?.chapters[id]) return;
@@ -586,6 +607,7 @@ export function useProject() {
     updateSheet,
     ignoreName,
     markNotName,
+    addToDictionary,
     changeBinder,
     trashSheet,
     listVersions,

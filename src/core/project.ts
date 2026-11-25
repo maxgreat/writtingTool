@@ -1,5 +1,6 @@
 import { isMap, isScalar, parseDocument, type Document, type Pair, type Scalar, type YAMLMap } from "yaml";
 import { NameMatcher, normalizeName, type IgnoredName, type NamePattern } from "./names";
+import { parseWordList } from "./spelling";
 import { countWords } from "./words";
 
 /** What the Rust core returns when it opens a project folder. */
@@ -7,6 +8,10 @@ export interface ProjectSnapshot {
   root: string;
   folderName: string;
   projectJson: string | null;
+  /** dictionary.txt: the project's own words for the spelling check, one per line. Null when there is none, or it can't be read. */
+  dictionary?: string | null;
+  /** Why dictionary.txt was left out (not UTF-8 text, or unreadable), as a sentence; words can't be added to it then. */
+  dictionaryProblem?: string | null;
   /** Every Markdown file under manuscript/, sheets/ and trash/, paths relative to the root with `/`. */
   files: { path: string; text: string }[];
   /** Every folder under manuscript/ and trash/, so empty parts show too. */
@@ -105,6 +110,12 @@ export interface Project {
   ignoredNames: IgnoredName[];
   /** Words the writer marked as not names, so they are never offered as possible names. */
   notNames: string[];
+  /** dictionary.txt as read (null when there is none), to be written back with a word added. */
+  dictionaryText: string | null;
+  /** The words of dictionary.txt, which the spelling check accepts (see parseWordList). */
+  dictionary: string[];
+  /** Why dictionary.txt couldn't be read: adding a word would replace what it holds, so it is refused. */
+  dictionaryProblem: string | null;
   /** Problems found while reading, for the interface to report. */
   problems: string[];
 }
@@ -384,6 +395,7 @@ export function buildProject(snapshot: ProjectSnapshot): Project {
     ...(snapshot.problems ?? []),
     ...snapshot.skipped.map((path) => `${path} is not UTF-8 text and was left out.`),
     ...(jsonProblem ? [jsonProblem] : []),
+    ...(snapshot.dictionaryProblem ? [snapshot.dictionaryProblem] : []),
   ];
   const meta = isRecord(json.chapters) ? json.chapters : {};
   const folders = snapshot.folders ?? [];
@@ -497,6 +509,9 @@ export function buildProject(snapshot: ProjectSnapshot): Project {
     notNames: Array.isArray(json.notNames)
       ? [...new Set(json.notNames.filter((w): w is string => typeof w === "string" && w.trim() !== "").map(normalizeName))]
       : [],
+    dictionaryText: snapshot.dictionary ?? null,
+    dictionary: parseWordList(snapshot.dictionary),
+    dictionaryProblem: snapshot.dictionaryProblem ?? null,
     trash: [...trash.values()].sort((a, b) => byPath(a.id, b.id)),
     entries,
     json: json as Record<string, unknown>,

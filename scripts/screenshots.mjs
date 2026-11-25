@@ -136,6 +136,21 @@ const SCENES = [
     },
   },
   {
+    name: "desktop-spelling-menu",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // The sample book has no misspellings, so a sentence with two is typed at the end of a paragraph of The
+      // arrival. Once typing stops they get the wavy mark, and a right-click on "skif" opens its corrections.
+      await page.locator(".ProseMirror p", { hasText: "Morning came grey over the river." }).click();
+      await page.keyboard.press("End");
+      await page.keyboard.type(" The ferryman’s skif was moored at the jety.");
+      await page.locator('.ProseMirror .spelling-mark[data-word="skif"]').waitFor();
+      await rightClickWord(page, "skif");
+      await page.getByRole("menu", { name: "Spelling: skif" }).locator(".spelling-correction").first().waitFor();
+    },
+  },
+  {
     name: "desktop-sheet-new",
     ...DESKTOP,
     colorScheme: "light",
