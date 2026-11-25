@@ -5,6 +5,7 @@ import type { TextPosition } from "../core/caret";
 import { FormattedEditor } from "../core/editor/FormattedEditor";
 import { grammarMarkAt, nameMarkAt, NAME_MARK_CLASS, type GrammarHit } from "../core/editor/nameMarks";
 import { PlainEditor } from "../core/editor/PlainEditor";
+import type { TypingAids } from "../core/editor/typingAids";
 import type { EditorHandle, EditorWord, FormatState, NameHit, SuggestionHit } from "../core/editor/types";
 import type { IgnoredName, NameMatcher } from "../core/names";
 import type { Chapter, Sheet, SheetType } from "../core/project";
@@ -19,7 +20,7 @@ import {
   useSelectionOffer,
   type NameTarget,
 } from "./AddName";
-import { errorMessage, tokenMs, tokenPx } from "./dom";
+import { cx, errorMessage, tokenMs, tokenPx } from "./dom";
 import { grammarCopy, GrammarMenu, grammarTextMenuItems, type GrammarSource } from "./GrammarMenu";
 import type { IgnoreSource } from "./IgnoreHere";
 import { editorStyle } from "./layoutStyle";
@@ -94,6 +95,10 @@ export interface EditorPaneProps {
    * on a touch screen; null in focus mode.
    */
   grammarSource: GrammarSource | null;
+  /** The project language's typography and the writer's replacements, as characters are typed; null: none. */
+  typingAids: TypingAids | null;
+  /** Keeps the line being typed in the middle of the screen. */
+  typewriter: boolean;
   /**
    * The desktop app's native menu for the text (Backend.popupTextMenu),
    * which a right-click shows; absent in the browser preview and on phones.
@@ -142,6 +147,8 @@ export function EditorPane({
   spelling,
   grammar,
   grammarSource,
+  typingAids,
+  typewriter,
   popupTextMenu,
   touch,
   sheetsById,
@@ -583,6 +590,8 @@ export function EditorPane({
     onSpellingClick,
     grammar,
     onGrammarClick,
+    typingAids,
+    typewriter,
     readOnly,
     ariaLabel: "Chapter text",
   };
@@ -590,7 +599,8 @@ export function EditorPane({
   return (
     <main
       ref={paneRef}
-      className="editor-pane"
+      // Typewriter scrolling: room under the text, so its last lines can reach the middle too.
+      className={cx("editor-pane", typewriter && "is-typewriter")}
       style={editorStyle(settings)}
       onMouseOver={onMouseOver}
       onMouseLeave={hideCard}

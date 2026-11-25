@@ -22,10 +22,11 @@
         <h1 id="policy-title">Privacy policy</h1>
         <p class="lead">
           Writing Tool collects no personal data. What you write is kept on your device, and the app sends nothing
-          to the developer or to anyone else.
+          to the developer. It sends text to anyone else only if you turn on the LanguageTool grammar check, and
+          only to the server you choose.
         </p>
         <p class="policy-meta">
-          Effective <time class="num" datetime="2026-11-23">23 November 2026</time>. This policy covers the Writing
+          Effective <time class="num" datetime="2026-11-25">25 November 2026</time>. This policy covers the Writing
           Tool app on Android, Windows, macOS and Linux.
         </p>
 
@@ -44,19 +45,31 @@
             a project folder you choose, and the app reads and saves it where it is.
           </p>
           <p>
-            The app’s settings, and on desktop the list of folders you opened recently, are kept on your device too.
-            Nothing you write is sent to the developer or to anyone else.
+            The app’s settings, and on desktop the list of folders you opened recently, are kept on your device too,
+            including the LanguageTool user name and API key if you enter them. Nothing you write is sent to the
+            developer.
           </p>
         </section>
 
         <section class="policy-section" aria-labelledby="network-title">
           <h2 id="network-title">Network access</h2>
           <p>
-            The app makes no network requests. Its source code is public, so anyone can check this.
+            The app makes no network requests unless you turn on the LanguageTool grammar check in Settings. It is off
+            unless you choose a server. Spelling, and grammar in English, are checked on your device. Its source code
+            is public, so anyone can check this.
           </p>
           <p>
-            On Android the app has the Internet permission, because Tauri, the framework it is built with, includes
-            it. Writing Tool doesn’t use it to send anything.
+            When you choose a LanguageTool server, the paragraphs of the chapter you are writing are sent to it to be
+            checked, a moment after you stop typing, and the problems it finds come back. While the app is open, a
+            paragraph that hasn’t changed isn’t sent again, unless the server couldn’t answer; the next time the app
+            opens, or after you change the project’s language or the server, the paragraphs are checked again. The server is the one you choose: LanguageTool’s free server at
+            <a href="https://languagetool.org/legal/privacy">languagetool.org</a> or your LanguageTool Premium account,
+            whose privacy policy covers what they receive, or a server of your own. With a Premium account your user
+            name and API key are sent with each check. Turning the grammar server off in Settings stops this at once.
+          </p>
+          <p>
+            On Android the app has the Internet permission. Writing Tool uses it only for the LanguageTool grammar
+            check, when you turn it on.
           </p>
         </section>
 

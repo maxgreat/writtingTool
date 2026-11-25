@@ -125,6 +125,11 @@ export interface Backend {
    */
   closeWindow?(): Promise<void>;
   /**
+   * Desktop app only: the window's own theme (its title bar), light, dark,
+   * or the system's (null). Absent on phones and in the browser preview.
+   */
+  setWindowTheme?(theme: "light" | "dark" | null): Promise<void>;
+  /**
    * Runs before the window closes, so pending saves can finish. The window
    * stays open if the handler resolves to false. Resolves to an unsubscribe.
    */
@@ -265,6 +270,14 @@ const appBackend: Omit<Backend, "canOpenFolders"> = {
       throw asError(error);
     }
   },
+  async setWindowTheme(theme) {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    try {
+      await getCurrentWindow().setTheme(theme);
+    } catch (error) {
+      throw asError(error);
+    }
+  },
   async onCloseRequested(handler) {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     return getCurrentWindow().onCloseRequested(async (event) => {
@@ -298,10 +311,11 @@ export async function loadBackend(): Promise<Backend> {
     const popupTextMenu = desktop ? appBackend.popupTextMenu : undefined;
     // Phones have no window to close: the system closes apps.
     const closeWindow = desktop ? appBackend.closeWindow : undefined;
+    const setWindowTheme = desktop ? appBackend.setWindowTheme : undefined;
     // Phones have a Back button instead, which closes the app from its main screen.
     const onBackButton = desktop ? undefined : appBackend.onBackButton;
     const exitApp = desktop ? undefined : appBackend.exitApp;
-    return { ...appBackend, canOpenFolders: desktop, popupTextMenu, closeWindow, onBackButton, exitApp };
+    return { ...appBackend, canOpenFolders: desktop, popupTextMenu, closeWindow, setWindowTheme, onBackButton, exitApp };
   }
   const { browserBackend } = await import("./browserBackend");
   return browserBackend;

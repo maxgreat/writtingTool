@@ -31,8 +31,8 @@ const NO_WORDS: ReadonlySet<string> = new Set();
  * name (`suggestions`: names are never marked as misspelled), or one of the
  * words the writer added (`accepted`: the project's and personal
  * dictionaries). Nothing is marked when no dictionary is bundled for the
- * language, or the backend has none (the browser preview without its dev
- * server).
+ * language, the backend has none (the browser preview without its dev
+ * server), or the writer turned the check off (`enabled`).
  */
 export function useSpelling(
   backend: Backend | null,
@@ -41,6 +41,7 @@ export function useSpelling(
   matcher: NameMatcher,
   suggestions: ReadonlySet<string>,
   accepted: ReadonlySet<string>,
+  enabled = true,
 ): Spelling {
   // The text as of the last pause in typing.
   const [settled, setSettled] = useState(text);
@@ -72,7 +73,7 @@ export function useSpelling(
 
   useEffect(() => {
     if (asked.current.language !== language) asked.current = { language, words: new Set() };
-    if (unavailable) return;
+    if (unavailable || !enabled) return;
     if (!backend?.checkWords) {
       setAnswers({ language, available: false, correct: new Map() });
       return;
@@ -95,10 +96,11 @@ export function useSpelling(
         for (const key of missing) asked.current.words.delete(key);
       },
     );
-  }, [backend, language, words, unavailable]);
+  }, [backend, language, words, unavailable, enabled]);
 
   const list = useMemo(() => {
     const out: string[] = [];
+    if (!enabled) return out;
     for (const [key, written] of words) {
       if (current.correct.get(key) !== false) continue;
       if (accepts(accepted, key) || matcher.knows(written)) continue;
@@ -106,7 +108,7 @@ export function useSpelling(
       out.push(key);
     }
     return out.sort();
-  }, [words, current, accepted, matcher, suggestions]);
+  }, [words, current, accepted, matcher, suggestions, enabled]);
 
   // The same set while the words don't change, so the editors don't mark the chapter again for nothing.
   const joined = list.join("\n");

@@ -22,6 +22,8 @@ import {
   toggleMarker,
 } from "./codemirror";
 import { grammarMarkAt, nameMarkAt, spellingMarkAt, suggestionMarkAt } from "./nameMarks";
+import { typewriterExtension } from "./typewriter";
+import { typingAidsHandler } from "./typingAids";
 import { sameFormat, shouldFocusOnMount, type ChapterEditorProps, type FormatState } from "./types";
 
 const NO_WORDS: ReadonlySet<string> = new Set();
@@ -46,6 +48,8 @@ export function PlainEditor({
   onSpellingClick,
   grammar = NO_PROBLEMS,
   onGrammarClick,
+  typingAids = null,
+  typewriter = false,
   readOnly = false,
   className,
   ariaLabel,
@@ -56,8 +60,14 @@ export function PlainEditor({
   const editable = useRef(new Compartment());
   const editableExtensions = (on: boolean) => [EditorView.editable.of(on), EditorState.readOnly.of(!on)];
   const initialReadOnly = useRef(readOnly);
-  const latest = useRef({ matcher, suggestions, misspelled, grammar, onChange, onFormatChange, onNameClick, onSuggestionClick, onSpellingClick, onGrammarClick });
-  latest.current = { matcher, suggestions, misspelled, grammar, onChange, onFormatChange, onNameClick, onSuggestionClick, onSpellingClick, onGrammarClick };
+  const latest = useRef({
+    matcher, suggestions, misspelled, grammar, typingAids, typewriter,
+    onChange, onFormatChange, onNameClick, onSuggestionClick, onSpellingClick, onGrammarClick,
+  });
+  latest.current = {
+    matcher, suggestions, misspelled, grammar, typingAids, typewriter,
+    onChange, onFormatChange, onNameClick, onSuggestionClick, onSpellingClick, onGrammarClick,
+  };
   // Read once, when the editor is created; remount to load other text.
   const initial = useRef({ markdown, initialCaret, ariaLabel });
 
@@ -87,6 +97,8 @@ export function PlainEditor({
             ...historyKeymap,
           ]),
           markdownLanguage(),
+          typingAidsHandler(() => latest.current.typingAids),
+          typewriterExtension(() => latest.current.typewriter),
           syntaxHighlighting(markdownClasses),
           EditorView.lineWrapping,
           nameHighlight(

@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useLayoutEffect } from "react";
 import { useViewSettings } from "./core/settings";
 import { useProject } from "./core/useProject";
 import { BACK_AGAIN, BackStack, type Leave } from "./ui/BackStack";
@@ -11,6 +11,20 @@ export default function App() {
   const [settings, update] = useViewSettings();
   const isPhone = useMediaQuery(PHONE_QUERY);
   const { backend, mayClose } = api;
+
+  // The theme: the system's, or the one chosen in Settings (tokens.css reads data-theme), and the window's title bar with it.
+  // The page's is set before it is first drawn, so a chosen theme never starts with a flash of the system's.
+  const { theme } = settings;
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    if (theme === "system") delete root.dataset.theme;
+    else root.dataset.theme = theme;
+  }, [theme]);
+  useEffect(() => {
+    backend?.setWindowTheme?.(theme === "system" ? null : theme).catch((error: unknown) => {
+      console.error("Cannot set the window's theme", error);
+    });
+  }, [theme, backend]);
 
   // Back while no project is open (it is opening, or couldn't be opened): the
   // app closes, after the same check as anywhere. The workspace has its own.

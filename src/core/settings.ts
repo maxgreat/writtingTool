@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { DEFAULT_REPLACEMENTS, isReplacement, type Replacement } from "./typography";
 
 /**
  * How the text looks on this device. None of it touches the chapter files: a
@@ -7,6 +8,7 @@ import { useCallback, useState } from "react";
 export type WritingFont = "serif" | "sans" | "mono";
 export type EditorMode = "formatted" | "plain";
 export type LineSpacing = 1.2 | 1.5 | 2;
+export type Theme = "system" | "light" | "dark";
 
 /**
  * Where grammar is checked besides on this device: nowhere (English is
@@ -38,9 +40,18 @@ export interface ViewSettings {
   /** Panel widths in CSS pixels. */
   binderWidth: number;
   inspectorWidth: number;
+  /** Mark misspelled words. */
+  spelling: boolean;
   /** Mark grammar problems. */
   grammar: boolean;
+  /** The project language's typography as you type: curly quotes, dashes, French spacing. */
+  typography: boolean;
+  /** Words replaced as they are typed ("teh" by "the"). */
+  replacements: Replacement[];
   languageTool: LanguageToolSettings;
+  theme: Theme;
+  /** Keeps the line being typed in the middle of the screen. */
+  typewriter: boolean;
 }
 
 export const FONT_SIZE = { min: 12, max: 28 } as const;
@@ -60,8 +71,13 @@ export const DEFAULT_SETTINGS: ViewSettings = {
   inspectorOpen: true,
   binderWidth: 260,
   inspectorWidth: 300,
+  spelling: true,
   grammar: true,
+  typography: true,
+  replacements: DEFAULT_REPLACEMENTS,
   languageTool: { mode: "off", url: "", username: "", apiKey: "" },
+  theme: "system",
+  typewriter: false,
 };
 
 const STORAGE_KEY = "writingTool.viewSettings.v1";
@@ -91,11 +107,22 @@ export function sanitizeSettings(raw: unknown): ViewSettings {
     inspectorOpen: typeof s.inspectorOpen === "boolean" ? s.inspectorOpen : d.inspectorOpen,
     binderWidth: clamp(s.binderWidth, PANEL_WIDTH, d.binderWidth),
     inspectorWidth: clamp(s.inspectorWidth, PANEL_WIDTH, d.inspectorWidth),
-    grammar: typeof s.grammar === "boolean" ? s.grammar : d.grammar,
+    spelling: flag(s.spelling, d.spelling),
+    grammar: flag(s.grammar, d.grammar),
+    typography: flag(s.typography, d.typography),
+    replacements: Array.isArray(s.replacements)
+      ? s.replacements.filter(isReplacement).slice(0, MAX_REPLACEMENTS).map(({ from, to }) => ({ from: from.trim(), to }))
+      : d.replacements,
     languageTool: sanitizeLanguageTool(s.languageTool),
+    theme: oneOf(s.theme, ["system", "light", "dark"] as const, d.theme),
+    typewriter: flag(s.typewriter, d.typewriter),
   };
 }
 
+/** At most this many replacements are kept. */
+export const MAX_REPLACEMENTS = 200;
+
+const flag = (value: unknown, fallback: boolean) => (typeof value === "boolean" ? value : fallback);
 const text = (value: unknown, max: number) => (typeof value === "string" ? value.slice(0, max) : "");
 
 function sanitizeLanguageTool(raw: unknown): LanguageToolSettings {

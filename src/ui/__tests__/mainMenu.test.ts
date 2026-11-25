@@ -75,6 +75,10 @@ const setCloseHandler = (handler: (() => Promise<boolean>) | null) => {
 const resumeAutosave = vi.fn();
 const holdAutosave = vi.fn(() => resumeAutosave);
 const discardPending = vi.fn();
+/** The project's language, changed from Settings. */
+const setLanguage = vi.fn<(code: string) => void>();
+/** The view settings, changed from Settings (and the bar). */
+const update = vi.fn<(patch: Partial<ViewSettings>) => void>();
 /** Whether edits wait to be saved: as the save state says. */
 let unsaved = false;
 
@@ -130,6 +134,7 @@ async function mount({
       setCloseHandler,
       holdAutosave,
       discardPending,
+      setLanguage,
       hasUnsaved: () => unsaved,
       openFolder,
       openProjectAt,
@@ -147,7 +152,7 @@ async function mount({
       project,
       backend,
       settings: { ...DEFAULT_SETTINGS, mode: "plain", ...settings },
-      update: () => undefined,
+      update,
       isPhone,
     });
   }
@@ -175,6 +180,8 @@ beforeEach(() => {
   resumeAutosave.mockClear();
   holdAutosave.mockClear();
   discardPending.mockClear();
+  setLanguage.mockReset();
+  update.mockClear();
   listProjects.mockClear();
   openFolder.mockReset().mockResolvedValue(undefined);
   openProjectAt.mockReset().mockResolvedValue(undefined);
@@ -216,6 +223,12 @@ const said = () => [...container.querySelectorAll('.workspace > p.visually-hidde
 const alerted = () => container.querySelector('.workspace > p.visually-hidden[role="alert"]')?.textContent;
 const caretInText = () => document.activeElement?.closest(".editor-pane") != null;
 const isFocusMode = () => container.querySelector(".workspace")!.classList.contains("is-focus");
+const settingsDialog = () => document.querySelector<HTMLElement>('.settings-dialog[role="dialog"]');
+/** A switch in the Settings dialog, by its label. */
+const settingsSwitch = (label: string) =>
+  [...(settingsDialog()?.querySelectorAll<HTMLElement>('[role="switch"]') ?? [])].find(
+    (s) => document.getElementById(s.getAttribute("aria-labelledby") ?? "")?.textContent === label,
+  );
 
 async function click(el: HTMLElement | undefined) {
   if (!el) throw new Error("Nothing to click");
@@ -242,6 +255,13 @@ async function key(init: KeyboardEventInit, target: EventTarget = document.activ
 }
 
 const ctrl = (letter: string) => key({ key: letter, code: `Key${letter.toUpperCase()}`, ctrlKey: true });
+const ctrlComma = (init: KeyboardEventInit = {}) => key({ key: ",", code: "Comma", ctrlKey: true, ...init });
+
+/** Lets a frame go by, for what waits until React has shown a change. */
+const afterFrame = () =>
+  act(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+  });
 
 async function focusText() {
   await act(async () => container.querySelector<HTMLElement>(".cm-content")!.focus());
@@ -280,16 +300,18 @@ describe("the main menu button", () => {
       "Open folder…",
       "Save",
       "Export…",
+      "Settings…",
       "Focus mode",
       "Quit",
     ]);
     expect(hint("Open project…")).toBe("Ctrl+O");
     expect(hint("Save")).toBe("Ctrl+S");
+    expect(hint("Settings…")).toBe("Ctrl+,");
     expect(hint("Focus mode")).toBe("F11");
     expect(hint("Quit")).toBe("Ctrl+Q");
     expect(hint("New project…")).toBeNull();
     // Groups are set apart by space.
-    expect(menu()!.querySelectorAll(".popover-gap")).toHaveLength(3);
+    expect(menu()!.querySelectorAll(".popover-gap")).toHaveLength(4);
   });
 
   it("closes once a command is chosen", async () => {
@@ -466,6 +488,47 @@ describe("Export…", () => {
   });
 });
 
+describe("Settings…", () => {
+  it("opens the Settings dialog, and Done puts the caret back in the text", async () => {
+    await mount();
+    await choose("Settings…");
+    const dialog = settingsDialog();
+    expect(dialog?.getAttribute("aria-modal")).toBe("true");
+    expect(document.getElementById(dialog!.getAttribute("aria-labelledby")!)?.textContent).toBe("Settings");
+    expect(dialog!.contains(document.activeElement)).toBe(true);
+    const done = [...dialog!.querySelectorAll("button")].find((b) => b.textContent === "Done");
+    await click(done);
+    expect(settingsDialog()).toBeNull();
+    await afterFrame();
+    expect(caretInText()).toBe(true);
+  });
+
+  it("shows the settings and the project's language, and changes them where they live", async () => {
+    await mount();
+    await choose("Settings…");
+    const typewriter = settingsSwitch("Typewriter scrolling");
+    expect(typewriter?.getAttribute("aria-checked")).toBe("false");
+    await click(typewriter);
+    expect(update).toHaveBeenCalledWith({ typewriter: true });
+
+    const language = settingsDialog()!.querySelector<HTMLSelectElement>("select")!;
+    expect(language.value).toBe(project.language);
+    await act(async () => {
+      language.value = "fr-FR";
+      language.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(setLanguage).toHaveBeenCalledWith("fr-FR");
+  });
+
+  it("opens a sheet on phones, its close button ready", async () => {
+    await mount({ isPhone: true, backend: app({ folders: false, quit: false }) });
+    await choose("Settings…");
+    expect(openSheet()?.classList.contains("settings-sheet")).toBe(true);
+    expect(document.activeElement).toBe(openSheet()!.querySelector('button[aria-label="Close"]'));
+    expect(settingsDialog()).toBeNull();
+  });
+});
+
 describe("Focus mode", () => {
   it("enters focus mode with the caret in the text, and leaves it from the same place", async () => {
     await mount();
@@ -481,12 +544,13 @@ describe("Focus mode", () => {
     // The phone app: no folder picker, no window to close.
     await mount({ isPhone: true, backend: app({ folders: false, quit: false }) });
     await openMenu();
-    expect(labels()).toEqual(["New project…", "Open project…", "Save", "Export…"]);
+    expect(labels()).toEqual(["New project…", "Open project…", "Save", "Export…", "Settings…"]);
     expect(items().map((i) => i.querySelector(".menu-hint")?.textContent ?? null)).toEqual([
       null,
       null,
       null,
       "Coming soon",
+      null,
     ]);
   });
 
@@ -666,6 +730,45 @@ describe("the shortcuts", () => {
     const ignored = await ctrl("q");
     expect(ignored.defaultPrevented).toBe(false);
     expect(closeWindow).not.toHaveBeenCalled();
+  });
+
+  it("Ctrl+, opens Settings from the text, and Escape puts the caret back", async () => {
+    await mount();
+    await focusText();
+    const event = await ctrlComma();
+    expect(event.defaultPrevented).toBe(true);
+    expect(settingsDialog()).not.toBeNull();
+    expect(settingsDialog()!.contains(document.activeElement)).toBe(true);
+    await key({ key: "Escape" });
+    expect(settingsDialog()).toBeNull();
+    expect(caretInText()).toBe(true);
+  });
+
+  it("leave Settings its keys: nothing else happens behind it", async () => {
+    await mount({ save: { status: "pending" } });
+    await focusText();
+    await ctrlComma();
+    await key({ key: "F11" });
+    expect(isFocusMode()).toBe(false);
+    await ctrl("s");
+    expect(saveNow).not.toHaveBeenCalled();
+    await ctrl("o");
+    expect(projectsView()).toBeNull();
+    await key({ key: "B", code: "KeyB", ctrlKey: true, altKey: true });
+    expect(update).not.toHaveBeenCalled();
+    expect(settingsDialog()).not.toBeNull();
+    await key({ key: "Escape" });
+    expect(settingsDialog()).toBeNull();
+    // Back to work: the shortcuts are there again.
+    await ctrl("s");
+    expect(saveNow).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves Ctrl+Shift+, and Ctrl+Alt+, alone", async () => {
+    await mount();
+    expect((await ctrlComma({ shiftKey: true })).defaultPrevented).toBe(false);
+    expect((await ctrlComma({ altKey: true })).defaultPrevented).toBe(false);
+    expect(settingsDialog()).toBeNull();
   });
 
   it("leaves Ctrl+N and Ctrl+Shift+S to the system", async () => {

@@ -1,6 +1,7 @@
 import type { GrammarProblem } from "../backend";
 import type { IgnoredName } from "../names";
 import type { GrammarHit } from "./nameMarks";
+import type { TypingAids } from "./typingAids";
 import type { Ref } from "react";
 import type { TextPosition } from "../caret";
 import type { NameMatcher } from "../names";
@@ -111,6 +112,10 @@ export interface ChapterEditorProps {
   grammar?: ReadonlyMap<string, readonly GrammarProblem[]>;
   /** A grammar mark was clicked; the caret is still placed as usual. */
   onGrammarClick?(hit: GrammarHit): void;
+  /** The language's typography and the writer's replacements, applied as characters are typed; null: none. Can change while mounted. */
+  typingAids?: TypingAids | null;
+  /** Keeps the line being typed in the middle of the screen. Can change while mounted. */
+  typewriter?: boolean;
   /**
    * Formatted editor only: the chapter uses Markdown outside the chapter
    * subset, which this editor cannot save without losing it. The editor is

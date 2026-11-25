@@ -13,14 +13,14 @@ export interface ProjectJsonWrite {
   text: string;
 }
 
-function editableJson(project: Project): Record<string, unknown> {
+export function editableJson(project: Project): Record<string, unknown> {
   if (project.jsonProblem) {
     throw new Error(`${project.jsonProblem.replace(/; using defaults\.$/u, ".")} Fix or remove it, then open the project again.`);
   }
   return structuredClone(project.json);
 }
 
-const toText = (json: Record<string, unknown>) => `${JSON.stringify(json, null, 2)}\n`;
+export const toText = (json: Record<string, unknown>) => `${JSON.stringify(json, null, 2)}\n`;
 
 const same = (a: IgnoredName, b: IgnoredName) => a.name === b.name && a.sentence === b.sentence;
 

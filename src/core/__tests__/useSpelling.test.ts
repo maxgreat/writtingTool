@@ -23,10 +23,11 @@ interface Props {
   text: string | null;
   suggestions?: ReadonlySet<string>;
   accepted?: ReadonlySet<string>;
+  enabled?: boolean;
 }
 
-function Probe({ backend, language = "en-GB", text, suggestions = NONE, accepted = NONE }: Props) {
-  result = useSpelling(backend, language, text, ELENA, suggestions, accepted);
+function Probe({ backend, language = "en-GB", text, suggestions = NONE, accepted = NONE, enabled = true }: Props) {
+  result = useSpelling(backend, language, text, ELENA, suggestions, accepted, enabled);
   return null;
 }
 
@@ -115,6 +116,16 @@ describe("useSpelling", () => {
     await pause();
     expect(marked()).toEqual([]);
     expect(result.available).toBe(false);
+  });
+
+  it("marks nothing and asks nothing when turned off, and marks again when turned on", async () => {
+    await render({ backend: app, text: "teh boat", enabled: false });
+    await pause();
+    expect(marked()).toEqual([]);
+    expect(checkWords).not.toHaveBeenCalled();
+    await render({ backend: app, text: "teh boat", enabled: true });
+    await act(async () => {});
+    expect(marked()).toEqual(["teh"]);
   });
 
   it("asks again after a failure, at the next change", async () => {

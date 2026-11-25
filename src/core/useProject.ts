@@ -6,6 +6,7 @@ import { withIgnoredName, withNotName, type ProjectJsonWrite } from "./nameChoic
 import type { IgnoredName } from "./names";
 import { buildNameMatcher, buildProject, withChapterText, withSheetText, type Project, type ProjectSnapshot } from "./project";
 import { editSheetText, newSheetPath, newSheetText, type SheetEdit } from "./sheetFile";
+import { withLanguage } from "./projectSettings";
 import { spellingKey, withWordAdded } from "./spelling";
 import { newProject, readRecentProjects, rememberRecentProject, type ProjectEntry } from "./projects";
 
@@ -397,6 +398,13 @@ export function useProject() {
   );
 
   /**
+   * Sets the project's language, saved in project.json like an edit; the
+   * spelling, grammar and typography follow at once. Throws, changing
+   * nothing, when the code isn't one or project.json could not be read.
+   */
+  const setLanguage = useCallback((code: string) => changeJson((p) => withLanguage(p, code)), [changeJson]);
+
+  /**
    * Adds a word to the project's dictionary.txt, which the spelling check
    * accepts, saved like an edit: the word is accepted at once. Does nothing
    * for a word already there. Throws, changing nothing, when dictionary.txt
@@ -608,6 +616,7 @@ export function useProject() {
     ignoreName,
     markNotName,
     addToDictionary,
+    setLanguage,
     changeBinder,
     trashSheet,
     listVersions,

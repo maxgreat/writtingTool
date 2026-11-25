@@ -16,6 +16,8 @@ export interface MainMenuCommands {
   onSave(): void;
   /** A save is being written: Save waits for it. */
   saving: boolean;
+  /** The Settings dialog (a sheet on phones). */
+  onSettings(): void;
   /** Enters or leaves focus mode; absent where the bar couldn't be brought back (touch screens). */
   onToggleFocus?: () => void;
   /** Closes the window, saving first; only in the desktop app. */
@@ -39,8 +41,8 @@ interface MainMenuProps {
 
 /**
  * The app's commands, from the far left of the bar: projects, saving,
- * export (not there yet), focus mode and quitting. Groups are set apart by
- * space, in the order a File menu has them.
+ * export (not there yet), settings, focus mode and quitting. Groups are set
+ * apart by space, in the order a File menu has them.
  */
 export function MainMenu({ commands, focusMode, open, onOpenChange, triggerRef }: MainMenuProps) {
   const hint = (...keys: string[]) => (commands.showShortcuts ? shortcut(...keys) : undefined);
@@ -83,6 +85,10 @@ export function MainMenu({ commands, focusMode, open, onOpenChange, triggerRef }
           </MenuItem>
           <MenuItem noCheck disabled hint="Coming soon" onSelect={() => undefined}>
             Export…
+          </MenuItem>
+          <div className="popover-gap" role="none" />
+          <MenuItem noCheck hint={hint("mod", ",")} onSelect={choose(commands.onSettings)}>
+            Settings…
           </MenuItem>
           {commands.onToggleFocus && (
             <>

@@ -71,6 +71,23 @@ const SCENES = [
     },
   },
   {
+    name: "desktop-settings",
+    ...DESKTOP,
+    colorScheme: "light",
+    // Settings, from the main menu: the project's language, then checking and typing, as they are at first.
+    setup: (page) => openSettings(page),
+  },
+  {
+    name: "desktop-settings-dark",
+    ...DESKTOP,
+    colorScheme: "light",
+    setup: async (page) => {
+      // On a light system, Dark chosen at the end of the dialog, under Appearance: the whole app turns dark at once.
+      await openSettings(page);
+      await page.getByRole("dialog", { name: "Settings" }).getByRole("radio", { name: "Dark" }).click();
+    },
+  },
+  {
     name: "desktop-sheet",
     ...DESKTOP,
     colorScheme: "light",
@@ -222,7 +239,21 @@ const SCENES = [
       await page.getByRole("menu", { name: "Main menu" }).waitFor();
     },
   },
+  {
+    name: "phone-settings",
+    ...PHONE,
+    colorScheme: "light",
+    // The same settings in a sheet from the bottom, as tall as a sheet goes, with a close button for Done.
+    setup: (page) => openSettings(page),
+  },
 ];
+
+/** Settings, from the main menu: a dialog on desktop, a sheet from the bottom on phones. */
+async function openSettings(page) {
+  await page.getByRole("button", { name: "Main menu" }).click();
+  await page.getByRole("menuitem", { name: "Settings…" }).click();
+  await page.getByRole("dialog", { name: "Settings" }).waitFor();
+}
 
 /** A chapter's row in the binder, by its title. */
 function chapterRow(page, title) {

@@ -24,6 +24,11 @@
   cursor: text;
 }
 
+/* Typewriter scrolling keeps the caret's line mid-pane: the last lines need room below them to get there. */
+.editor-pane.is-typewriter .editor-column {
+  padding-bottom: var(--editor-typewriter-overscroll);
+}
+
 .editor-surface .chapter-text,
 .editor-surface .chapter-text-plain .cm-scroller {
   color: var(--color-text);

@@ -5,6 +5,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { useEffect, useImperativeHandle, useRef } from "react";
 import { chapterExtensions, keepsChapterExactly } from "../markdown";
 import { grammarMarkAt, nameMarkAt, spellingMarkAt, suggestionMarkAt } from "./nameMarks";
+import { TypingExtras } from "./typingExtras";
 import {
   NameHighlight,
   REFRESH_NAMES,
@@ -46,6 +47,8 @@ export function FormattedEditor({
   onSpellingClick,
   grammar = NO_PROBLEMS,
   onGrammarClick,
+  typingAids = null,
+  typewriter = false,
   onUnsupportedMarkdown,
   readOnly = false,
   className,
@@ -56,6 +59,8 @@ export function FormattedEditor({
     suggestions,
     misspelled,
     grammar,
+    typingAids,
+    typewriter,
     onChange,
     onFormatChange,
     onNameClick,
@@ -70,6 +75,8 @@ export function FormattedEditor({
     suggestions,
     misspelled,
     grammar,
+    typingAids,
+    typewriter,
     onChange,
     onFormatChange,
     onNameClick,
@@ -107,6 +114,10 @@ export function FormattedEditor({
         getSuggestions: () => latest.current.suggestions,
         getMisspelled: () => latest.current.misspelled,
         getGrammar: () => latest.current.grammar,
+      }),
+      TypingExtras.configure({
+        getAids: () => (takesEdits() ? latest.current.typingAids : null),
+        isTypewriter: () => latest.current.typewriter,
       }),
     ],
     content: markdown,

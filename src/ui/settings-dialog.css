@@ -1,0 +1,347 @@
+/*
+ * Settings (SettingsDialog.tsx): a modal dialog on desktop, a full-height
+ * sheet from the bottom on phones, with the same sections in both. Sections
+ * are set apart by space under quiet headings; the body scrolls between a
+ * fixed heading and, on desktop, Done.
+ */
+
+/* Desktop ----------------------------------------------------------------- */
+
+/* Centres the dialog; the dialog is never taller than the window, its body scrolls instead. */
+.settings-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: var(--color-scrim);
+  animation: settings-fade var(--duration-fast) var(--ease-standard);
+}
+
+.settings-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(var(--size-settings), 100%);
+  max-height: 100%;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-overlay);
+  outline: var(--size-hairline) solid var(--color-separator);
+  animation: settings-in var(--duration-fast) var(--ease-standard);
+}
+
+/* Focus rests on the dialog itself when it opens, and after a press on its text: no ring. */
+.settings-dialog:focus-visible {
+  outline: var(--size-hairline) solid var(--color-separator);
+}
+
+.settings-dialog .settings-head {
+  padding: var(--space-6) var(--space-6) var(--space-4);
+}
+
+.settings-dialog .settings-body {
+  padding: 0 var(--space-6) var(--space-2);
+}
+
+.settings-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-4) var(--space-6) var(--space-6);
+}
+
+/* Phones ------------------------------------------------------------------ */
+
+/* The sheet as tall as the screen allows; its heading stays, its body scrolls. */
+.bottom-sheet.settings-sheet {
+  display: flex;
+  flex-direction: column;
+  height: var(--sheet-max-height);
+  overflow: hidden;
+  padding: 0;
+}
+
+.settings-frame {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.settings-sheet .settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+}
+
+.settings-sheet .settings-title {
+  font-size: var(--text-xl);
+}
+
+/* Pulled out by its padding, so the cross lines up with the switches below. */
+.settings-sheet .settings-head .btn--icon {
+  margin-inline-end: calc((var(--size-control) - var(--size-icon)) / -2);
+}
+
+.settings-sheet .settings-body {
+  padding: 0 var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom));
+}
+
+/* Both -------------------------------------------------------------------- */
+
+.settings-title {
+  font-size: var(--text-lg);
+}
+
+.settings-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-8);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.settings-section-title {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* A server and what it needs: closer together than the settings around them. */
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* A label above its control, then a note or a reason it was refused. */
+.settings-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+
+.settings-item > .input,
+.settings-item > .select {
+  width: 100%;
+}
+
+/* A switch's note sits under its label: the row is already as tall as a control. */
+.settings-item--switch {
+  gap: 0;
+}
+
+/* A label and its control on one line: switches and the theme. */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: var(--size-control);
+}
+
+.settings-row > .settings-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Pressing a switch's label toggles it. */
+.settings-item--switch label {
+  cursor: pointer;
+}
+
+.settings-note,
+.settings-error,
+.settings-privacy {
+  font-size: var(--text-xs);
+  text-wrap: pretty;
+}
+
+.settings-note,
+.settings-privacy {
+  color: var(--color-text-muted);
+}
+
+/* What is sent where, then the privacy policy, as tall as a control so it is easy to tap. */
+.settings-privacy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* The address in the text colour, to be read and typed. Long addresses break anywhere. */
+.settings-link-error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  overflow-wrap: anywhere;
+}
+
+.settings-link-error .path {
+  color: var(--color-text);
+}
+
+/* Pulled out by its padding, so the plus lines up with the fields above. */
+.settings-add {
+  align-self: flex-start;
+  margin-inline-start: calc(var(--space-2) * -1);
+}
+
+/* Switches ---------------------------------------------------------------- */
+
+/* The button is as tall as a control, for an easy press; the track inside shows the state. */
+.switch {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-height: var(--size-control);
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.switch:focus-visible {
+  outline: none;
+}
+
+.switch:focus-visible .switch-track {
+  outline: var(--size-focus-ring) solid var(--color-focus-ring);
+  outline-offset: var(--size-hairline);
+}
+
+/* Off: an outline and a thumb in the muted text colour, both above 3:1 on every surface. */
+.switch-track {
+  display: flex;
+  align-items: center;
+  width: calc(2 * var(--size-icon) + 2 * var(--space-1));
+  height: calc(var(--size-icon) + 2 * var(--space-1));
+  padding: calc(var(--space-1) - var(--size-hairline));
+  border: var(--size-hairline) solid var(--color-text-muted);
+  border-radius: var(--radius-full);
+  background: transparent;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.switch-thumb {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  border-radius: var(--radius-full);
+  background: var(--color-text-muted);
+  transition:
+    translate var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+}
+
+.switch:hover .switch-track {
+  background: var(--color-hover);
+}
+
+/* On: the accent, the thumb moved to the end. */
+.switch[aria-checked="true"] .switch-track {
+  border-color: var(--color-accent-fill);
+  background: var(--color-accent-fill);
+}
+
+.switch[aria-checked="true"]:hover .switch-track {
+  border-color: var(--color-accent-fill-hover);
+  background: var(--color-accent-fill-hover);
+}
+
+.switch[aria-checked="true"] .switch-thumb {
+  translate: var(--size-icon) 0;
+  background: var(--color-on-accent);
+}
+
+/* High contrast: the system's colours, so the thumb doesn't vanish with the backgrounds. */
+@media (forced-colors: active) {
+  .switch-track {
+    border-color: CanvasText;
+  }
+
+  .switch-thumb {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+
+  .switch[aria-checked="true"] .switch-thumb {
+    background: Highlight;
+  }
+}
+
+/* Replacements ------------------------------------------------------------ */
+
+.replacement-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+}
+
+/* The word typed, an arrow, what it becomes, and Remove; the column names share the grid. */
+.replacement-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--size-icon) minmax(0, 1fr) var(--size-control);
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.replacement-row .input {
+  width: 100%;
+  min-width: 0;
+}
+
+.replacement-head {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.replacement-arrow {
+  color: var(--color-text-muted);
+}
+
+/* Pulled out by its padding, so the cross lines up with the edge of the fields above. */
+.replacement-remove {
+  justify-self: end;
+  margin-inline-end: calc((var(--size-control) - var(--size-icon)) / -2);
+}
+
+/* Motion ------------------------------------------------------------------ */
+
+@keyframes settings-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes settings-in {
+  from {
+    opacity: 0;
+    translate: 0 var(--space-1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-scrim,
+  .settings-dialog {
+    animation: none;
+  }
+}

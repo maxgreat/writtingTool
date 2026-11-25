@@ -9,6 +9,8 @@ import type { EditorMode, ViewSettings } from "../core/settings";
 import { addToPersonalDictionary, readPersonalDictionary } from "../core/spelling";
 import { useNameSuggestions } from "../core/useNameSuggestions";
 import type { useProject } from "../core/useProject";
+import type { TypingAids } from "../core/editor/typingAids";
+import { typographyFor } from "../core/typography";
 import { useGrammar } from "../core/useGrammar";
 import { useSpelling } from "../core/useSpelling";
 import { TextNote } from "./AddName";
@@ -28,6 +30,7 @@ import type { MainMenuCommands } from "./MainMenu";
 import type { SuggestionSource } from "./PossibleNameMenu";
 import { ProjectsDialog, useProjectsDialog, type ProjectsIntent, type ProjectsSource } from "./Projects";
 import { ResizeHandle } from "./ResizeHandle";
+import { SettingsDialog } from "./SettingsDialog";
 import type { SpellingSource } from "./SpellingMenu";
 import { StatusBar } from "./StatusBar";
 import type { SwipeIntent } from "./swipe";
@@ -101,6 +104,11 @@ function isModLetter(event: KeyboardEvent, key: string): boolean {
   return hasMod(event) && !event.altKey && !event.shiftKey && !event.getModifierState("AltGraph") && letter(event) === key;
 }
 
+/** mod and a key that isn't a letter, with no other modifier: "," for Settings. */
+function isModKey(event: KeyboardEvent, key: string): boolean {
+  return hasMod(event) && !event.altKey && !event.shiftKey && !event.getModifierState("AltGraph") && event.key === key;
+}
+
 /** Keys pressed on their way to a shortcut. */
 const MODIFIER_KEYS = new Set(["Control", "Meta", "Shift", "Alt", "AltGraph"]);
 
@@ -131,7 +139,24 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   const [personalWords, setPersonalWords] = useState(readPersonalDictionary);
   const accepted = useMemo(() => new Set([...project.dictionary, ...personalWords]), [project.dictionary, personalWords]);
   // The open chapter's misspelled words, checked a moment after typing stops.
-  const spelling = useSpelling(backend, project.language, chapter?.text ?? null, matcher, suggestions.words, accepted);
+  const spelling = useSpelling(
+    backend,
+    project.language,
+    chapter?.text ?? null,
+    matcher,
+    suggestions.words,
+    accepted,
+    settings.spelling,
+  );
+  // As characters are typed: the project language's typography, and the writer's replacements.
+  const { typography, replacements } = settings;
+  const typingAids = useMemo<TypingAids | null>(
+    () =>
+      typography || replacements.length > 0
+        ? { rules: typography ? typographyFor(project.language) : "none", replacements }
+        : null,
+    [typography, replacements, project.language],
+  );
   /** Corrections and Add to dictionary, for the misspelled words' menus; null without a dictionary. */
   const { addToDictionary } = api;
   const spellingSource = useMemo<SpellingSource | null>(() => {
@@ -881,6 +906,23 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     };
   }, []);
 
+  /** The Settings dialog, from the main menu or its shortcut: a sheet on phones. */
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  /**
+   * The dialog puts focus back where it was when it opened. Opened from the
+   * main menu, that was the menu's item, gone with the menu: on desktop the
+   * caret goes back to the text instead. Phones leave it, as their other
+   * sheets do, so the on-screen keyboard doesn't come up.
+   */
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+    if (isPhone) return;
+    void nextFrame().then(() => {
+      if (focusLost()) editorRef.current?.focus();
+    });
+  }, [isPhone]);
+
   const mainMenu: MainMenuCommands = {
     canCreateProjects: backend.canCreateProjects,
     onNewProject: () => showProjects("new"),
@@ -897,6 +939,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
       void save();
     },
     saving: api.save.status === "saving",
+    onSettings: () => setSettingsOpen(true),
     // The bar comes back with the pointer at the top edge, which touch screens don't have.
     onToggleFocus:
       canHover || focusMode
@@ -930,15 +973,15 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   };
 
   const asking = closeAsk !== null;
-  const keys = useRef({ togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit, asking });
-  keys.current = { togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit, asking };
+  const keys = useRef({ togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit, asking, settingsOpen });
+  keys.current = { togglePanel, enterFocus, leaveFocus, settings, update, focusMode, phonePanel, save, showProjectsFromKeys, quit, asking, settingsOpen };
 
   useEffect(() => {
     // Capture phase, so these work whichever editor has focus.
     const onShortcut = (event: KeyboardEvent) => {
       const k = keys.current;
-      // The close dialog is a decision: nothing changes behind it.
-      if (k.asking) return;
+      // The close dialog is a decision, and Settings has its own keys (Escape, Tab): nothing changes behind them.
+      if (k.asking || k.settingsOpen) return;
       if (event.key === "F11") {
         event.preventDefault();
         if (k.focusMode) k.leaveFocus();
@@ -956,6 +999,9 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
       } else if (isModLetter(event, "q") && k.quit) {
         event.preventDefault();
         if (!event.repeat) void k.quit();
+      } else if (isModKey(event, ",")) {
+        event.preventDefault();
+        if (!event.repeat) setSettingsOpen(true);
       } else if (event.altKey && event.code === "KeyB") {
         event.preventDefault();
         k.togglePanel("binder");
@@ -974,7 +1020,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       const k = keys.current;
-      if (k.asking) return;
+      if (k.asking || k.settingsOpen) return;
       if (k.phonePanel) setPhonePanel(null);
       else if (k.focusMode) k.leaveFocus();
     };
@@ -1120,6 +1166,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           spelling={focusMode ? null : spellingSource}
           grammar={focusMode ? NO_PROBLEMS : problems}
           grammarSource={focusMode ? null : grammarSource}
+          typingAids={typingAids}
+          typewriter={settings.typewriter}
           popupTextMenu={popupTextMenu}
           touch={!canHover}
           sheetsById={sheetsById}
@@ -1223,6 +1271,17 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
       )}
 
       <ProjectsDialog dialog={projectsDialog} />
+
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={closeSettings}
+        isPhone={isPhone}
+        settings={settings}
+        update={update}
+        language={project.language}
+        onLanguageChange={api.setLanguage}
+        openUrl={backend.openUrl}
+      />
 
       <CloseDialog
         open={closeAsk !== null}
