@@ -10,6 +10,7 @@ import { holdsNames, type Project } from "../core/project";
 import { findInChapter, matchOffsets, replaceInChapter, searchPattern, type SearchMatch, type SearchOptions } from "../core/search";
 import type { EditorMode, ViewSettings } from "../core/settings";
 import { addToPersonalDictionary, readPersonalDictionary } from "../core/spelling";
+import { useDropbox } from "../core/useDropbox";
 import { useNameSuggestions } from "../core/useNameSuggestions";
 import type { useProject } from "../core/useProject";
 import type { TypingAids } from "../core/editor/typingAids";
@@ -1129,6 +1130,8 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
 
   /** The Settings dialog, from the main menu or its shortcut: a sheet on phones. */
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** The writer's Dropbox, for Settings. Kept here, so a sign-in under way goes on while the dialog is closed. */
+  const dropbox = useDropbox(backend.dropbox);
 
   /**
    * The dialog puts focus back where it was when it opened. Opened from the
@@ -1593,6 +1596,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
         language={project.language}
         onLanguageChange={api.setLanguage}
         openUrl={backend.openUrl}
+        dropbox={dropbox}
       />
 
       {exportSource && <ExportDialog open source={exportSource} onClose={closeExport} isPhone={isPhone} />}

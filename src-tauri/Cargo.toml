@@ -37,6 +37,20 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 tauri-plugin-fs = "=2.7.1"
 # The opt-in LanguageTool connection: rustls with bundled roots, nothing platform-specific on Android.
 ureq = { version = "=3.5.1", default-features = false, features = ["rustls"] }
+# Dropbox sign-in with PKCE: random values, the SHA-256 challenge, addresses.
+base64 = "0.22"
+sha2 = "0.10"
+getrandom = "0.3"
+url = "2"
+
+# Desktops keep the Dropbox sign-in in the system's keyring (Secret Service
+# on Linux, through the dbus library the window already uses).
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+keyring = { version = "=3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+
+# Phones get Dropbox's answer to a sign-in through a link the app opens.
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+tauri-plugin-deep-link = "=2.4.10"
 
 [dev-dependencies]
 tempfile = "3.27"

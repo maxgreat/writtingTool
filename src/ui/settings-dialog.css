@@ -205,6 +205,82 @@
   margin-inline-start: calc(var(--space-2) * -1);
 }
 
+/* A section's own action, in the accent without a fill: Done stays the dialog's one filled button. */
+.settings-action {
+  color: var(--color-accent);
+  font-weight: var(--weight-medium);
+}
+
+/* Not pressable yet (Connect, before a code is pasted): dimmer than Cancel beside it. Opening Dropbox… stays readable. */
+.settings-action:disabled:not([aria-busy="true"]) {
+  color: var(--color-text-disabled);
+}
+
+/* Dropbox ----------------------------------------------------------------- */
+
+/* What a step says, a field, the buttons, then an error or a note: apart, as a server and what it needs are.
+   The placeholder keeps the same gaps, so it is as tall as the step it stands for. */
+.dropbox,
+.dropbox-placeholder {
+  gap: var(--space-3);
+}
+
+.dropbox p {
+  text-wrap: pretty;
+}
+
+/* What a step says, then its quieter detail, close together. */
+.dropbox-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+/* Pulled out by the first button's padding, so its label lines up with the text above. */
+.dropbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-inline-start: calc(var(--space-2) * -1);
+}
+
+/* The account connected, beside Disconnect. A long name or address breaks anywhere. */
+.dropbox-account {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dropbox-name {
+  font-weight: var(--weight-medium);
+}
+
+/* Pulled out by its padding, so its label ends where the switches above do. */
+.dropbox-disconnect {
+  margin-inline-end: calc(var(--space-2) * -1);
+}
+
+/* A step waiting for Dropbox: Opening Dropbox…, Connecting…, Disconnecting…. */
+.dropbox .btn[aria-busy="true"] {
+  cursor: progress;
+}
+
+/* While the connection is read: the disconnected step's own words, unseen, so the section keeps its height. */
+.dropbox-placeholder {
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Each line of those words hidden behind a bar of one flat colour, as tall as the app's other skeleton lines. */
+.dropbox-placeholder-line {
+  color: transparent;
+  background: linear-gradient(var(--color-skeleton), var(--color-skeleton)) left center / 100% var(--size-skeleton-line)
+    no-repeat;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  animation: skeleton-pulse var(--duration-pulse) ease-in-out infinite;
+}
+
 /* Switches ---------------------------------------------------------------- */
 
 /* The button is as tall as a control, for an easy press; the track inside shows the state. */
@@ -341,7 +417,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .settings-scrim,
-  .settings-dialog {
+  .settings-dialog,
+  .dropbox-placeholder-line {
     animation: none;
   }
 }

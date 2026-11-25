@@ -31,6 +31,53 @@ export interface Version {
   text: string;
 }
 
+/** A Dropbox account, as the core shows it. */
+export interface DropboxAccount {
+  accountId: string;
+  /** The account's display name, such as "Ada Lovelace". */
+  name: string;
+  email: string;
+}
+
+/** The Dropbox connection on this device. */
+export interface DropboxStatus {
+  /** Null when no account is connected. */
+  account: DropboxAccount | null;
+  /** The sign-in is kept in a file only this user can read, as this desktop has no keyring service. */
+  tokenInFile: boolean;
+}
+
+/** What `signInFinish` rejects with after `signInCancel`. */
+export const DROPBOX_SIGN_IN_CANCELLED = "Signing in to Dropbox was cancelled.";
+
+/** The writer's Dropbox, signed in on Dropbox's own page in the browser. */
+export interface DropboxBackend {
+  /** Which account is connected, read on this device. */
+  status(): Promise<DropboxStatus>;
+  /**
+   * Opens Dropbox's sign-in page in the browser. With `manual`, Dropbox will
+   * show a code for the writer to paste (signInFinish(code)), as the app
+   * could not listen for its answer; otherwise signInFinish() waits for it.
+   * A sign-in still waiting is cancelled.
+   */
+  signInStart(): Promise<{ manual: boolean }>;
+  /**
+   * Finishes the sign-in: waits for Dropbox's answer, or uses the pasted
+   * `code`, and resolves to the connection. Rejects with the reason, or with
+   * DROPBOX_SIGN_IN_CANCELLED once cancelled. After a pasted code fails, it
+   * can be corrected and tried again.
+   */
+  signInFinish(code?: string): Promise<DropboxStatus>;
+  /** Stops waiting for Dropbox. */
+  signInCancel(): Promise<void>;
+  /**
+   * Signs out on this device. Resolves to a note for the writer when Dropbox
+   * could not be told (offline): the access can then be removed in
+   * Dropbox's settings. Otherwise null.
+   */
+  signOut(): Promise<string | null>;
+}
+
 /**
  * Everything the interface asks of the core. In the app this goes to Rust
  * over Tauri's IPC; in a plain browser (`npm run dev`) an in-memory copy of
@@ -43,6 +90,8 @@ export interface Backend {
   readonly canOpenFolders: boolean;
   /** Whether `createProject` can create projects (not in the browser preview). */
   readonly canCreateProjects: boolean;
+  /** The writer's Dropbox. Absent in builds without the app's Dropbox key, and in the browser preview. */
+  readonly dropbox?: DropboxBackend;
   openSampleProject(): Promise<ProjectSnapshot>;
   /** Opens a project folder by path (the one used last time, or one picked). */
   openProject(path: string): Promise<ProjectSnapshot>;
@@ -244,6 +293,14 @@ async function showTextMenu(entries: TextMenuEntry[], x: number, y: number): Pro
   await menu.popup(new LogicalPosition(x, y));
 }
 
+const dropboxBackend: DropboxBackend = {
+  status: () => call<DropboxStatus>("dropbox_status"),
+  signInStart: () => call<{ manual: boolean }>("dropbox_sign_in_start"),
+  signInFinish: (code) => call<DropboxStatus>("dropbox_sign_in_finish", { code: code ?? null }),
+  signInCancel: () => call<void>("dropbox_sign_in_cancel"),
+  signOut: () => call<string | null>("dropbox_sign_out"),
+};
+
 const appBackend: Omit<Backend, "canOpenFolders"> = {
   kind: "app",
   canCreateProjects: true,
@@ -326,7 +383,7 @@ const appBackend: Omit<Backend, "canOpenFolders"> = {
 
 export async function loadBackend(): Promise<Backend> {
   if (isTauri()) {
-    const info = await call<{ canOpenFolders: boolean }>("app_info");
+    const info = await call<{ canOpenFolders: boolean; dropbox: boolean }>("app_info");
     const desktop = info.canOpenFolders;
     // A native context menu exists on desktops only, the same ones that can open folders.
     const popupTextMenu = desktop ? appBackend.popupTextMenu : undefined;
@@ -336,7 +393,8 @@ export async function loadBackend(): Promise<Backend> {
     // Phones have a Back button instead, which closes the app from its main screen.
     const onBackButton = desktop ? undefined : appBackend.onBackButton;
     const exitApp = desktop ? undefined : appBackend.exitApp;
-    return { ...appBackend, canOpenFolders: desktop, popupTextMenu, closeWindow, setWindowTheme, onBackButton, exitApp };
+    const dropbox = info.dropbox ? dropboxBackend : undefined;
+    return { ...appBackend, canOpenFolders: desktop, dropbox, popupTextMenu, closeWindow, setWindowTheme, onBackButton, exitApp };
   }
   const { browserBackend } = await import("./browserBackend");
   return browserBackend;

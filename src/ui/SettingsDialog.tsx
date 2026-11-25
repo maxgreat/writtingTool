@@ -22,6 +22,7 @@ import {
   type ViewSettings,
 } from "../core/settings";
 import { isReplacement, typographyFor, type Replacement } from "../core/typography";
+import type { DropboxConnection, DropboxView } from "../core/useDropbox";
 import { BackLayer } from "./BackStack";
 import { BottomSheet } from "./BottomSheet";
 import { cx, errorMessage, focusLost, languageName } from "./dom";
@@ -39,6 +40,8 @@ export interface SettingsDialogProps {
   onLanguageChange(code: string): void;
   /** Opens a page in the system browser (the privacy policy, languagetool.org); absent in the browser preview, where a plain link opens a tab. */
   openUrl?(url: string): Promise<void>;
+  /** The writer's Dropbox (useDropbox, kept by the workspace); absent or null where the build has none, and no Dropbox section shows. */
+  dropbox?: DropboxConnection | null;
 }
 
 const SERVERS: { value: LanguageToolMode; label: string }[] = [
@@ -110,10 +113,10 @@ export function typographyExample(language: string): string {
 }
 
 /**
- * The app's settings: the project's language, checking, typing and
- * appearance. Every change applies at once, so there is nothing to save:
- * switches, choices and Remove take effect when pressed, text fields when
- * the writer leaves them or presses Enter.
+ * The app's settings: the project's language, Dropbox where the build has
+ * it, checking, typing and appearance. Every change applies at once, so
+ * there is nothing to save: switches, choices and Remove take effect when
+ * pressed, text fields when the writer leaves them or presses Enter.
  *
  * Desktop: a modal dialog over a scrim, in a portal. Focus starts on the
  * dialog, Tab stays inside, and focus goes back where it was once it
@@ -210,9 +213,16 @@ export function SettingsDialog(props: SettingsDialogProps): JSX.Element | null {
       if (items.length === 0) return;
       event.preventDefault();
       event.stopPropagation();
+      const n = items.length;
       const at = items.indexOf(active as HTMLElement);
-      const step = event.shiftKey ? -1 : 1;
-      const next = at === -1 ? (event.shiftKey ? items.length - 1 : 0) : (at + step + items.length) % items.length;
+      let next: number;
+      if (at !== -1) next = (at + (event.shiftKey ? -1 : 1) + n) % n;
+      else if (active && active !== dialog && dialog.contains(active)) {
+        // A line of text focused to be read (the Dropbox account): the control after it, or before it.
+        const after = items.findIndex((item) => active.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING);
+        const end = after === -1 ? n : after;
+        next = event.shiftKey ? (end - 1 + n) % n : end % n;
+      } else next = event.shiftKey ? n - 1 : 0;
       items[next].focus();
     };
     window.addEventListener("keydown", onKeyDown, true);
@@ -296,8 +306,8 @@ interface SectionsProps extends SettingsDialogProps {
   blocked: RefObject<HTMLInputElement | null>;
 }
 
-/** The four groups of settings, the same on desktop and phones. */
-function SettingsSections({ settings, update, language, onLanguageChange, openUrl, blocked }: SectionsProps) {
+/** The groups of settings, the same on desktop and phones; Dropbox only where the build has it. */
+function SettingsSections({ settings, update, language, onLanguageChange, openUrl, dropbox, blocked }: SectionsProps) {
   const ids = useId();
   return (
     <>
@@ -309,6 +319,17 @@ function SettingsSections({ settings, update, language, onLanguageChange, openUr
           <LanguageField language={language} onLanguageChange={onLanguageChange} />
         </div>
       </section>
+
+      {dropbox && (
+        <section className="settings-section" aria-labelledby={`${ids}-dropbox`}>
+          <h3 id={`${ids}-dropbox`} className="settings-section-title">
+            Dropbox
+          </h3>
+          <div className="settings-items">
+            <DropboxSettings dropbox={dropbox} />
+          </div>
+        </section>
+      )}
 
       <section className="settings-section" aria-labelledby={`${ids}-checking`}>
         <h3 id={`${ids}-checking`} className="settings-section-title">
@@ -743,6 +764,231 @@ function ThemeChoice({ theme, onChange }: { theme: Theme; onChange(theme: Theme)
             {t.label}
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/* Dropbox ----------------------------------------------------------------- */
+
+/** What connecting Dropbox is for, shown until it is connected. */
+const DROPBOX_USE = "Keep your projects in your own Dropbox to open them on your other devices.";
+/** What the app can see there. */
+const DROPBOX_REACH = "The app sees only its own folder, in Dropbox’s Apps folder.";
+
+/** Where the connection stands, as far as focus goes: its step, or "code" while a pasted code is asked for. */
+const dropboxStage = (view: DropboxView) => (view.step === "waiting" && view.manual ? "code" : view.step);
+
+/**
+ * The writer's Dropbox, connected on Dropbox's page in the browser.
+ * useDropbox, kept by the workspace, does the work: a sign-in under way
+ * goes on while the dialog is closed, and shows here when it opens again.
+ * One action at a time: Connect Dropbox; Cancel while Dropbox is waited
+ * for, with Connect when it shows a code to paste; Disconnect.
+ *
+ * Once a step the writer took moves on, and the control pressed is gone or
+ * waits, focus goes to what comes next: the code field, Cancel, the account
+ * connected (read out, and Tab goes on to Disconnect), or Connect Dropbox.
+ * The first read of the connection leaves focus alone.
+ */
+function DropboxSettings({ dropbox }: { dropbox: DropboxConnection }) {
+  const id = useId();
+  const root = useRef<HTMLDivElement>(null);
+  const { view, error, note } = dropbox;
+  const stage = dropboxStage(view);
+  const shown = useRef(stage);
+
+  useEffect(() => {
+    const from = shown.current;
+    shown.current = stage;
+    if (from === stage || from === "loading") return;
+    const node = root.current;
+    if (!node) return;
+    const active = document.activeElement;
+    const waits = active !== null && node.contains(active) && active.matches(":disabled");
+    // Focus on the dialog itself: a click that didn't focus the button pressed (Safari's way).
+    if (focusLost() || waits || active === node.closest('[role="dialog"]')) {
+      node.querySelector<HTMLElement>("[data-next-focus]")?.focus();
+    }
+  }, [stage]);
+
+  const errorId = `${id}-error`;
+  let content: ReactNode;
+  switch (view.step) {
+    case "loading":
+      content = <DropboxPlaceholder />;
+      break;
+    case "disconnected":
+    case "starting": {
+      const starting = view.step === "starting";
+      content = (
+        <>
+          <div id={`${id}-use`} className="dropbox-text">
+            <p>{DROPBOX_USE}</p>
+            <p className="settings-note">{DROPBOX_REACH}</p>
+          </div>
+          <div className="dropbox-actions">
+            <button
+              key="connect"
+              type="button"
+              className="btn settings-action"
+              disabled={starting}
+              aria-busy={starting || undefined}
+              aria-describedby={`${id}-use`}
+              data-next-focus
+              onClick={() => void dropbox.connect()}
+            >
+              {starting ? "Opening Dropbox…" : "Connect Dropbox"}
+            </button>
+          </div>
+        </>
+      );
+      break;
+    }
+    case "waiting":
+      content = view.manual ? (
+        <DropboxCode dropbox={dropbox} submitting={view.submitting} errorId={error !== null ? errorId : undefined} />
+      ) : (
+        <>
+          <p>Finish on the Dropbox page that opened in your browser, then come back here.</p>
+          <div className="dropbox-actions">
+            <button key="cancel" type="button" className="btn btn--quiet" data-next-focus onClick={() => void dropbox.cancel()}>
+              Cancel
+            </button>
+          </div>
+        </>
+      );
+      break;
+    case "connected": {
+      const { account, tokenInFile, disconnecting } = view;
+      const name = account.name.trim();
+      content = (
+        <>
+          <div className="settings-row">
+            <div id={`${id}-account`} className="dropbox-account" tabIndex={-1} data-next-focus>
+              <p>
+                Connected as <span className="dropbox-name">{name || account.email}</span>
+              </p>
+              {name !== "" && account.email !== "" && <p className="settings-note">{account.email}</p>}
+            </div>
+            <button
+              key="disconnect"
+              type="button"
+              className="btn btn--quiet dropbox-disconnect"
+              disabled={disconnecting}
+              aria-busy={disconnecting || undefined}
+              aria-describedby={`${id}-account`}
+              onClick={() => void dropbox.disconnect()}
+            >
+              {disconnecting ? "Disconnecting…" : "Disconnect"}
+            </button>
+          </div>
+          {tokenInFile && (
+            <p className="settings-note">
+              This computer has no keyring service, so your sign-in is kept in a file only your user account can read.
+            </p>
+          )}
+        </>
+      );
+      break;
+    }
+  }
+
+  return (
+    <div ref={root} className="settings-item dropbox">
+      {content}
+      {error !== null && (
+        <p id={errorId} className="inline-error settings-error" role="alert">
+          {error}
+        </p>
+      )}
+      {note !== null && <p className="settings-note">{note}</p>}
+    </div>
+  );
+}
+
+/**
+ * The code Dropbox shows once access is allowed, when the app can't hear
+ * Dropbox's answer itself: pasted, then sent with Connect or Enter. A code
+ * that fails stays, to be corrected.
+ */
+function DropboxCode({
+  dropbox,
+  submitting,
+  errorId,
+}: {
+  dropbox: DropboxConnection;
+  submitting: boolean;
+  errorId?: string;
+}) {
+  const id = useId();
+  const [code, setCode] = useState("");
+  const ready = code.trim() !== "" && !submitting;
+  const submit = () => {
+    if (ready) void dropbox.submitCode(code.trim());
+  };
+
+  return (
+    <>
+      <p id={`${id}-how`}>Allow access on the Dropbox page that opened in your browser, then paste the code it shows.</p>
+      <div className="settings-item">
+        <label htmlFor={id} className="settings-label">
+          Code
+        </label>
+        <input
+          id={id}
+          className="input"
+          value={code}
+          readOnly={submitting}
+          aria-describedby={cx(`${id}-how`, errorId)}
+          autoComplete="off"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint="go"
+          data-next-focus
+          onChange={(event) => setCode(event.target.value)}
+          onKeyDown={onEnter(submit)}
+        />
+      </div>
+      <div className="dropbox-actions">
+        <button
+          key="submit"
+          type="button"
+          className="btn settings-action"
+          disabled={!ready}
+          aria-busy={submitting || undefined}
+          onClick={submit}
+        >
+          {submitting ? "Connecting…" : "Connect"}
+        </button>
+        <button key="cancel" type="button" className="btn btn--quiet" onClick={() => void dropbox.cancel()}>
+          Cancel
+        </button>
+      </div>
+    </>
+  );
+}
+
+/**
+ * While the connection is read: the disconnected step's own words and
+ * button, each line hidden behind a bar, so nothing moves once it shows.
+ */
+function DropboxPlaceholder() {
+  return (
+    <div className="settings-item dropbox-placeholder" aria-hidden>
+      <div className="dropbox-text">
+        <p>
+          <span className="dropbox-placeholder-line">{DROPBOX_USE}</span>
+        </p>
+        <p className="settings-note">
+          <span className="dropbox-placeholder-line">{DROPBOX_REACH}</span>
+        </p>
+      </div>
+      <div className="dropbox-actions">
+        <span className="btn settings-action">
+          <span className="dropbox-placeholder-line">Connect Dropbox</span>
+        </span>
       </div>
     </div>
   );

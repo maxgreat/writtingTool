@@ -809,7 +809,8 @@ impl ProjectRoot {
     }
 }
 
-fn atomic_write(target: &Path, bytes: &[u8]) -> io::Result<()> {
+/// Replaces a file whole: a crash leaves the old file or the new one, never half of either.
+pub(crate) fn atomic_write(target: &Path, bytes: &[u8]) -> io::Result<()> {
     let dir = target.parent().ok_or_else(|| invalid("no parent folder"))?;
     let name = target.file_name().ok_or_else(|| invalid("no file name"))?;
     let temp = dir.join(format!(".{}.{}.tmp", name.to_string_lossy(), std::process::id()));

@@ -5,7 +5,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { PRIVACY_POLICY_URL } from "../../core/about";
 import { LANGUAGES } from "../../core/projects";
 import { DEFAULT_SETTINGS, MAX_REPLACEMENTS, sanitizeSettings, type ViewSettings } from "../../core/settings";
+import type { DropboxBackend, DropboxStatus } from "../../core/backend";
 import { DEFAULT_REPLACEMENTS } from "../../core/typography";
+import { useDropbox, type DropboxConnection, type DropboxView } from "../../core/useDropbox";
 import { keptReplacements, SettingsDialog, type SettingsDialogProps } from "../SettingsDialog";
 
 const onClose = vi.fn<() => void>();
@@ -480,5 +482,288 @@ describe("replacements", () => {
       { from: "teh", to: "the" },
       { from: "btw", to: "by the way" },
     ]);
+  });
+});
+
+describe("Dropbox", () => {
+  const connect = vi.fn<() => Promise<void>>();
+  const submitCode = vi.fn<(code: string) => Promise<void>>();
+  const cancelSignIn = vi.fn<() => Promise<void>>();
+  const disconnect = vi.fn<() => Promise<void>>();
+  const ACCOUNT = { accountId: "dbid:1", name: "Ada Lovelace", email: "ada@example.com" };
+  const USE = "Keep your projects in your own Dropbox to open them on your other devices.";
+  const REACH = "The app sees only its own folder, in Dropbox’s Apps folder.";
+  const KEYRING = "This computer has no keyring service, so your sign-in is kept in a file only your user account can read.";
+
+  beforeEach(() => {
+    for (const action of [connect, submitCode, cancelSignIn, disconnect]) action.mockReset().mockResolvedValue(undefined);
+  });
+
+  const connection = (view: DropboxView, more: Partial<DropboxConnection> = {}): DropboxConnection => ({
+    view,
+    error: null,
+    note: null,
+    connect,
+    submitCode,
+    cancel: cancelSignIn,
+    disconnect,
+    ...more,
+  });
+  const show = (view: DropboxView, more: Partial<DropboxConnection> = {}) => render({ dropbox: connection(view, more) });
+
+  const section = () =>
+    [...document.querySelectorAll("section")].find((s) => s.querySelector("h3")?.textContent === "Dropbox") ?? null;
+  const item = () => section()!.querySelector<HTMLElement>(".dropbox")!;
+  const buttons = () => [...section()!.querySelectorAll("button")];
+  const names = () => buttons().map((b) => b.textContent);
+  const account = () => section()!.querySelector<HTMLElement>(".dropbox-account");
+
+  it("isn't there without a connection to show", () => {
+    render();
+    expect(section()).toBeNull();
+    render({ dropbox: null });
+    expect(section()).toBeNull();
+  });
+
+  it("comes right after the project's settings", () => {
+    show({ step: "disconnected" });
+    const titles = [...document.querySelectorAll(".settings-section-title")].map((t) => t.textContent);
+    expect(titles).toEqual(["This project", "Dropbox", "Checking", "Typing", "Appearance"]);
+    expect(document.getElementById(section()!.getAttribute("aria-labelledby")!)?.textContent).toBe("Dropbox");
+  });
+
+  it("loading: a placeholder with the disconnected step's words, so the height stays, and no buttons", () => {
+    show({ step: "loading" });
+    expect(buttons()).toEqual([]);
+    const placeholder = item().querySelector(".dropbox-placeholder")!;
+    expect(placeholder.getAttribute("aria-hidden")).toBe("true");
+    const words = placeholder.textContent;
+    show({ step: "disconnected" });
+    expect(item().querySelector(".dropbox-placeholder")).toBeNull();
+    expect(item().textContent).toBe(words);
+  });
+
+  it("disconnected: what it's for, and Connect Dropbox", () => {
+    show({ step: "disconnected" });
+    expect(item().textContent).toContain(USE);
+    expect(notes()).toContain(REACH);
+    expect(names()).toEqual(["Connect Dropbox"]);
+    const button = buttonNamed("Connect Dropbox");
+    expect(button.disabled).toBe(false);
+    expect(document.getElementById(button.getAttribute("aria-describedby")!)?.textContent).toBe(USE + REACH);
+    click(button);
+    expect(connect).toHaveBeenCalledTimes(1);
+  });
+
+  it("starting: the same button, waiting for Dropbox's page to open", () => {
+    show({ step: "disconnected" });
+    const button = buttonNamed("Connect Dropbox");
+    show({ step: "starting" });
+    expect(names()).toEqual(["Opening Dropbox…"]);
+    expect(buttonNamed("Opening Dropbox…")).toBe(button);
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(item().textContent).toContain(USE);
+  });
+
+  it("waiting in the browser: says to finish there, with Cancel", () => {
+    show({ step: "waiting", manual: false, submitting: false });
+    expect(item().textContent).toContain("Finish on the Dropbox page that opened in your browser, then come back here.");
+    expect(input("Code")).toBeNull();
+    expect(names()).toEqual(["Cancel"]);
+    click(buttonNamed("Cancel"));
+    expect(cancelSignIn).toHaveBeenCalledTimes(1);
+  });
+
+  it("waiting for a code: pasted, then sent with Connect or with Enter", () => {
+    show({ step: "waiting", manual: true, submitting: false });
+    expect(item().textContent).toContain(
+      "Allow access on the Dropbox page that opened in your browser, then paste the code it shows.",
+    );
+    const code = input("Code")!;
+    expect(names()).toEqual(["Connect", "Cancel"]);
+    // Nothing to send yet.
+    expect(buttonNamed("Connect").disabled).toBe(true);
+    key({ key: "Enter" }, code);
+    type(code, "   ");
+    expect(buttonNamed("Connect").disabled).toBe(true);
+    key({ key: "Enter" }, code);
+    expect(submitCode).not.toHaveBeenCalled();
+
+    type(code, " sl.abc123 ");
+    expect(buttonNamed("Connect").disabled).toBe(false);
+    click(buttonNamed("Connect"));
+    expect(submitCode).toHaveBeenLastCalledWith("sl.abc123");
+    const enter = key({ key: "Enter" }, code);
+    expect(enter.defaultPrevented).toBe(true);
+    expect(submitCode).toHaveBeenCalledTimes(2);
+    expect(submitCode).toHaveBeenLastCalledWith("sl.abc123");
+    click(buttonNamed("Cancel"));
+    expect(cancelSignIn).toHaveBeenCalledTimes(1);
+  });
+
+  it("a code being checked: Connecting…, Enter waits, and a code refused stays to be corrected", () => {
+    show({ step: "waiting", manual: true, submitting: false });
+    type(input("Code")!, "sl.wrong");
+    show({ step: "waiting", manual: true, submitting: true });
+    expect(names()).toEqual(["Connecting…", "Cancel"]);
+    expect(buttonNamed("Connecting…").disabled).toBe(true);
+    expect(buttonNamed("Connecting…").getAttribute("aria-busy")).toBe("true");
+    expect(input("Code")!.readOnly).toBe(true);
+    key({ key: "Enter" }, input("Code")!);
+    expect(submitCode).not.toHaveBeenCalled();
+    // Cancel still works while the code is checked.
+    expect(buttonNamed("Cancel").disabled).toBe(false);
+
+    show({ step: "waiting", manual: true, submitting: false }, { error: "Dropbox didn’t accept this code." });
+    expect(input("Code")!.value).toBe("sl.wrong");
+    expect(input("Code")!.readOnly).toBe(false);
+    expect(alerts()).toEqual(["Dropbox didn’t accept this code."]);
+    const alert = document.querySelector('[role="alert"]')!;
+    expect(input("Code")!.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+    expect(buttonNamed("Connect").disabled).toBe(false);
+  });
+
+  it("connected: the account, its email quieter, and Disconnect", () => {
+    show({ step: "connected", account: ACCOUNT, tokenInFile: false, disconnecting: false });
+    expect(account()!.textContent).toBe("Connected as Ada Lovelaceada@example.com");
+    expect(notes()).toContain("ada@example.com");
+    expect(notes()).not.toContain(KEYRING);
+    expect(names()).toEqual(["Disconnect"]);
+    const button = buttonNamed("Disconnect");
+    expect(button.classList.contains("btn--primary")).toBe(false);
+    expect(button.getAttribute("aria-describedby")).toBe(account()!.id);
+    click(button);
+    expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("connected: says where the sign-in is kept when there is no keyring", () => {
+    show({ step: "connected", account: ACCOUNT, tokenInFile: true, disconnecting: false });
+    expect(notes()).toContain(KEYRING);
+  });
+
+  it("connected: an account without a name shows its email", () => {
+    show({ step: "connected", account: { ...ACCOUNT, name: " " }, tokenInFile: false, disconnecting: false });
+    expect(account()!.textContent).toBe("Connected as ada@example.com");
+  });
+
+  it("disconnecting: Disconnecting…, and it can't be pressed again", () => {
+    show({ step: "connected", account: ACCOUNT, tokenInFile: false, disconnecting: true });
+    expect(names()).toEqual(["Disconnecting…"]);
+    expect(buttonNamed("Disconnecting…").disabled).toBe(true);
+    expect(buttonNamed("Disconnecting…").getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("shows an error as an alert, and a note as a plain note", () => {
+    show({ step: "disconnected" }, { error: "Couldn’t reach Dropbox. Check your connection and try again." });
+    expect(alerts()).toEqual(["Couldn’t reach Dropbox. Check your connection and try again."]);
+    expect(item().contains(document.querySelector('[role="alert"]'))).toBe(true);
+
+    const told = "Dropbox couldn’t be told. You can remove the app’s access in Dropbox’s settings.";
+    show({ step: "disconnected" }, { note: told });
+    expect(alerts()).toEqual([]);
+    const note = [...item().querySelectorAll("p")].find((p) => p.textContent === told)!;
+    expect(note.classList.contains("settings-note")).toBe(true);
+    expect(note.classList.contains("inline-error")).toBe(false);
+    expect(note.hasAttribute("role")).toBe(false);
+  });
+
+  it("the first read of the connection leaves focus alone", () => {
+    show({ step: "loading" });
+    expect(document.activeElement).toBe(dialog());
+    show({ step: "disconnected" });
+    expect(document.activeElement).toBe(dialog());
+  });
+
+  it("focus goes on to what comes next as the writer's steps move on", () => {
+    show({ step: "disconnected" });
+    act(() => buttonNamed("Connect Dropbox").focus());
+    show({ step: "starting" });
+    // Dropbox shows a code: focus is ready for it.
+    show({ step: "waiting", manual: true, submitting: false });
+    expect(document.activeElement).toBe(input("Code"));
+    type(input("Code")!, "sl.abc123");
+    show({ step: "waiting", manual: true, submitting: true });
+    expect(document.activeElement).toBe(input("Code"));
+    // Connected: the account is read out, and Tab goes on to Disconnect, Shift+Tab back to the language.
+    show({ step: "connected", account: ACCOUNT, tokenInFile: false, disconnecting: false });
+    expect(document.activeElement).toBe(account());
+    key({ key: "Tab" });
+    expect(document.activeElement).toBe(buttonNamed("Disconnect"));
+    act(() => account()!.focus());
+    key({ key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(select("Language"));
+    // Disconnected: Connect Dropbox.
+    act(() => buttonNamed("Disconnect").focus());
+    show({ step: "connected", account: ACCOUNT, tokenInFile: false, disconnecting: true });
+    show({ step: "disconnected" });
+    expect(document.activeElement).toBe(buttonNamed("Connect Dropbox"));
+    // Waiting in the browser: Cancel.
+    show({ step: "starting" });
+    show({ step: "waiting", manual: false, submitting: false });
+    expect(document.activeElement).toBe(buttonNamed("Cancel"));
+  });
+
+  it("focus the writer moved elsewhere stays there", () => {
+    show({ step: "waiting", manual: false, submitting: false });
+    act(() => select("Language").focus());
+    show({ step: "connected", account: ACCOUNT, tokenInFile: false, disconnecting: false });
+    expect(document.activeElement).toBe(select("Language"));
+  });
+
+  describe("with useDropbox", () => {
+    const status = (account: typeof ACCOUNT | null, tokenInFile = false): DropboxStatus => ({ account, tokenInFile });
+    let backend: DropboxBackend;
+    let dialogOpen: boolean;
+
+    /** The workspace's part: the connection kept above the dialog, so it outlives the dialog's closing. */
+    function Settings() {
+      const dropbox = useDropbox(backend);
+      return createElement(SettingsDialog, { ...props, open: dialogOpen, dropbox });
+    }
+
+    const showSettings = async (open = true) => {
+      dialogOpen = open;
+      await act(async () => root.render(createElement(Settings)));
+    };
+    const press = (el: HTMLElement) =>
+      act(async () => {
+        el.click();
+      });
+
+    beforeEach(() => {
+      dialogOpen = true;
+      backend = {
+        status: vi.fn().mockResolvedValue(status(null)),
+        signInStart: vi.fn().mockResolvedValue({ manual: true }),
+        signInFinish: vi.fn().mockResolvedValue(status(ACCOUNT, true)),
+        signInCancel: vi.fn().mockResolvedValue(undefined),
+        signOut: vi.fn().mockResolvedValue(null),
+      };
+    });
+
+    it("connects with a pasted code, survives the dialog closing, and disconnects", async () => {
+      await showSettings();
+      expect(names()).toEqual(["Connect Dropbox"]);
+      await press(buttonNamed("Connect Dropbox"));
+      expect(backend.signInStart).toHaveBeenCalledTimes(1);
+      expect(input("Code")).not.toBeNull();
+
+      // Closed and opened again: still waiting for the code.
+      await showSettings(false);
+      await showSettings(true);
+      expect(backend.signInCancel).not.toHaveBeenCalled();
+      type(input("Code")!, "sl.abc123");
+      key({ key: "Enter" }, input("Code")!);
+      // Dropbox's answer comes back.
+      await act(async () => undefined);
+      expect(backend.signInFinish).toHaveBeenCalledWith("sl.abc123");
+      expect(account()!.textContent).toBe("Connected as Ada Lovelaceada@example.com");
+      expect(notes()).toContain(KEYRING);
+
+      await press(buttonNamed("Disconnect"));
+      expect(backend.signOut).toHaveBeenCalledTimes(1);
+      expect(names()).toEqual(["Connect Dropbox"]);
+    });
   });
 });

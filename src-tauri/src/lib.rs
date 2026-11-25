@@ -2,6 +2,7 @@
 //! commands, and the core owns the project folder.
 
 mod dictionary;
+mod dropbox;
 pub mod export;
 pub mod grammar;
 pub mod languagetool;
@@ -53,11 +54,13 @@ struct AppInfo {
     /// Desktops can show a folder picker and open a project from any folder.
     /// On phones, projects live in the app's own folder.
     can_open_folders: bool,
+    /// This build can connect to Dropbox: it was built with the app's key.
+    dropbox: bool,
 }
 
 #[tauri::command]
 fn app_info() -> AppInfo {
-    AppInfo { can_open_folders: cfg!(desktop) }
+    AppInfo { can_open_folders: cfg!(desktop), dropbox: dropbox::app_key().is_some() }
 }
 
 /// The projects in the app's own folder, then the `recent` folders opened
@@ -316,12 +319,27 @@ fn frontend_ready(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_fs::init());
+    // Dropbox sends a phone's browser back to the app through a link the app opens.
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_deep_link::init()).setup(|app| {
+        use tauri_plugin_deep_link::DeepLinkExt;
+        let handle = app.handle().clone();
+        app.deep_link().on_open_url(move |event| {
+            let state = handle.state::<dropbox::DropboxState>();
+            for link in event.urls() {
+                state.link_opened(link.as_str());
+            }
+        });
+        Ok(())
+    });
+    builder
         .manage(AppState::default())
         .manage(ExportState::default())
+        .manage(dropbox::DropboxState::default())
         .invoke_handler(tauri::generate_handler![
             open_sample_project,
             open_project,
@@ -339,6 +357,11 @@ pub fn run() {
             lay_out_book,
             book_page,
             export_book,
+            dropbox::dropbox_status,
+            dropbox::dropbox_sign_in_start,
+            dropbox::dropbox_sign_in_finish,
+            dropbox::dropbox_sign_in_cancel,
+            dropbox::dropbox_sign_out,
             frontend_ready
         ])
         .run(tauri::generate_context!())
