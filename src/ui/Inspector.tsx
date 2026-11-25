@@ -7,6 +7,7 @@ import type { Chapter, Project, Sheet } from "../core/project";
 import type { SheetEdit } from "../core/sheetFile";
 import type { NameSuggestions } from "../core/useNameSuggestions";
 import type { AppearancesSource } from "./AppearsIn";
+import { useBackLayer } from "./BackStack";
 import { ChapterDetails } from "./ChapterDetails";
 import { contextMenuAnchor, cx, errorMessage, focusLost, formatCount } from "./dom";
 import type { IgnoreSource } from "./IgnoreHere";
@@ -18,17 +19,21 @@ import { SheetView } from "./SheetView";
 import { groupByType, namesFromCounts, sheetNoun, sheetSummary } from "./sheets";
 import { Versions, type VersionSource } from "./Versions";
 
+/** The inspector's pages that list things: This chapter, and a type's sheets. */
+export type InspectorPage = { kind: "chapter" } | { kind: "type"; folder: string };
+
 export type InspectorView =
-  | { kind: "chapter" }
-  | { kind: "type"; folder: string }
+  | InspectorPage
   /**
    * `editing`: the sheet's form, in place of the sheet as it reads.
    * `created`: the sheet was just made (here or in the binder): its form
    * opens with the caret in its first field. Done drops it.
    * `occurrence`: the name in the text it was opened from, if it was, for
    * Ignore here. It belongs to that opening only.
+   * `from`: the page of the inspector it was opened from, if it was opened
+   * there: a phone's Back goes back to it (Workspace).
    */
-  | { kind: "sheet"; id: string; editing?: boolean; created?: boolean; occurrence?: IgnoredName };
+  | { kind: "sheet"; id: string; editing?: boolean; created?: boolean; occurrence?: IgnoredName; from?: InspectorPage };
 
 export interface InspectorProps {
   project: Project;
@@ -509,6 +514,13 @@ function SheetList({ project, folder, onOpenSheet, onCreate, onCreated, onEdit, 
     setDraft(null);
     setFailure(null);
   };
+
+  // A phone's Back cancels the new sheet's name, as Escape does.
+  useBackLayer(draft !== null, () => {
+    if (creating) return;
+    backToNew.current = true;
+    close();
+  });
 
   // Focus left with the row of the sheet now in the Trash: the next row takes it, else the one before, else New.
   useEffect(() => {

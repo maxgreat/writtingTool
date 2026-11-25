@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import type { BinderItem } from "../core/project";
 import { dropMove, findDrop, type DragItem, type DropMark, type Move, type RowBox } from "./binderModel";
+import { useBackLayer } from "./BackStack";
 import { tokenPx } from "./dom";
 
 /** Near the top or bottom edge of the scrolling panel, the list scrolls by up to this much per frame. */
@@ -73,16 +74,22 @@ function measureRows(container: HTMLElement): { origin: DOMRect; rows: RowBox[] 
 /**
  * Drag to reorder the binder with a mouse or pen. A drag starts once the
  * pointer has moved a few pixels with the button held, so a click stays a
- * click; Escape cancels it, and the click that ends a drag is swallowed.
- * Touch has no drag: the row menu's Move up, Move down and Move to do it.
+ * click; Escape or Android's Back cancels it, and the click that ends a
+ * drag is swallowed. Touch has no drag: the row menu's Move up, Move down
+ * and Move to do it.
  */
 export function useBinderDrag(options: BinderDragOptions) {
   const [drag, setDrag] = useState<BinderDrag | null>(null);
   const latest = useRef(options);
   latest.current = options;
   const stop = useRef<(() => void) | null>(null);
+  /** Cancels the drag under way, as Escape does. */
+  const cancelDrag = useRef<(() => void) | null>(null);
 
   useEffect(() => () => stop.current?.(), []);
+
+  // Android's Back (a tablet's pen can drag) cancels a drag as Escape does.
+  useBackLayer(drag !== null, () => cancelDrag.current?.());
 
   const onPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>, item: DragItem) => {
     if (event.button !== 0 || event.pointerType === "touch" || !latest.current.enabled || stop.current) return;
@@ -168,6 +175,7 @@ export function useBinderDrag(options: BinderDragOptions) {
       // The click that follows this release (if any) comes before the timer.
       if (s.started) setTimeout(() => window.removeEventListener("click", swallowClick, true), 0);
       stop.current = null;
+      cancelDrag.current = null;
       setDrag(null);
     };
 
@@ -182,16 +190,21 @@ export function useBinderDrag(options: BinderDragOptions) {
       finish();
     };
 
-    const onKey = (key: KeyboardEvent) => {
-      if (key.key !== "Escape" || !s.started || s.cancelled) return;
-      // Handled here, so the phone layout or focus mode doesn't also react.
-      key.preventDefault();
-      key.stopPropagation();
+    /** Escape, or a phone's Back: nothing lands, but the press still ends the drag. */
+    const cancel = () => {
       s.cancelled = true;
       s.move = null;
       if (s.frame) cancelAnimationFrame(s.frame);
       s.frame = 0;
       setDrag(null);
+    };
+
+    const onKey = (key: KeyboardEvent) => {
+      if (key.key !== "Escape" || !s.started || s.cancelled) return;
+      // Handled here, so the phone layout or focus mode doesn't also react.
+      key.preventDefault();
+      key.stopPropagation();
+      cancel();
     };
 
     window.addEventListener("pointermove", onMove);
@@ -200,6 +213,7 @@ export function useBinderDrag(options: BinderDragOptions) {
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("blur", onCancel);
     stop.current = finish;
+    cancelDrag.current = cancel;
   }, []);
 
   return { drag, onPointerDown };

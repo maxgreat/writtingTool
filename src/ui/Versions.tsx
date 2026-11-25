@@ -2,6 +2,7 @@ import { memo, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent }
 import type { Version } from "../core/backend";
 import type { SaveState } from "../core/useProject";
 import { countWords } from "../core/words";
+import { useBackLayer } from "./BackStack";
 import { errorMessage, plural } from "./dom";
 import { formatVersionTime } from "./versionTime";
 
@@ -129,6 +130,11 @@ export const Versions = memo(function Versions({
     event.stopPropagation();
     closeConfirm(savedAt);
   };
+
+  // A phone's Back closes the question as Escape does, which leaves it alone while the restore runs.
+  useBackLayer(confirming !== null && restoring === null, () => {
+    if (confirming !== null) closeConfirm(confirming);
+  });
 
   let content;
   if (state.status === "loading") {

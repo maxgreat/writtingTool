@@ -38,6 +38,7 @@ import {
   type DragItem,
   type Move,
 } from "./binderModel";
+import { useBackLayer } from "./BackStack";
 import { contextMenuAnchor, cx, errorMessage, focusLost, formatCount, plural } from "./dom";
 import { MenuButton, MenuItem, Popover } from "./Popover";
 import { ProjectsButton, type ProjectsDialogControl } from "./Projects";
@@ -1061,7 +1062,8 @@ function MenuGroup({ label, children }: { label: string; children: ReactNode }) 
 
 /**
  * A title typed in the binder, where the item is or will be. Enter saves,
- * Escape cancels, and leaving the field saves too (or drops it if empty).
+ * Escape or Back cancels, and leaving the field saves too (or drops it if
+ * empty).
  */
 function TitleInput({
   value,
@@ -1094,6 +1096,11 @@ function TitleInput({
     el.focus();
     el.select();
   }, []);
+
+  // A phone's Back cancels, as Escape does.
+  useBackLayer(true, () => {
+    if (!busy) onCancel();
+  });
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return;

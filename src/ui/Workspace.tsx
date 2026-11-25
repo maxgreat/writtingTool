@@ -9,6 +9,7 @@ import type { EditorMode, ViewSettings } from "../core/settings";
 import { useNameSuggestions } from "../core/useNameSuggestions";
 import type { useProject } from "../core/useProject";
 import { TextNote } from "./AddName";
+import { BACK_AGAIN, BackLayer, useBackLayer, useLeaveOnBack, type Leave } from "./BackStack";
 import { Binder } from "./Binder";
 import { SheetPreview } from "./BottomSheet";
 import { cx, errorMessage, focusLost, hasMod, shortcut } from "./dom";
@@ -250,6 +251,26 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   const editSheet = useCallback((id: string) => showSheet(id, true), [showSheet]);
 
   /**
+   * A sheet opened from one of the inspector's own pages (This chapter, a
+   * type's list): it keeps that page, which a phone's Back goes back to.
+   */
+  const openSheetFromInspector = useCallback((id: string) => {
+    setInspectorView((view) => {
+      const from = view.kind === "sheet" ? view.from : view;
+      const editing = view.kind === "sheet" && view.id === id && view.editing === true;
+      return { ...sheetView(id, editing, undefined), ...(from && { from }) };
+    });
+  }, []);
+
+  /**
+   * The inspector's own moves: its tabs, the way back to a list, Edit and
+   * Done, and a sheet made or edited from a list, which keeps that list.
+   */
+  const changeInspectorView = useCallback((next: InspectorView) => {
+    setInspectorView((view) => (next.kind === "sheet" && view.kind !== "sheet" ? { ...next, from: view } : next));
+  }, []);
+
+  /**
    * Moves a sheet to the Trash from the inspector. The project is read
    * again, and the inspector goes back to the sheet's type's list (see the
    * reset above). Rejects with a message for the writer.
@@ -413,6 +434,30 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     const next = event.relatedTarget as Node | null;
     if (next && barRef.current?.contains(next)) return;
     if (!pointerInBar.current && !menuOpen.current) setBarRevealed(false);
+  };
+
+  /* Back (phones) ---------------------------------------------------------- */
+
+  // Back leaves focus mode as Escape does, once whatever is open over it is closed.
+  useBackLayer(focusMode, leaveFocus);
+
+  /** A field in a panel that Back moves away from is left first, as a tap outside would leave it, so its edit is taken. */
+  const leavePanelField = () => {
+    const field = document.activeElement;
+    if (field instanceof HTMLElement && field.closest(".panel")) field.blur();
+  };
+
+  const backFromBinder = () => {
+    leavePanelField();
+    setPhonePanel(null);
+  };
+
+  /** Back in the inspector: a sheet opened from one of its pages goes back to that page; else the panel closes. */
+  const backFromInspector = () => {
+    leavePanelField();
+    const view = inspectorView;
+    if (view.kind === "sheet" && view.from && sheetsById.has(view.id)) setInspectorView(view.from);
+    else setPhonePanel(null);
   };
 
   /* Fields taken when left ------------------------------------------------ */
@@ -613,47 +658,72 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   }, [openFolder, refuse]);
 
   /**
-   * A Quit is under way, from its start until it stops or the window
-   * closes: another one meanwhile is ignored, as it would take the first
-   * one's refusal for its own and close the window. A ref, so no render can
-   * let one through; `quitting` shows it in the menu.
+   * A Quit (or a phone's Back on the main screen) is under way, from its
+   * start until it stops or the app closes: another one meanwhile is
+   * ignored, as it would take the first one's refusal for its own and close
+   * the app. A ref, so no render can let one through; `quitting` shows it in
+   * the menu.
    */
   const quitRunning = useRef(false);
   const [quitting, setQuitting] = useState(false);
   const { mayClose } = api;
 
   /**
-   * Quit, in the desktop app: takes the focused field's edit, then saves and
-   * closes the window as its own close button does, which stays open once
-   * if the edits can't be saved, so the error shows. A field that refused
-   * its edit stops the first Quit too, so its reason shows.
+   * Closes the app with `close`, for Quit and a phone's Back: takes the
+   * focused field's edit, then saves, and stays open once if the edits
+   * can't be saved, so the error shows (`again` ends it: how to leave
+   * anyway). A field that refused its edit stops the first try too, so its
+   * reason shows. If `close` fails, a note titled `failed` says why.
    */
+  const leaveApp = useCallback(
+    async (close: () => Promise<void>, failed: string, again?: string) => {
+      if (quitRunning.current) return;
+      quitRunning.current = true;
+      setQuitting(true);
+      try {
+        const taken = await commitField();
+        if (!taken && !quitStopped.current) {
+          quitStopped.current = true;
+          return;
+        }
+        quitStopped.current = false;
+        if (!(await mayClose(again))) return;
+        await close();
+      } catch (error) {
+        refuse(failed, error);
+      } finally {
+        quitRunning.current = false;
+        setQuitting(false);
+      }
+    },
+    [commitField, mayClose, refuse],
+  );
+
+  /** Quit, in the desktop app: closes the window as its own close button does. */
   const quit = useMemo(
     () =>
       backend.closeWindow
-        ? async () => {
-            if (quitRunning.current) return;
-            quitRunning.current = true;
-            setQuitting(true);
-            try {
-              const taken = await commitField();
-              if (!taken && !quitStopped.current) {
-                quitStopped.current = true;
-                return;
-              }
-              quitStopped.current = false;
-              if (!(await mayClose())) return;
+        ? () =>
+            leaveApp(async () => {
               await backend.closeWindow?.();
-            } catch (error) {
-              refuse("Couldn’t quit", error);
-            } finally {
-              quitRunning.current = false;
-              setQuitting(false);
-            }
-          }
+            }, "Couldn’t quit")
         : undefined,
-    [backend, commitField, mayClose, refuse],
+    [backend, leaveApp],
   );
+
+  /** A phone's Back with nothing open on top: Quit's checks, then the app closes, unless something opened meanwhile. */
+  const leaveOnBack = useCallback<Leave>(
+    (nothingOpen) =>
+      leaveApp(
+        async () => {
+          if (nothingOpen()) await backend.exitApp?.();
+        },
+        "Couldn’t close the app",
+        BACK_AGAIN,
+      ),
+    [backend, leaveApp],
+  );
+  useLeaveOnBack(leaveOnBack);
 
   // Only the Quit right after a stopped one leaves without the field's edit:
   // any other key or press starts over, Ctrl on its way to Ctrl+Q aside.
@@ -844,34 +914,40 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
       </header>
 
       <div ref={mainRef} className="workspace-main">
-        <div id="binder" className={cx("panel panel--binder", binderVisible && "is-open")} inert={!binderVisible}>
-          <div className="panel-inner">
-            <Binder
-              project={project}
-              openChapterId={openChapterId}
-              onOpenChapter={openChapter}
-              onOpenSheet={openSheet}
-              onEditSheet={editSheet}
-              projects={projectsDialog}
-              onChange={changeBinder}
-              onChapterDetails={api.updateChapterDetails}
-              onCreateSheet={api.createSheet}
-              onSheetCreated={sheetCreated}
-              busy={api.switching}
-              onChapterCreated={chapterCreated}
-              newChapterRequest={newChapterRequest}
-            />
+        {/*
+          A phone's panel is something Back closes, after what is open in it.
+          A hidden panel holds nothing Back can close; a desktop's is part of the screen.
+        */}
+        <BackLayer open={isPhone && binderVisible} hidden={!binderVisible} onBack={backFromBinder}>
+          <div id="binder" className={cx("panel panel--binder", binderVisible && "is-open")} inert={!binderVisible}>
+            <div className="panel-inner">
+              <Binder
+                project={project}
+                openChapterId={openChapterId}
+                onOpenChapter={openChapter}
+                onOpenSheet={openSheet}
+                onEditSheet={editSheet}
+                projects={projectsDialog}
+                onChange={changeBinder}
+                onChapterDetails={api.updateChapterDetails}
+                onCreateSheet={api.createSheet}
+                onSheetCreated={sheetCreated}
+                busy={api.switching}
+                onChapterCreated={chapterCreated}
+                newChapterRequest={newChapterRequest}
+              />
+            </div>
+            {!isPhone && (
+              <ResizeHandle
+                panel="binder"
+                width={drag.binder ?? settings.binderWidth}
+                label="Binder width"
+                onDrag={(width) => setDrag((d) => ({ ...d, binder: width ?? undefined }))}
+                onCommit={(binderWidth) => update({ binderWidth })}
+              />
+            )}
           </div>
-          {!isPhone && (
-            <ResizeHandle
-              panel="binder"
-              width={drag.binder ?? settings.binderWidth}
-              label="Binder width"
-              onDrag={(width) => setDrag((d) => ({ ...d, binder: width ?? undefined }))}
-              onCommit={(binderWidth) => update({ binderWidth })}
-            />
-          )}
-        </div>
+        </BackLayer>
 
         <EditorPane
           // The editors read their text on mount. Chapter ids are paths inside
@@ -902,50 +978,52 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
           empty={empty}
         />
 
-        <div
-          id="inspector"
-          className={cx("panel panel--inspector", inspectorVisible && "is-open")}
-          inert={!inspectorVisible}
-        >
-          {!isPhone && (
-            <ResizeHandle
-              panel="inspector"
-              width={drag.inspector ?? settings.inspectorWidth}
-              label="Inspector width"
-              onDrag={(width) => setDrag((d) => ({ ...d, inspector: width ?? undefined }))}
-              onCommit={(inspectorWidth) => update({ inspectorWidth })}
-            />
-          )}
-          <div className="panel-inner">
-            <Inspector
-              project={project}
-              chapter={chapter}
-              matcher={matcher}
-              index={nameIndex}
-              sheetsById={sheetsById}
-              view={inspectorView}
-              onViewChange={setInspectorView}
-              onOpenSheet={openSheet}
-              onOpenChapter={openChapter}
-              onChapterDetails={api.updateChapterDetails}
-              onCreateSheet={api.createSheet}
-              onUpdateSheet={updateSheet}
-              onTrashSheet={trashSheet}
-              ignoring={ignoring}
-              suggestions={suggestions}
-              onMarkNotName={api.markNotName}
-              busy={api.switching}
-              versions={{
-                list: api.listVersions,
-                restore: api.restoreVersion,
-                saveStatus: api.save.status,
-                loads: api.loads,
-                busy: api.switching,
-              }}
-              visible={inspectorVisible}
-            />
+        <BackLayer open={isPhone && inspectorVisible} hidden={!inspectorVisible} onBack={backFromInspector}>
+          <div
+            id="inspector"
+            className={cx("panel panel--inspector", inspectorVisible && "is-open")}
+            inert={!inspectorVisible}
+          >
+            {!isPhone && (
+              <ResizeHandle
+                panel="inspector"
+                width={drag.inspector ?? settings.inspectorWidth}
+                label="Inspector width"
+                onDrag={(width) => setDrag((d) => ({ ...d, inspector: width ?? undefined }))}
+                onCommit={(inspectorWidth) => update({ inspectorWidth })}
+              />
+            )}
+            <div className="panel-inner">
+              <Inspector
+                project={project}
+                chapter={chapter}
+                matcher={matcher}
+                index={nameIndex}
+                sheetsById={sheetsById}
+                view={inspectorView}
+                onViewChange={changeInspectorView}
+                onOpenSheet={openSheetFromInspector}
+                onOpenChapter={openChapter}
+                onChapterDetails={api.updateChapterDetails}
+                onCreateSheet={api.createSheet}
+                onUpdateSheet={updateSheet}
+                onTrashSheet={trashSheet}
+                ignoring={ignoring}
+                suggestions={suggestions}
+                onMarkNotName={api.markNotName}
+                busy={api.switching}
+                versions={{
+                  list: api.listVersions,
+                  restore: api.restoreVersion,
+                  saveStatus: api.save.status,
+                  loads: api.loads,
+                  busy: api.switching,
+                }}
+                visible={inspectorVisible}
+              />
+            </div>
           </div>
-        </div>
+        </BackLayer>
 
         {isPhone && (
           <button

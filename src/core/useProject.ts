@@ -160,6 +160,10 @@ export function useProject() {
     (async () => {
       try {
         const target = await loadBackend();
+        if (cancelled) return;
+        // Known before a project opens, for the screens shown meanwhile (Back, on phones).
+        backendRef.current = target;
+        setBackend(target);
         const last = target.kind === "app" ? readStorage(LAST_PROJECT_KEY) : null;
         let snapshot: ProjectSnapshot | null = null;
         let fallbackFor: string | undefined;
@@ -171,8 +175,6 @@ export function useProject() {
         }
         snapshot ??= await target.openSampleProject();
         if (cancelled) return;
-        backendRef.current = target;
-        setBackend(target);
         applySnapshot(snapshot, target, { fallbackFor });
       } catch (error) {
         if (!cancelled) setLoad({ status: "error", message: message(error) });
@@ -191,16 +193,17 @@ export function useProject() {
    * can't be saved, the first close is refused so the error shows; closing
    * again quits without them. A close asked for while one is being decided
    * gets the same answer, so a second press can't count as "again". The
-   * window's close button and Quit both ask.
+   * window's close button, Quit and a phone's Back all ask. `again` ends
+   * the error: how to leave without the edits.
    */
-  const mayClose = useCallback((): Promise<boolean> => {
+  const mayClose = useCallback((again = "Close the window again to quit without them."): Promise<boolean> => {
     closeDecision.current ??= (async () => {
       await flush();
       if (pending.current.size === 0 || closeRefused.current) return true;
       closeRefused.current = true;
       setSave((current) => ({
         status: "error",
-        message: `${current.status === "error" ? current.message : "Some changes are not saved."} Close the window again to quit without them.`,
+        message: `${current.status === "error" ? current.message : "Some changes are not saved."} ${again}`,
       }));
       return false;
     })().finally(() => {

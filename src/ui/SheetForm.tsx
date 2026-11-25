@@ -11,6 +11,7 @@ import {
 } from "react";
 import type { Alias, Sheet, SheetType } from "../core/project";
 import { formFields, type SheetEdit } from "../core/sheetFile";
+import { useBackLayer } from "./BackStack";
 import { cx, errorMessage } from "./dom";
 import { useFitHeight } from "./hooks";
 import { fieldLabel, looksNumeric } from "./sheets";
@@ -260,15 +261,22 @@ export function SheetForm({ sheet, type, onChange, busy }: SheetFormProps) {
     if (!leaving) afterRender.current = () => document.getElementById(`${ids}-field-${row.id}`)?.focus();
   };
 
+  /** Escape, or a phone's Back: the field being named is dropped. */
+  const dropNewField = () => {
+    setNewField(null);
+    clear("new-field");
+    afterRender.current = () => addFieldRef.current?.focus();
+  };
+
   const cancelNewField = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Escape") return;
     // Handled here, so the phone layout doesn't also close the inspector.
     event.preventDefault();
     event.stopPropagation();
-    setNewField(null);
-    clear("new-field");
-    afterRender.current = () => addFieldRef.current?.focus();
+    dropNewField();
   };
+
+  useBackLayer(newField !== null, dropNewField);
 
   /* Notes ----------------------------------------------------------------- */
 

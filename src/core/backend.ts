@@ -88,6 +88,16 @@ export interface Backend {
    * stays open if the handler resolves to false. Resolves to an unsubscribe.
    */
   onCloseRequested(handler: () => Promise<boolean>): Promise<() => void>;
+  /**
+   * Phones only: runs `handler` on each press of the system's Back button,
+   * in place of what Back does by itself (leaving the app). Resolves to an
+   * unsubscribe, after which Back leaves the app again. The on-screen
+   * keyboard takes a press itself to go away, so the handler doesn't see
+   * that one. Absent on desktops and in the browser preview.
+   */
+  onBackButton?(handler: () => void): Promise<() => void>;
+  /** Phones only: closes the app, as Back does by itself. There exactly where onBackButton is. */
+  exitApp?(): Promise<void>;
 }
 
 /** An item of the app's own entries in the text's context menu. */
@@ -181,16 +191,37 @@ const appBackend: Omit<Backend, "canOpenFolders"> = {
       if (!(await handler())) event.preventDefault();
     });
   },
+  async onBackButton(handler) {
+    const { onBackButtonPress } = await import("@tauri-apps/api/app");
+    const listener = await onBackButtonPress(() => handler()).catch((error: unknown) => {
+      throw asError(error);
+    });
+    return () => {
+      listener.unregister().catch((error: unknown) => console.error("Cannot stop handling the Back button", error));
+    };
+  },
+  async exitApp() {
+    const { exit } = await import("@tauri-apps/api/app");
+    try {
+      await exit(0);
+    } catch (error) {
+      throw asError(error);
+    }
+  },
 };
 
 export async function loadBackend(): Promise<Backend> {
   if (isTauri()) {
     const info = await call<{ canOpenFolders: boolean }>("app_info");
+    const desktop = info.canOpenFolders;
     // A native context menu exists on desktops only, the same ones that can open folders.
-    const popupTextMenu = info.canOpenFolders ? appBackend.popupTextMenu : undefined;
+    const popupTextMenu = desktop ? appBackend.popupTextMenu : undefined;
     // Phones have no window to close: the system closes apps.
-    const closeWindow = info.canOpenFolders ? appBackend.closeWindow : undefined;
-    return { ...appBackend, canOpenFolders: info.canOpenFolders, popupTextMenu, closeWindow };
+    const closeWindow = desktop ? appBackend.closeWindow : undefined;
+    // Phones have a Back button instead, which closes the app from its main screen.
+    const onBackButton = desktop ? undefined : appBackend.onBackButton;
+    const exitApp = desktop ? undefined : appBackend.exitApp;
+    return { ...appBackend, canOpenFolders: desktop, popupTextMenu, closeWindow, onBackButton, exitApp };
   }
   const { browserBackend } = await import("./browserBackend");
   return browserBackend;

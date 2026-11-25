@@ -11,6 +11,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { BackLayer } from "./BackStack";
 import { cx, placeNear, revealIn } from "./dom";
 
 export type CloseReason = "outside" | "escape" | "select";
@@ -38,8 +39,8 @@ const FOCUSABLE = `${ITEMS}, input:not(:disabled), button:not(:disabled)`;
 /**
  * A floating panel in a portal, so a scrolling toolbar can't clip it. It sits
  * below its anchor (above when there is no room), stays inside the window,
- * scrolls when it is taller than the room it has, and closes on Escape or a
- * press outside.
+ * scrolls when it is taller than the room it has, and closes on Escape, a
+ * phone's Back or a press outside.
  */
 export function Popover({ anchor, onClose, children, role, label, id, className, autoFocus, ignore, busy }: PopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -130,20 +131,23 @@ export function Popover({ anchor, onClose, children, role, label, id, className,
     if (next && !ref.current?.contains(next) && !ignore?.current?.contains(next)) close.current("outside");
   };
 
+  // A phone's Back closes it as Escape does.
   return createPortal(
-    <div
-      ref={ref}
-      id={id}
-      role={role}
-      aria-label={label}
-      aria-busy={busy || undefined}
-      tabIndex={-1}
-      className={cx("popover", className)}
-      onKeyDown={onKeyDown}
-      onBlur={onBlur}
-    >
-      {children}
-    </div>,
+    <BackLayer open onBack={() => close.current("escape")}>
+      <div
+        ref={ref}
+        id={id}
+        role={role}
+        aria-label={label}
+        aria-busy={busy || undefined}
+        tabIndex={-1}
+        className={cx("popover", className)}
+        onKeyDown={onKeyDown}
+        onBlur={onBlur}
+      >
+        {children}
+      </div>
+    </BackLayer>,
     document.body,
   );
 }

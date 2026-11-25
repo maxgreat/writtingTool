@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import type { IgnoredName } from "../core/names";
 import type { Sheet } from "../core/project";
 import type { AppearancesSource } from "./AppearsIn";
+import { BackLayer } from "./BackStack";
 import { cx } from "./dom";
 import type { IgnoreSource } from "./IgnoreHere";
 import { SheetView } from "./SheetView";
@@ -25,7 +26,7 @@ export interface BottomSheetProps {
 /**
  * Phones: a modal sheet that slides up from the bottom, over a scrim. On
  * opening, focus goes to the element marked `data-autofocus` inside it (or
- * the sheet itself); Escape and a tap on the scrim close it. It stays
+ * the sheet itself); Escape, Back and a tap on the scrim close it. It stays
  * mounted while closed so it can slide away. It lives in a portal, so a
  * sheet opened from a side panel isn't held inside the panel.
  */
@@ -48,7 +49,7 @@ export function BottomSheet({ open, onClose, labelledBy, closeLabel, children, i
   }, [open]);
 
   return createPortal(
-    <>
+    <BackLayer open={open} onBack={() => close.current()}>
       <button
         type="button"
         className={cx("scrim", open && "is-open", overPanels && "is-over-panels")}
@@ -69,7 +70,7 @@ export function BottomSheet({ open, onClose, labelledBy, closeLabel, children, i
       >
         {children}
       </div>
-    </>,
+    </BackLayer>,
     document.body,
   );
 }
