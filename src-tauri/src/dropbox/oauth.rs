@@ -113,6 +113,7 @@ impl Attempt {
 /// The local address a desktop browser comes back to.
 pub struct Loopback {
     listeners: Vec<TcpListener>,
+    #[cfg_attr(mobile, allow(dead_code))]
     port: u16,
 }
 
@@ -139,6 +140,7 @@ impl Loopback {
         None
     }
 
+    #[cfg(desktop)]
     pub fn redirect_uri(&self) -> String {
         format!("http://localhost:{}{LOOPBACK_PATH}", self.port)
     }
