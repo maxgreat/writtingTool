@@ -28,10 +28,22 @@ use api::ApiError;
 use credentials::Keeper;
 use oauth::{AccessToken, Attempt, Loopback, TokenError};
 
-/// The app's key in the Dropbox app console, set when the app is built
-/// (WRITING_TOOL_DROPBOX_APP_KEY). Without one the build has no Dropbox.
+/// The app's key in the Dropbox app console. It isn't a secret: with PKCE
+/// there is no client secret, and every copy of the app carries the key.
+const APP_KEY: &str = "24dw4vghy1ay4ai";
+
+/// The key this build signs in with: APP_KEY, unless the build sets
+/// WRITING_TOOL_DROPBOX_APP_KEY, for another Dropbox app, or sets it empty,
+/// for a build with no Dropbox.
 pub fn app_key() -> Option<&'static str> {
-    option_env!("WRITING_TOOL_DROPBOX_APP_KEY").filter(|key| !key.is_empty())
+    key_from(option_env!("WRITING_TOOL_DROPBOX_APP_KEY"))
+}
+
+fn key_from(set: Option<&'static str>) -> Option<&'static str> {
+    match set {
+        None => Some(APP_KEY),
+        Some(key) => Some(key.trim()).filter(|key| !key.is_empty()),
+    }
 }
 
 fn require_app_key() -> Result<&'static str, String> {
@@ -427,4 +439,18 @@ pub async fn dropbox_sign_out(app: AppHandle, state: State<'_, DropboxState>) ->
     credentials::delete(&dir, kept)?;
     remove_connection(&dir)?;
     Ok(note)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_use_the_apps_key_unless_told_otherwise() {
+        assert_eq!(key_from(None), Some(APP_KEY));
+        assert_eq!(key_from(Some("otherkey123")), Some("otherkey123"));
+        assert_eq!(key_from(Some(" otherkey123\n")), Some("otherkey123"));
+        assert_eq!(key_from(Some("")), None);
+        assert_eq!(key_from(Some("  ")), None);
+    }
 }

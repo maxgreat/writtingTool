@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
     <title>Privacy policy: Writing Tool</title>
-    <meta name="description" content="Writing Tool collects no personal data: no accounts, analytics, advertising or tracking. What you write is kept on your device, and the app makes no network requests.">
+    <meta name="description" content="Writing Tool collects no personal data: no Writing Tool accounts, analytics, advertising or tracking. What you write is kept on your device, and sent only to your own Dropbox and to the LanguageTool grammar check, if you turn them on.">
     <link rel="canonical" href="https://maxgreat.github.io/writtingTool/privacy.html">
     <link rel="icon" type="image/png" href="icon.png">
     <link rel="apple-touch-icon" href="icon.png">
@@ -22,18 +22,18 @@
         <h1 id="policy-title">Privacy policy</h1>
         <p class="lead">
           Writing Tool collects no personal data. What you write is kept on your device, and the app sends nothing
-          to the developer. It sends text to anyone else only if you turn on the LanguageTool grammar check, and
-          only to the server you choose.
+          to the developer. It sends your writing elsewhere only through two features, both off until you turn them
+          on: Dropbox sync, to your own Dropbox, and the LanguageTool grammar check, to the server you choose.
         </p>
         <p class="policy-meta">
-          Effective <time class="num" datetime="2026-11-25">25 November 2026</time>. This policy covers the Writing
+          Effective <time class="num" datetime="2026-11-26">26 November 2026</time>. This policy covers the Writing
           Tool app on Android, Windows, macOS and Linux.
         </p>
 
         <section class="policy-section" aria-labelledby="collect-title">
           <h2 id="collect-title">What the app collects</h2>
           <p>
-            Nothing. There are no accounts, no analytics, no advertising, no crash reporting and no tracking.
+            Nothing. There are no Writing Tool accounts, no analytics, no advertising, no crash reporting and no tracking.
           </p>
         </section>
 
@@ -50,27 +50,74 @@
             including the LanguageTool user name and API key if you enter them. Nothing you write is sent to the
             developer.
           </p>
+          <p>
+            If you connect Dropbox, the projects you put in it are also kept there, as described under Dropbox sync
+            below.
+          </p>
         </section>
 
         <section class="policy-section" aria-labelledby="network-title">
           <h2 id="network-title">Network access</h2>
           <p>
-            The app makes no network requests unless you turn on the LanguageTool grammar check in Settings. It is off
-            unless you choose a server. Spelling, and grammar in English, are checked on your device. Its source code
-            is public, so anyone can check this.
+            The app makes no network requests unless you connect Dropbox or turn on the LanguageTool grammar check.
+            Both are in Settings, and both are off until you turn them on. Spelling, and grammar in English, are
+            checked on your device. The app’s source code is public, so anyone can check this.
           </p>
+          <p>
+            On Android the app has the Internet permission. Writing Tool uses it only for Dropbox sync and the
+            LanguageTool grammar check, when you turn them on.
+          </p>
+        </section>
+
+        <section class="policy-section" aria-labelledby="dropbox-title">
+          <h2 id="dropbox-title">Dropbox sync</h2>
+          <p>
+            You can connect your own Dropbox in Settings to keep projects in sync between your devices. You sign in
+            on Dropbox’s own page in your browser, so the app never sees your password. Dropbox then gives the app
+            access to one folder only: its own folder, inside the Apps folder of your Dropbox. The app can’t see or
+            change anything else in your Dropbox.
+          </p>
+          <p>
+            To show which account is connected, the app reads your Dropbox account’s name and email address and
+            keeps them on your device. When you sign in, Dropbox gives the app a sign-in token. On desktop the app
+            keeps it in your system’s keyring: Credential Manager on Windows, the Keychain on macOS, the Secret
+            Service on Linux. Where there is no keyring, the token goes in a file in the app’s data folder that only
+            your user account can read. On Android it is kept in the app’s private storage.
+          </p>
+          <p>
+            A project goes to Dropbox only when you put it there, from the Projects view. Its files are then sent to
+            the app’s folder in your Dropbox: its chapters, sheets, notes and trash, its project file (with the
+            title, the language, the author’s name if you entered one when exporting, your export settings, and each
+            chapter’s status, point of view and synopsis) and its dictionary. The app’s own
+            settings, such as a LanguageTool API key, stay on your device. From then on the app syncs the project when
+            it opens, when you come back to the app, when you start typing, and every 30 seconds while the app is on
+            screen. Each sync sends the changes made on your device and fetches those made
+            on your other devices. To merge edits, the app keeps the last synced copy of each file in a hidden
+            <code>.sync</code> folder inside the project, on your device.
+          </p>
+          <p>
+            Your files go directly between your device and Dropbox. The developer receives nothing and has no access
+            to your Dropbox. What Dropbox keeps is covered by
+            <a href="https://www.dropbox.com/privacy">Dropbox’s privacy policy</a>.
+          </p>
+          <p>
+            Choosing Disconnect in Settings tells Dropbox to end the app’s access, and deletes the sign-in token and
+            the account’s name and email address from your device. The projects already in your Dropbox stay there until you delete them in Dropbox. You can
+            also end the app’s access in Dropbox’s own settings, under Connected apps.
+          </p>
+        </section>
+
+        <section class="policy-section" aria-labelledby="languagetool-title">
+          <h2 id="languagetool-title">LanguageTool grammar check</h2>
           <p>
             When you choose a LanguageTool server, the paragraphs of the chapter you are writing are sent to it to be
             checked, a moment after you stop typing, and the problems it finds come back. While the app is open, a
             paragraph that hasn’t changed isn’t sent again, unless the server couldn’t answer; the next time the app
-            opens, or after you change the project’s language or the server, the paragraphs are checked again. The server is the one you choose: LanguageTool’s free server at
+            opens, or after you change the project’s language or the server, the paragraphs are checked again. The
+            server is the one you choose: LanguageTool’s free server at
             <a href="https://languagetool.org/legal/privacy">languagetool.org</a> or your LanguageTool Premium account,
             whose privacy policy covers what they receive, or a server of your own. With a Premium account your user
             name and API key are sent with each check. Turning the grammar server off in Settings stops this at once.
-          </p>
-          <p>
-            On Android the app has the Internet permission. Writing Tool uses it only for the LanguageTool grammar
-            check, when you turn it on.
           </p>
         </section>
 
@@ -80,21 +127,22 @@
             Uninstalling the app on Android deletes its data folder and the projects in it. Export can save a copy of
             a book’s chapters (as PDF, EPUB, Word or Markdown) where you choose, but the project itself, with its
             character and place sheets and notes, can’t be copied out of the app’s storage yet, so keep that in mind
-            before uninstalling it.
+            before uninstalling it. A project you put in Dropbox stays there, as it was at its last sync, and the
+            Projects view can download it again once you connect Dropbox.
           </p>
           <p>
             If backup to your Google account is turned on in Android’s settings, Android may include the app’s data
             folder in that backup and restore it when you install the app again. That copy is made by Android and kept
-            in your Google account. The developer has no access to it.
+            in your Google account. The developer has no access to it. Your Dropbox sign-in token, and the connected
+            account’s name and email address, are left out of that backup and of transfers to a new phone, so after a restore or a transfer you connect Dropbox again.
           </p>
         </section>
 
         <section class="policy-section" aria-labelledby="changes-title">
           <h2 id="changes-title">Changes to this policy</h2>
           <p>
-            Future versions may add optional cloud sync; Dropbox is planned. If a version adds anything that sends
-            data off your device, this policy will be updated before that version is released, and it will say what
-            is sent and to whom.
+            If a future version adds anything else that sends data off your device, this policy will be updated
+            before that version is released, and it will say what is sent and to whom.
           </p>
           <p>
             The date at the top is when this version took effect. Earlier versions are in

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older. The Dropbox sign-in is a credential for this
+     device: it stays out of backups, so a restored phone connects again. -->
+<full-backup-content>
+    <exclude domain="root" path="dropbox-token" />
+    <exclude domain="root" path="dropbox.json" />
+</full-backup-content>

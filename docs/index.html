@@ -51,8 +51,8 @@
         </div>
 
         <p class="status">
-          Version <span class="num">0.1.0</span> is an early release. Writing, spelling and export work; sync
-          between devices isn’t built yet.
+          Version <span class="num">0.1.0</span> is an early release. Writing, spelling, export and Dropbox sync
+          work; see <a href="#not-yet">what isn’t built yet</a>.
         </p>
 
         <figure class="shot hero-shot">
@@ -79,6 +79,19 @@
             <p>
               A project is an ordinary folder with one Markdown file per chapter, so you can back it up, search it or
               keep it in Git. Switch between projects, or on desktop open a project folder from anywhere.
+            </p>
+          </div>
+          <div>
+            <h3>Sync through your own Dropbox</h3>
+            <p>
+              If you write on more than one device, connect your own Dropbox in Settings. You sign in on Dropbox’s
+              own page, so the app never sees your password, and it sees only its own folder, in your Dropbox’s Apps
+              folder. Put a project there from the Projects view and it stays a folder of plain Markdown files;
+              your other devices list it to download and open. The project syncs when it opens, when you come back
+              to the app, when you start typing and every 30 seconds, and edits made offline wait for the next sync.
+              Edits from two devices merge paragraph by paragraph. Where both changed the same paragraph, both
+              versions are kept, one after the other, and the status bar lists those chapters, so nothing is
+              overwritten unseen. The <a href="privacy.html">privacy policy</a> says what Dropbox receives.
             </p>
           </div>
           <div>
@@ -209,10 +222,12 @@
         <p class="section-intro">
           Version <span class="num">0.1.0</span> has the writing core, the first phase of the
           <a href="https://github.com/maxgreat/writtingTool/blob/main/Writing%20App%20%E2%80%94%20Development%20Guide.md">development plan</a>,
-          and parts of later phases: sheet forms, name detection, spelling, grammar and export. Still to come:
+          and parts of later phases: sheet forms, name detection, spelling, grammar, export and Dropbox sync. Still
+          to come:
         </p>
         <ul class="list">
-          <li>Sync between devices through Dropbox, with conflict merging</li>
+          <li>A side-by-side view to settle sync conflicts</li>
+          <li>Showing which chapters are open on your other devices</li>
           <li>Code-signed Windows and macOS builds</li>
         </ul>
         <p class="note">So far the desktop app has been tested mainly on Linux.</p>
