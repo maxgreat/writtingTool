@@ -326,7 +326,11 @@ function SettingsSections({ settings, update, language, onLanguageChange, openUr
             Dropbox
           </h3>
           <div className="settings-items">
-            <DropboxSettings dropbox={dropbox} />
+            <DropboxSettings
+              dropbox={dropbox}
+              autoSave={settings.dropboxAutoSave}
+              onAutoSaveChange={(dropboxAutoSave) => update({ dropboxAutoSave })}
+            />
           </div>
         </section>
       )}
@@ -775,6 +779,12 @@ function ThemeChoice({ theme, onChange }: { theme: Theme; onChange(theme: Theme)
 const DROPBOX_USE = "Keep your projects in your own Dropbox to open them on your other devices.";
 /** What the app can see there. */
 const DROPBOX_REACH = "The app sees only its own folder, in Dropbox’s Apps folder.";
+/** What automatic saving does, on: only for projects already there, never one on this device only. */
+const AUTO_SAVE_ON =
+  "Projects in Dropbox are kept up to date as you write. Others stay on this device until you choose Save to Dropbox in the main menu.";
+/** And off: nothing goes either way until the writer asks. */
+const AUTO_SAVE_OFF =
+  "Your edits go to Dropbox, and changes from your other devices come in, only when you choose Save to Dropbox in the main menu.";
 
 /** Where the connection stands, as far as focus goes: its step, or "code" while a pasted code is asked for. */
 const dropboxStage = (view: DropboxView) => (view.step === "waiting" && view.manual ? "code" : view.step);
@@ -784,14 +794,25 @@ const dropboxStage = (view: DropboxView) => (view.step === "waiting" && view.man
  * useDropbox, kept by the workspace, does the work: a sign-in under way
  * goes on while the dialog is closed, and shows here when it opens again.
  * One action at a time: Connect Dropbox; Cancel while Dropbox is waited
- * for, with Connect when it shows a code to paste; Disconnect.
+ * for, with Connect when it shows a code to paste; Disconnect. Connected,
+ * a switch below says whether projects in Dropbox are saved there as the
+ * writer goes (`autoSave`, a setting of this device), or only when Save to
+ * Dropbox is chosen.
  *
  * Once a step the writer took moves on, and the control pressed is gone or
  * waits, focus goes to what comes next: the code field, Cancel, the account
  * connected (read out, and Tab goes on to Disconnect), or Connect Dropbox.
  * The first read of the connection leaves focus alone.
  */
-function DropboxSettings({ dropbox }: { dropbox: DropboxConnection }) {
+function DropboxSettings({
+  dropbox,
+  autoSave,
+  onAutoSaveChange,
+}: {
+  dropbox: DropboxConnection;
+  autoSave: boolean;
+  onAutoSaveChange(next: boolean): void;
+}) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
   const { view, error, note } = dropbox;
@@ -895,15 +916,25 @@ function DropboxSettings({ dropbox }: { dropbox: DropboxConnection }) {
   }
 
   return (
-    <div ref={root} className="settings-item dropbox">
-      {content}
-      {error !== null && (
-        <p id={errorId} className="inline-error settings-error" role="alert">
-          {error}
-        </p>
+    <>
+      <div ref={root} className="settings-item dropbox">
+        {content}
+        {error !== null && (
+          <p id={errorId} className="inline-error settings-error" role="alert">
+            {error}
+          </p>
+        )}
+        {note !== null && <p className="settings-note">{note}</p>}
+      </div>
+      {view.step === "connected" && (
+        <Toggle
+          label="Automatically save to Dropbox"
+          checked={autoSave}
+          onChange={onAutoSaveChange}
+          note={autoSave ? AUTO_SAVE_ON : AUTO_SAVE_OFF}
+        />
       )}
-      {note !== null && <p className="settings-note">{note}</p>}
-    </div>
+    </>
   );
 }
 

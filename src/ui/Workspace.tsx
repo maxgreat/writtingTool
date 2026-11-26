@@ -31,7 +31,7 @@ import { HOVER_QUERY, useMediaQuery } from "./hooks";
 import type { IgnoreSource } from "./IgnoreHere";
 import { Inspector, type InspectorView } from "./Inspector";
 import { panelStyle } from "./layoutStyle";
-import type { MainMenuCommands } from "./MainMenu";
+import type { MainMenuCommands, SaveToDropbox } from "./MainMenu";
 import type { SuggestionSource } from "./PossibleNameMenu";
 import {
   ProjectsDialog,
@@ -996,6 +996,23 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     };
   }, [saveConfirmed]);
 
+  /**
+   * Save to Dropbox, from the main menu: once the focused field's edit and
+   * any binder change under way are in, syncs the open project now, putting
+   * it in Dropbox first if it is on this device only. The status bar says
+   * "Syncing…" meanwhile; if it can't be done, a note under the menu's
+   * button says why (a failed sync shows in the status bar too, with Retry).
+   */
+  const { saveToDropbox: saveToDropboxInCore } = api;
+  const saveToDropbox = useCallback(async () => {
+    await commitField();
+    try {
+      await saveToDropboxInCore();
+    } catch (error) {
+      refuse("Couldn’t save to Dropbox", error);
+    }
+  }, [commitField, saveToDropboxInCore, refuse]);
+
   /** Open folder…: the system's folder picker, then the folder chosen, as in the Projects view. */
   const [openingFolder, setOpeningFolder] = useState(false);
   const { openFolder } = api;
@@ -1253,6 +1270,12 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     return source;
   }, [exportOpen, binder, chaptersById, projectTitle, projectJson, backend, switching, saveExportPreset, rememberExport]);
 
+  /** Save to Dropbox in the main menu: none in app builds without Dropbox, and waiting for the app in the browser preview. */
+  let dropboxSave: SaveToDropbox | undefined;
+  if (!dropbox) dropboxSave = backend.kind === "browser" ? "needsApp" : undefined;
+  else if (dropbox.view.step === "loading" || api.sync.status === "syncing") dropboxSave = "waiting";
+  else dropboxSave = dropbox.view.step === "connected" ? "ready" : "connect";
+
   const mainMenu: MainMenuCommands = {
     canCreateProjects: backend.canCreateProjects,
     onNewProject: () => showProjects("new"),
@@ -1269,6 +1292,16 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
       void save();
     },
     saving: api.save.status === "saving",
+    saveToDropbox: dropboxSave,
+    onSaveToDropbox: () => {
+      if (dropboxSave === "ready") {
+        editorRef.current?.focus();
+        void saveToDropbox();
+      } else if (dropboxSave === "connect") {
+        // Not connected, or a sign-in under way: Settings, where Dropbox is connected.
+        setSettingsOpen(true);
+      }
+    },
     onExport: () => setExportOpen(true),
     onFind: () => openSearch("find"),
     onReplace: () => openSearch("replace"),

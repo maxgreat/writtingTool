@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Backend, DropboxBackend, SyncResult } from "../backend";
 import type { ProjectSnapshot } from "../project";
 import type { SyncOutcome } from "../syncApply";
-import { AUTOSAVE_DELAY_MS, SYNC_AGAIN_MS, SYNC_INTERVAL_MS, useProject } from "../useProject";
+import { AUTOSAVE_DELAY_MS, SAVE_TRIES, SYNC_AGAIN_MS, SYNC_INTERVAL_MS, useProject } from "../useProject";
 
 const ONE = "manuscript/01 One.md";
 const TWO = "manuscript/02 Two.md";
@@ -85,8 +85,8 @@ let root: Root;
 /** What the open chapter's editor was given by sync, in order. */
 let written: string[];
 
-function Probe() {
-  api = useProject();
+function Probe({ autoSync }: { autoSync: boolean }) {
+  api = useProject({ autoSync });
   return null;
 }
 
@@ -96,9 +96,9 @@ async function settle(ms = 0) {
   });
 }
 
-async function mount() {
+async function mount(autoSync = true) {
   root = createRoot(document.createElement("div"));
-  await act(async () => root.render(createElement(Probe)));
+  await act(async () => root.render(createElement(Probe, { autoSync })));
   await settle();
   written = [];
   act(() =>
@@ -108,6 +108,12 @@ async function mount() {
       return true;
     }),
   );
+}
+
+/** Turns automatic syncs on or off, as the setting does. */
+async function setAutoSync(autoSync: boolean) {
+  await act(async () => root.render(createElement(Probe, { autoSync })));
+  await settle();
 }
 
 beforeEach(() => {
@@ -282,5 +288,113 @@ describe("useProject with Dropbox", () => {
       });
     });
     expect((failure as Error | null)?.message).toBe("This project is already in Dropbox.");
+  });
+});
+
+describe("useProject with automatic syncs off", () => {
+  it("syncs only when asked: not on opening, on a timer, on coming back or on the first edit", async () => {
+    await mount(false);
+    expect(sync).not.toHaveBeenCalled();
+    await settle(SYNC_INTERVAL_MS * 2);
+    act(() => window.dispatchEvent(new Event("focus")));
+    act(() => api.updateChapter(ONE, "# One\n\nElena waits.\n\nArno rows!\n"));
+    await settle(AUTOSAVE_DELAY_MS);
+    expect(sync).not.toHaveBeenCalled();
+    expect(api.sync).toEqual({ status: "off" });
+  });
+
+  it("saves to Dropbox when asked, then says when edits made since aren't there", async () => {
+    await mount(false);
+    await act(async () => api.saveToDropbox());
+    expect(sync).toHaveBeenCalledWith(ROOT);
+    expect(putProject).not.toHaveBeenCalled();
+    expect(api.sync).toMatchObject({ status: "synced", unsent: false });
+
+    act(() => api.updateChapter(ONE, "# One\n\nElena waits.\n\nArno rows!\n"));
+    expect(api.sync).toMatchObject({ status: "synced", unsent: true });
+
+    await act(async () => api.saveToDropbox());
+    expect(writeFile).toHaveBeenCalledWith(ROOT, ONE, "# One\n\nElena waits.\n\nArno rows!\n");
+    expect(api.sync).toMatchObject({ status: "synced", unsent: false });
+  });
+
+  it("doesn't count what a sync puts in the open editor as an edit made here", async () => {
+    await mount(false);
+    const theirs = "# One\n\nElena waits at the inn.\n\nArno rows.\n";
+    sync.mockImplementationOnce(async () => {
+      disk = snapshotWith(theirs);
+      return { state: "done", outcome: outcome({ changed: [{ path: ONE, before: ORIGINAL, after: theirs }] }) };
+    });
+    await act(async () => api.saveToDropbox());
+    await settle(AUTOSAVE_DELAY_MS);
+    expect(written).toEqual([theirs]);
+    expect(api.sync).toMatchObject({ status: "synced", unsent: false });
+  });
+
+  it("puts a project on this device only in Dropbox, showing Syncing… meanwhile", async () => {
+    sync.mockResolvedValue({ state: "off" });
+    await mount(false);
+    const putting = deferred<SyncOutcome>();
+    putProject.mockReturnValueOnce(putting.promise);
+    let saved: Promise<void> | undefined;
+    act(() => {
+      saved = api.saveToDropbox();
+    });
+    await settle();
+    expect(putProject).toHaveBeenCalledWith(ROOT);
+    expect(api.sync).toMatchObject({ status: "syncing", at: null });
+    await act(async () => {
+      putting.resolve(outcome());
+      await saved;
+    });
+    expect(api.sync).toMatchObject({ status: "synced", unsent: false });
+  });
+
+  it("finishes a save Dropbox changed under at once, and never syncs again unasked", async () => {
+    await mount(false);
+    sync.mockResolvedValueOnce({ state: "done", outcome: outcome({ again: true }) });
+    await act(async () => api.saveToDropbox());
+    expect(sync).toHaveBeenCalledTimes(2);
+    expect(api.sync).toMatchObject({ status: "synced", unsent: false });
+    await settle(SYNC_AGAIN_MS * 2);
+    expect(sync).toHaveBeenCalledTimes(2);
+  });
+
+  it("says the edits aren't all in Dropbox when it keeps changing under the save", async () => {
+    await mount(false);
+    sync.mockResolvedValue({ state: "done", outcome: outcome({ again: true }) });
+    await act(async () => api.saveToDropbox());
+    expect(sync).toHaveBeenCalledTimes(SAVE_TRIES);
+    expect(api.sync).toMatchObject({ status: "synced", unsent: true });
+    await settle(SYNC_AGAIN_MS * 2);
+    expect(sync).toHaveBeenCalledTimes(SAVE_TRIES);
+  });
+
+  it("says why it couldn't save to Dropbox", async () => {
+    await mount(false);
+    sync.mockRejectedValueOnce(new Error("Dropbox could not be reached."));
+    let failure: unknown = null;
+    await act(async () => {
+      await api.saveToDropbox().catch((error: unknown) => {
+        failure = error;
+      });
+    });
+    expect((failure as Error | null)?.message).toBe("Dropbox could not be reached.");
+    expect(api.sync).toMatchObject({ status: "error", message: "Dropbox could not be reached." });
+  });
+
+  it("syncs at once when turned on, and says edits since the last sync wait when turned off", async () => {
+    await mount(false);
+    await setAutoSync(true);
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(api.sync).toMatchObject({ status: "synced", unsent: false });
+
+    // The first edit in the chapter is checked with Dropbox, and goes with that sync; the second waits for the next.
+    act(() => api.updateChapter(ONE, "# One\n\nElena waits.\n\nArno rows!\n"));
+    await settle();
+    act(() => api.updateChapter(ONE, "# One\n\nElena waits.\n\nArno rows!!\n"));
+    expect(api.sync).toMatchObject({ status: "synced", unsent: false });
+    await setAutoSync(false);
+    expect(api.sync).toMatchObject({ status: "synced", unsent: true });
   });
 });

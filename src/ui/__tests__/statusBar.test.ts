@@ -83,7 +83,7 @@ describe("the sync with Dropbox", () => {
   const onDismissConflicts = vi.fn<() => void>();
   let compact = false;
 
-  const synced = (patch: { conflicts?: string[]; problems?: string[] } = {}): SyncState => ({
+  const synced = (patch: { conflicts?: string[]; problems?: string[]; unsent?: boolean } = {}): SyncState => ({
     status: "synced",
     at: AT,
     conflicts: [],
@@ -163,6 +163,39 @@ describe("the sync with Dropbox", () => {
     compact = true;
     show(synced());
     expect(item("Synced")?.querySelector(".muted")?.textContent).toBe("Synced");
+  });
+
+  it("says when the latest edits aren't in Dropbox yet (automatic saving off), quietly, and how to send them", () => {
+    const UNSENT = "Edits not in Dropbox yet";
+    const HOW = /^Last synced: Today, [^.]*15[^.]*\. Choose Save to Dropbox in the main menu to send your latest edits\.$/u;
+    show(synced({ unsent: true }));
+    expect(end()).not.toContain("Synced");
+    const line = item(UNSENT)!;
+    expect(line.querySelector(".muted")?.textContent).toBe(UNSENT);
+    expect(line.title).toMatch(HOW);
+    // The rest is read out, after the note.
+    expect(line.querySelector(".visually-hidden")?.textContent).toBe(`. ${line.title}`);
+    // The writer's choice, not a failure: nothing announced, no warning colour.
+    expect(line.classList.contains("sync-error")).toBe(false);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(syncLive()).toBe("");
+
+    compact = true;
+    show(synced({ unsent: true }));
+    const short = item("Not sent")!;
+    expect(short.querySelector(".muted")?.textContent).toBe("Not sent");
+    const read = short.querySelector(".visually-hidden")?.textContent ?? "";
+    expect(read.startsWith(" to Dropbox. ")).toBe(true);
+    expect(read.slice(" to Dropbox. ".length)).toMatch(HOW);
+  });
+
+  it("keeps saying the edits aren't in Dropbox while a quick sync sends them, then that it is synced", () => {
+    show(synced({ unsent: true }));
+    show({ status: "syncing", at: AT });
+    expect(end()).toContain("Edits not in Dropbox yet");
+    show(synced());
+    expect(end()).toBe("Synced with Dropbox");
+    expect(item("Synced")?.title).toMatch(/^Last synced: Today, /u);
   });
 
   it("doesn't flicker for a quick background sync, and says Syncing… once one lasts", async () => {

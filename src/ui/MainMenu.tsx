@@ -16,6 +16,15 @@ export interface MainMenuCommands {
   onSave(): void;
   /** A save is being written: Save waits for it. */
   saving: boolean;
+  /**
+   * Where Save to Dropbox stands; absent in app builds without Dropbox, which
+   * have no such item. "ready": the open project syncs now. "connect":
+   * Settings opens, to connect Dropbox first. "waiting": a sync is running,
+   * or the connection is still being read. "needsApp": the browser preview,
+   * which has no Dropbox.
+   */
+  saveToDropbox?: SaveToDropbox;
+  onSaveToDropbox(): void;
   /** The Export window: the format, its settings and a preview of the pages. */
   onExport(): void;
   /** Find in book, in the inspector's place (an overlay on phones), the selection in Find. */
@@ -36,6 +45,14 @@ export interface MainMenuCommands {
   showShortcuts: boolean;
 }
 
+export type SaveToDropbox = "ready" | "connect" | "waiting" | "needsApp";
+
+/** Why Save to Dropbox can't run yet, or what it opens instead: beside the item, where shortcuts go. */
+const SAVE_TO_DROPBOX_HINT: Partial<Record<SaveToDropbox, string>> = {
+  connect: "Connect in Settings",
+  needsApp: "Needs the app",
+};
+
 interface MainMenuProps {
   commands: MainMenuCommands;
   focusMode: boolean;
@@ -49,9 +66,10 @@ interface MainMenuProps {
 export const REPLACE_KEYS: string[] = isMac ? ["mod", "alt", "F"] : ["mod", "H"];
 
 /**
- * The app's commands, from the far left of the bar: projects, saving and
- * exporting, finding, settings, focus mode and quitting. Groups
- * are set apart by space, in the order a File menu has them.
+ * The app's commands, from the far left of the bar: projects, saving (to
+ * Dropbox too, where the build has it) and exporting, finding, settings,
+ * focus mode and quitting. Groups are set apart by space, in the order a
+ * File menu has them.
  */
 export function MainMenu({ commands, focusMode, open, onOpenChange, triggerRef }: MainMenuProps) {
   const hint = (...keys: string[]) => (commands.showShortcuts ? shortcut(...keys) : undefined);
@@ -92,6 +110,18 @@ export function MainMenu({ commands, focusMode, open, onOpenChange, triggerRef }
           <MenuItem noCheck disabled={commands.saving} hint={hint("mod", "S")} onSelect={choose(commands.onSave)}>
             Save
           </MenuItem>
+          {commands.saveToDropbox && (
+            <MenuItem
+              noCheck
+              disabled={
+                commands.saveToDropbox === "waiting" || commands.saveToDropbox === "needsApp" || commands.busy
+              }
+              hint={SAVE_TO_DROPBOX_HINT[commands.saveToDropbox]}
+              onSelect={choose(commands.onSaveToDropbox)}
+            >
+              Save to Dropbox
+            </MenuItem>
+          )}
           <MenuItem noCheck onSelect={choose(commands.onExport)}>
             Export…
           </MenuItem>

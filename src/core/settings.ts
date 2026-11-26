@@ -52,6 +52,11 @@ export interface ViewSettings {
   theme: Theme;
   /** Keeps the line being typed in the middle of the screen. */
   typewriter: boolean;
+  /**
+   * Projects in Dropbox are saved there as you write (see SYNC_INTERVAL_MS
+   * in src/core/useProject.ts); off, only when Save to Dropbox is chosen.
+   */
+  dropboxAutoSave: boolean;
 }
 
 export const FONT_SIZE = { min: 12, max: 28 } as const;
@@ -78,6 +83,7 @@ export const DEFAULT_SETTINGS: ViewSettings = {
   languageTool: { mode: "off", url: "", username: "", apiKey: "" },
   theme: "system",
   typewriter: false,
+  dropboxAutoSave: true,
 };
 
 const STORAGE_KEY = "writingTool.viewSettings.v1";
@@ -116,6 +122,7 @@ export function sanitizeSettings(raw: unknown): ViewSettings {
     languageTool: sanitizeLanguageTool(s.languageTool),
     theme: oneOf(s.theme, ["system", "light", "dark"] as const, d.theme),
     typewriter: flag(s.typewriter, d.typewriter),
+    dropboxAutoSave: flag(s.dropboxAutoSave, d.dropboxAutoSave),
   };
 }
 

@@ -227,6 +227,8 @@ const DICTIONARY = "dictionary.txt";
 const SIGNED_OUT =
   "This project is in Dropbox, but no Dropbox account is connected on this device. Connect one in Settings to sync it.";
 const SAFE = "Your edits are safe on this device and go to Dropbox with the next sync.";
+/** With automatic saving off, the latest edits wait for the writer: how to send them. */
+const UNSENT = "Choose Save to Dropbox in the main menu to send your latest edits.";
 
 /** A message ends with a full stop before another sentence follows it. */
 function sentence(message: string): string {
@@ -260,11 +262,13 @@ interface SyncStatusProps {
 }
 
 /**
- * Where the open project stands with Dropbox. A sync runs every 30 s, and
- * most take well under a second: while one runs, the bar keeps what it
- * showed before (synced, or the last failure), and says "Syncing…" only
- * once the sync has lasted SLOW_SYNC_MS, or when there is nothing before
- * it to show. The files found edited on two devices (useProject gathers
+ * Where the open project stands with Dropbox. A sync runs every 30 s (with
+ * automatic saving on; off, when Save to Dropbox is chosen, and until then
+ * the bar says when the latest edits aren't there), and most take well
+ * under a second: while one runs, the bar keeps what it showed before
+ * (synced, or the last failure), and says "Syncing…" only once the sync
+ * has lasted SLOW_SYNC_MS, or when there is nothing before it to show.
+ * The files found edited on two devices (useProject gathers
  * them across syncs) wait behind a warning until their list has been
  * opened and closed; what the last sync couldn't do waits there until the
  * next one.
@@ -372,13 +376,27 @@ function SyncLine({ shown, onSyncNow, compact }: { shown: SyncState; onSyncNow()
           <span className="muted">Syncing…</span>
         </span>
       );
-    case "synced":
+    case "synced": {
+      const last = `Last synced: ${formatVersionTime(shown.at, Date.now())}`;
+      if (shown.unsent) {
+        // Automatic saving is off and the project changed here since: quiet, as it is the writer's choice.
+        const how = `${last}. ${UNSENT}`;
+        return (
+          <span className="status-item" title={how}>
+            <span className="muted">{compact ? "Not sent" : "Edits not in Dropbox yet"}</span>
+            <span className="visually-hidden">
+              {compact && " to Dropbox"}. {how}
+            </span>
+          </span>
+        );
+      }
       return (
-        <span className="status-item" title={`Last synced: ${formatVersionTime(shown.at, Date.now())}`}>
+        <span className="status-item" title={last}>
           <span className="muted">{compact ? "Synced" : "Synced with Dropbox"}</span>
           {compact && <span className="visually-hidden"> with Dropbox</span>}
         </span>
       );
+    }
     case "error": {
       const why = `${sentence(shown.message)} ${SAFE}`;
       if (!compact) {

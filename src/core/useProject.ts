@@ -36,19 +36,31 @@ export type SyncState =
   /**
    * `conflicts`: files changed in the same places on two devices, both
    * versions kept in the text (project.json keeps this device's choices),
-   * gathered across syncs until dismissConflicts.
+   * gathered across syncs until dismissConflicts. `unsent`: the project
+   * was changed here since, and with automatic syncs off nothing will send
+   * it until the writer asks.
    */
-  | { status: "synced"; at: number; conflicts: string[]; problems: string[] }
+  | { status: "synced"; at: number; conflicts: string[]; problems: string[]; unsent?: boolean }
   /** The last sync failed. Edits stay on this device and go with the next one. */
   | { status: "error"; message: string; at: number | null };
 
 /** A project in Dropbox syncs this often while the app is in front. */
 export const SYNC_INTERVAL_MS = 30_000;
-/** After a sync that met a change made meanwhile, the next one comes this soon. */
+/** After a sync that met a change made meanwhile, the next one comes this soon (with automatic syncs on). */
 export const SYNC_AGAIN_MS = 3_000;
+/**
+ * Save to Dropbox syncs again at once while Dropbox changed under it, up to
+ * this many syncs in all; still unfinished, the status says so.
+ */
+export const SAVE_TRIES = 3;
 
 function syncedAt(state: SyncState): number | null {
   return state.status === "synced" ? state.at : state.status === "syncing" || state.status === "error" ? state.at : null;
+}
+
+/** A synced project, now with changes Dropbox hasn't got; any other state as it is. */
+function withUnsent(state: SyncState): SyncState {
+  return state.status === "synced" && !state.unsent ? { ...state, unsent: true } : state;
 }
 
 /** The project's own words for the spelling check (see spelling.ts). */
@@ -77,13 +89,23 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export interface ProjectOptions {
+  /**
+   * A project in Dropbox syncs by itself: when it opens, when the app comes
+   * back to the front, every SYNC_INTERVAL_MS, and on the first edit in a
+   * chapter. Off, it syncs only when asked (syncNow, saveToDropbox). On by
+   * default.
+   */
+  autoSync?: boolean;
+}
+
 /**
  * The open project, the open chapter and autosave. Chapter edits update the
  * project at once and are written about a second after typing stops; writes
  * are serialized, and pending ones are flushed when the chapter changes, the
  * window is hidden or the window closes.
  */
-export function useProject() {
+export function useProject({ autoSync = true }: ProjectOptions = {}) {
   const [backend, setBackend] = useState<Backend | null>(null);
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [project, setProject] = useState<Project | null>(null);
@@ -124,8 +146,26 @@ export function useProject() {
   const editorWriter = useRef<((markdown: string) => boolean) | null>(null);
   /** The open chapter has been checked with Dropbox since it was opened, on its first edit. */
   const checkedOpen = useRef(false);
+  /** `autoSync` as this render has it, for callbacks made earlier. */
+  const autoSyncRef = useRef(autoSync);
+  autoSyncRef.current = autoSync;
+  /** The project was changed on this device since the last sync started: not all of it is in Dropbox. */
+  const changedSinceSync = useRef(false);
+  /** A sync is putting what it brought in into the open chapter's editor, which reports it as an edit. */
+  const bringingIn = useRef(false);
   /** Files edited in the same places on two devices, gathered across syncs until the writer has seen them. */
   const conflicts = useRef<string[]>([]);
+
+  /**
+   * The writer changed the project on this device. With automatic syncs
+   * off, a project that was synced says it has changes Dropbox hasn't got.
+   */
+  const noteChange = useCallback(() => {
+    // The open editor echoing what a sync brought in is not a change made here.
+    if (bringingIn.current) return;
+    changedSinceSync.current = true;
+    if (!autoSyncRef.current) setSync(withUnsent);
+  }, []);
 
   const flush = useCallback(async (): Promise<void> => {
     if (timer.current !== null) {
@@ -192,6 +232,7 @@ export function useProject() {
       const next = fallbackFor ? { ...built, problems: [fallbackFor, ...built.problems] } : built;
       if (projectRef.current?.root !== next.root) {
         conflicts.current = [];
+        changedSinceSync.current = false;
         setSync({ status: "off" });
       }
       pending.current.clear();
@@ -250,7 +291,16 @@ export function useProject() {
         }
         if (projectRef.current?.root !== root) return clashed;
         if (ours !== undefined) pending.current.set(change.path, text);
-        if (change.path === open && !remount && !(editorWriter.current?.(text) ?? false)) remount = true;
+        if (change.path === open && !remount) {
+          bringingIn.current = true;
+          let taken = false;
+          try {
+            taken = editorWriter.current?.(text) ?? false;
+          } finally {
+            bringingIn.current = false;
+          }
+          if (!taken) remount = true;
+        }
       }
       const snapshot = await target.openProject(root);
       if (projectRef.current?.root !== root) return clashed;
@@ -274,10 +324,14 @@ export function useProject() {
    * project once its edits are saved, while saves wait, then takes in what
    * it changed. One at a time: asked again meanwhile, the run under way is
    * the answer. Nothing happens without Dropbox or while the project is
-   * changing on disk.
+   * changing on disk. `shown`: "Syncing…" shows even for a project not in
+   * Dropbox yet, as the writer asked for it.
    */
   const runSync = useCallback(
-    (step: (dropbox: NonNullable<Backend["dropbox"]>, root: string) => Promise<SyncOutcome | "off" | "signedOut">): Promise<void> => {
+    (
+      step: (dropbox: NonNullable<Backend["dropbox"]>, root: string) => Promise<SyncOutcome | "off" | "signedOut">,
+      shown = false,
+    ): Promise<void> => {
       const target = backendRef.current;
       const dropbox = target?.dropbox;
       if (!target || !dropbox) return Promise.resolve();
@@ -293,9 +347,13 @@ export function useProject() {
         writing.current = new Promise<void>((resolve) => {
           release = resolve;
         });
+        // Everything on disk goes with this sync: what changes from now on is for the next one.
+        changedSinceSync.current = false;
         // A project not in Dropbox (or not connected) is only checked: nothing to show meanwhile.
         setSync((state) =>
-          state.status === "off" || state.status === "signedOut" ? state : { status: "syncing", at: syncedAt(state) },
+          !shown && (state.status === "off" || state.status === "signedOut")
+            ? state
+            : { status: "syncing", at: syncedAt(state) },
         );
         try {
           const result = await step(dropbox, root);
@@ -307,8 +365,16 @@ export function useProject() {
           const clashed = await takeIn(target, root, result);
           if (projectRef.current?.root !== root) return;
           conflicts.current = [...new Set([...conflicts.current, ...result.conflicts, ...clashed])];
-          setSync({ status: "synced", at: Date.now(), conflicts: conflicts.current, problems: result.problems });
-          if (result.again) setTimeout(() => void syncNowRef.current(), SYNC_AGAIN_MS);
+          setSync({
+            status: "synced",
+            at: Date.now(),
+            conflicts: conflicts.current,
+            problems: result.problems,
+            // `again`: Dropbox changed under the sync, so some of what changed here may not be there yet.
+            unsent: (changedSinceSync.current || result.again) && !autoSyncRef.current,
+          });
+          // Off, nothing syncs unasked: Save to Dropbox tries again itself (SAVE_TRIES).
+          if (result.again && autoSyncRef.current) setTimeout(() => void syncNowRef.current(), SYNC_AGAIN_MS);
         } catch (error) {
           setSync((state) => ({ status: "error", message: message(error), at: syncedAt(state) }));
         } finally {
@@ -337,31 +403,79 @@ export function useProject() {
   syncNowRef.current = syncNow;
 
   /**
+   * Runs `step` as runSync does, for something the writer asked for: after
+   * any sync under way, so edits made since go too. Rejects with the reason
+   * when the step fails, or with `unsaved` when edits that couldn't be saved
+   * kept it from running.
+   */
+  const runAsked = useCallback(
+    async (
+      step: (dropbox: NonNullable<Backend["dropbox"]>, root: string) => Promise<SyncOutcome | "off" | "signedOut">,
+      unsaved: string,
+      shown = false,
+    ): Promise<void> => {
+      while (syncRun.current) await syncRun.current;
+      let ran = false;
+      let failure: unknown = null;
+      await runSync(async (dropbox, root) => {
+        ran = true;
+        try {
+          return await step(dropbox, root);
+        } catch (error) {
+          failure = error;
+          throw error;
+        }
+      }, shown);
+      if (failure !== null) throw failure;
+      if (!ran) throw new Error(unsaved);
+    },
+    [runSync],
+  );
+
+  /**
    * Puts the open project in Dropbox and sends it, after any sync under
    * way. Rejects with the reason when it can't.
    */
-  const putInDropbox = useCallback(async (): Promise<void> => {
-    while (syncRun.current) await syncRun.current;
-    let ran = false;
-    let failure: unknown = null;
-    await runSync(async (dropbox, root) => {
-      ran = true;
-      try {
-        return await dropbox.putProject(root);
-      } catch (error) {
-        failure = error;
-        throw error;
-      }
-    });
-    if (failure !== null) throw failure;
-    if (!ran) throw new Error("The project can’t be put in Dropbox until its changes are saved. Save them (Retry) first.");
-  }, [runSync]);
+  const putInDropbox = useCallback(
+    (): Promise<void> =>
+      runAsked(
+        (dropbox, root) => dropbox.putProject(root),
+        "The project can’t be put in Dropbox until its changes are saved. Save them (Retry) first.",
+      ),
+    [runAsked],
+  );
+
+  /**
+   * Save to Dropbox: syncs the open project now, after any sync under way,
+   * putting it in Dropbox first if it is on this device only. "Syncing…"
+   * shows meanwhile. While Dropbox changes under it, it syncs again at once,
+   * up to SAVE_TRIES syncs. Rejects with the reason when it can't; a project in
+   * Dropbox whose account isn't connected here ends signed out.
+   */
+  const saveToDropbox = useCallback(async (): Promise<void> => {
+    for (let tries = 1; ; tries += 1) {
+      let again = false;
+      await runAsked(
+        async (dropbox, root) => {
+          const result = await dropbox.sync(root);
+          const outcome = result.state === "off" ? await dropbox.putProject(root) : result.state === "done" ? result.outcome : result.state;
+          again = typeof outcome === "object" && outcome.again;
+          return outcome;
+        },
+        "The project can’t be saved to Dropbox until its changes are saved on this device. Save them (Retry) first.",
+        true,
+      );
+      // Dropbox changed under the sync: the save isn't finished, so it goes again now, while the writer waits for it.
+      if (!again || tries >= SAVE_TRIES) return;
+    }
+  }, [runAsked]);
 
   // A project in Dropbox syncs when it opens, when the app comes back to the
-  // front, and every SYNC_INTERVAL_MS while it is in front.
+  // front, and every SYNC_INTERVAL_MS while it is in front, unless automatic
+  // syncs are off. Turned on, they start with a sync at once.
   const openRoot = project?.root ?? null;
   useEffect(() => {
-    if (!backend?.dropbox || openRoot === null) return;
+    if (!backend?.dropbox || openRoot === null || !autoSync) return;
     void syncNowRef.current();
     const inFront = () => {
       if (document.visibilityState === "visible") void syncNowRef.current();
@@ -374,7 +488,12 @@ export function useProject() {
       document.removeEventListener("visibilitychange", inFront);
       window.removeEventListener("focus", inFront);
     };
-  }, [backend, openRoot]);
+  }, [backend, openRoot, autoSync]);
+
+  // Turned off, changes made since the last sync wait for the writer, who is told.
+  useEffect(() => {
+    if (!autoSync && changedSinceSync.current) setSync(withUnsent);
+  }, [autoSync]);
 
   /**
    * The writer has seen the files edited on two devices: they are no longer
@@ -487,11 +606,12 @@ export function useProject() {
     setProject(next);
     pending.current.set(path, text);
     setSave({ status: "pending" });
+    noteChange();
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = null;
     if (autosaveHold.current) autosaveHold.current.due = true;
     else timer.current = setTimeout(() => void flush(), AUTOSAVE_DELAY_MS);
-  }, [flush]);
+  }, [flush, noteChange]);
 
   /**
    * Stops autosave until the returned function is called, which starts it
@@ -533,8 +653,8 @@ export function useProject() {
     const next = withChapterText(current, id, text);
     if (next === current) return;
     changeLater(next, id, text);
-    // The first edit after opening a chapter checks for changes from other devices.
-    if (id === openRef.current && !checkedOpen.current) {
+    // The first edit after opening a chapter checks for changes from other devices, when syncs run by themselves.
+    if (id === openRef.current && !checkedOpen.current && autoSyncRef.current) {
       checkedOpen.current = true;
       void syncNowRef.current();
     }
@@ -595,9 +715,10 @@ export function useProject() {
       const next = withSheetText(latest, id, text);
       projectRef.current = next;
       setProject(next);
+      noteChange();
     }
     return id;
-  }, []);
+  }, [noteChange]);
 
   /** Saves a change to project.json like an edit; nothing when there is no change. */
   const changeJson = useCallback(
@@ -714,13 +835,16 @@ export function useProject() {
         // after a failed step, the open chapter is still where it was.
         const complete = made === plan.changes.length;
         const openId = complete ? (plan.created ?? (open ? (plan.renamed.get(open) ?? open) : null)) : open;
-        if (snapshot) applySnapshot(snapshot, target, { openId });
+        if (snapshot) {
+          applySnapshot(snapshot, target, { openId });
+          noteChange();
+        }
       }
     } finally {
       switchingRef.current = false;
       setSwitching(false);
     }
-  }, [flush, applySnapshot]);
+  }, [flush, applySnapshot, noteChange]);
 
   /**
    * Moves a sheet to the Trash, from where the binder can restore it. Pending
@@ -833,11 +957,12 @@ export function useProject() {
       projectRef.current = next;
       setProject(next);
       setLoads((count) => count + 1);
+      noteChange();
     } finally {
       switchingRef.current = false;
       setSwitching(false);
     }
-  }, [flush]);
+  }, [flush, noteChange]);
 
   // The matcher only depends on each sheet's id, type, name and aliases, so
   // editing a sheet's fields or notes doesn't rebuild it (and with it the
@@ -910,6 +1035,8 @@ export function useProject() {
     /** Syncs the open project with Dropbox now, if it is there. */
     syncNow,
     putInDropbox,
+    /** Save to Dropbox, from the main menu: syncs now, putting the project there first if it isn't. */
+    saveToDropbox,
     setEditorWriter,
     dismissConflicts,
   };

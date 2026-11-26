@@ -494,6 +494,11 @@ describe("Dropbox", () => {
   const USE = "Keep your projects in your own Dropbox to open them on your other devices.";
   const REACH = "The app sees only its own folder, in Dropbox’s Apps folder.";
   const KEYRING = "This computer has no keyring service, so your sign-in is kept in a file only your user account can read.";
+  const AUTO_SAVE = "Automatically save to Dropbox";
+  const AUTO_SAVE_ON =
+    "Projects in Dropbox are kept up to date as you write. Others stay on this device until you choose Save to Dropbox in the main menu.";
+  const AUTO_SAVE_OFF =
+    "Your edits go to Dropbox, and changes from your other devices come in, only when you choose Save to Dropbox in the main menu.";
 
   beforeEach(() => {
     for (const action of [connect, submitCode, cancelSignIn, disconnect]) action.mockReset().mockResolvedValue(undefined);
@@ -514,7 +519,8 @@ describe("Dropbox", () => {
   const section = () =>
     [...document.querySelectorAll("section")].find((s) => s.querySelector("h3")?.textContent === "Dropbox") ?? null;
   const item = () => section()!.querySelector<HTMLElement>(".dropbox")!;
-  const buttons = () => [...section()!.querySelectorAll("button")];
+  /** The connection's buttons: automatic saving's switch aside. */
+  const buttons = () => [...section()!.querySelectorAll("button:not([role='switch'])")];
   const names = () => buttons().map((b) => b.textContent);
   const account = () => section()!.querySelector<HTMLElement>(".dropbox-account");
 
@@ -645,6 +651,44 @@ describe("Dropbox", () => {
   it("connected: an account without a name shows its email", () => {
     show({ step: "connected", account: { ...ACCOUNT, name: " " }, tokenInFile: false, disconnecting: false });
     expect(account()!.textContent).toBe("Connected as ada@example.com");
+  });
+
+  it("connected: a switch for saving to Dropbox automatically, on at first, saying what each way does", () => {
+    show({ step: "connected", account: ACCOUNT, tokenInFile: false, disconnecting: false });
+    const autoSave = () => switchNamed(AUTO_SAVE);
+    const note = () => document.getElementById(autoSave().getAttribute("aria-describedby")!)?.textContent;
+    expect(autoSave().getAttribute("role")).toBe("switch");
+    expect(section()!.contains(autoSave())).toBe(true);
+    // Below the account and Disconnect, apart from the connection's own errors and notes.
+    expect(item().contains(autoSave())).toBe(false);
+    expect(buttonNamed("Disconnect").compareDocumentPosition(autoSave()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(autoSave().getAttribute("aria-checked")).toBe("true");
+    expect(note()).toBe(AUTO_SAVE_ON);
+
+    click(autoSave());
+    expect(update).toHaveBeenCalledWith({ dropboxAutoSave: false });
+    expect(autoSave().getAttribute("aria-checked")).toBe("false");
+    expect(note()).toBe(AUTO_SAVE_OFF);
+    click(autoSave());
+    expect(update).toHaveBeenLastCalledWith({ dropboxAutoSave: true });
+    expect(note()).toBe(AUTO_SAVE_ON);
+  });
+
+  it("shows the switch as set on this device, and only once connected", () => {
+    render({ settings: { ...DEFAULT_SETTINGS, dropboxAutoSave: false } });
+    show({ step: "connected", account: ACCOUNT, tokenInFile: false, disconnecting: false });
+    expect(switchNamed(AUTO_SAVE).getAttribute("aria-checked")).toBe("false");
+    const notConnected: DropboxView[] = [
+      { step: "loading" },
+      { step: "disconnected" },
+      { step: "starting" },
+      { step: "waiting", manual: false, submitting: false },
+      { step: "waiting", manual: true, submitting: false },
+    ];
+    for (const view of notConnected) {
+      show(view);
+      expect(switchNamed(AUTO_SAVE)).toBeNull();
+    }
   });
 
   it("disconnecting: Disconnecting…, and it can't be pressed again", () => {

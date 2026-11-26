@@ -2,11 +2,11 @@
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Backend } from "../../core/backend";
+import type { Backend, DropboxBackend } from "../../core/backend";
 import { buildNameMatcher, buildProject } from "../../core/project";
 import type { ProjectEntry } from "../../core/projects";
 import { DEFAULT_SETTINGS, type ViewSettings } from "../../core/settings";
-import type { SaveState, useProject } from "../../core/useProject";
+import type { SaveState, SyncState, useProject } from "../../core/useProject";
 import { HOVER_QUERY } from "../hooks";
 import { Workspace } from "../Workspace";
 
@@ -35,8 +35,14 @@ async function askThenClose() {
   if (await closeHandler?.()) closed();
 }
 
-/** The desktop app: a folder picker and a window to close, unless left out. */
-function app({ folders = true, quit = true } = {}): Backend {
+/** A Dropbox account connected on this device, as the app reads it. */
+const connectedDropbox = {
+  status: async () => ({ account: { accountId: "id", name: "Ada", email: "ada@example.com" }, tokenInFile: false }),
+  signInCancel: async () => undefined,
+} as unknown as DropboxBackend;
+
+/** The desktop app: a folder picker and a window to close, unless left out; Dropbox only where asked for. */
+function app({ folders = true, quit = true, dropbox = false } = {}): Backend {
   return {
     kind: "app",
     canOpenFolders: folders,
@@ -45,6 +51,7 @@ function app({ folders = true, quit = true } = {}): Backend {
     listVersions: async () => [],
     onCloseRequested: async () => () => undefined,
     ...(quit && { closeWindow }),
+    ...(dropbox && { dropbox: connectedDropbox }),
   } as unknown as Backend;
 }
 
@@ -66,6 +73,8 @@ const openFolder = vi.fn<() => Promise<void>>();
 const openProjectAt = vi.fn<(path: string) => Promise<void>>();
 const createProject = vi.fn<(title: string, language: string) => Promise<void>>();
 const saveNow = vi.fn<() => Promise<void>>();
+const saveToDropbox = vi.fn<() => Promise<void>>();
+const setEditorWriter = () => undefined;
 /** As useProject's: saves, then says whether the window may close. */
 const mayClose = vi.fn<() => Promise<boolean>>();
 const setCloseHandler = (handler: (() => Promise<boolean>) | null) => {
@@ -102,6 +111,8 @@ interface Mount {
   save?: SaveState;
   switching?: boolean;
   settings?: Partial<ViewSettings>;
+  /** How the open project stands with Dropbox, where the build has it. */
+  sync?: SyncState;
 }
 
 async function mount({
@@ -111,6 +122,7 @@ async function mount({
   save: initialSave = { status: "saved" },
   switching = false,
   settings = {},
+  sync = { status: "off" },
 }: Mount = {}) {
   useMatchMedia({ phone: isPhone, hover });
   function Harness() {
@@ -146,6 +158,9 @@ async function mount({
       bookWords: 0,
       wordsToday: 0,
       loads: 1,
+      sync,
+      saveToDropbox,
+      setEditorWriter,
     } as unknown as ReturnType<typeof useProject>;
     return createElement(Workspace, {
       api,
@@ -186,6 +201,7 @@ beforeEach(() => {
   openFolder.mockReset().mockResolvedValue(undefined);
   openProjectAt.mockReset().mockResolvedValue(undefined);
   createProject.mockReset().mockResolvedValue(undefined);
+  saveToDropbox.mockReset().mockResolvedValue(undefined);
   // As useProject's: "Saving…" while the edits are written, then saved.
   saveNow.mockReset().mockImplementation(async () => {
     setSave({ status: "saving" });
@@ -481,6 +497,46 @@ describe("Save", () => {
     await mount({ save: { status: "saving" } });
     await openMenu();
     expect(item("Save")?.disabled).toBe(true);
+  });
+});
+
+describe("Save to Dropbox", () => {
+  it("comes right after Save, in its group, with no shortcut, where the build has Dropbox", async () => {
+    await mount({ backend: app({ dropbox: true }) });
+    await openMenu();
+    expect(labels().slice(3, 6)).toEqual(["Save", "Save to Dropbox", "Export…"]);
+    expect(item("Save to Dropbox")?.disabled).toBe(false);
+    expect(hint("Save to Dropbox")).toBeNull();
+    // No group of its own.
+    expect(menu()!.querySelectorAll(".popover-gap")).toHaveLength(5);
+  });
+
+  it("isn't there in app builds without Dropbox", async () => {
+    await mount({ backend: app({ dropbox: false }) });
+    await openMenu();
+    expect(item("Save to Dropbox")).toBeUndefined();
+  });
+
+  it("waits for the app in the browser preview, which has no Dropbox, and says so", async () => {
+    await mount({ backend: preview });
+    await openMenu();
+    expect(labels().slice(2, 5)).toEqual(["Save", "Save to Dropbox", "Export…"]);
+    expect(item("Save to Dropbox")?.disabled).toBe(true);
+    expect(hint("Save to Dropbox")).toBe("Needs the app");
+    await click(item("Save to Dropbox"));
+    expect(saveToDropbox).not.toHaveBeenCalled();
+  });
+
+  it("waits while the project on disk is changing", async () => {
+    await mount({ backend: app({ dropbox: true }), switching: true });
+    await openMenu();
+    expect(item("Save to Dropbox")?.disabled).toBe(true);
+  });
+
+  it("waits while a sync runs", async () => {
+    await mount({ backend: app({ dropbox: true }), sync: { status: "syncing", at: null } });
+    await openMenu();
+    expect(item("Save to Dropbox")?.disabled).toBe(true);
   });
 });
 

@@ -7,8 +7,8 @@ import { ErrorScreen, LoadingScreen } from "./ui/Screens";
 import { Workspace } from "./ui/Workspace";
 
 export default function App() {
-  const api = useProject();
   const [settings, update] = useViewSettings();
+  const api = useProject({ autoSync: settings.dropboxAutoSave });
   const isPhone = useMediaQuery(PHONE_QUERY);
   const { backend, mayClose } = api;
 

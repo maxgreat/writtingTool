@@ -24,13 +24,22 @@ const BOOK = buildProject({
 const CURRENT: ProjectEntry = { path: ROOT, title: "Test", inAppFolder: true, inDropbox: false };
 const SALT: DropboxProject = { folder: "/Salt Roads", title: "Salt Roads", local: null };
 
-const dropbox = {
-  status: async () => ({ account: { accountId: "id", name: "Ada", email: "ada@example.com" }, tokenInFile: false }),
-  signInCancel: async () => undefined,
-} as unknown as DropboxBackend;
+/** Dropbox in this build, whose connection on this device reads as `status` says. */
+const dropboxReading = (status: DropboxBackend["status"]) =>
+  ({ status, signInCancel: async () => undefined }) as unknown as DropboxBackend;
 
-/** The desktop app, with Dropbox in this build unless left out. */
-function app(withDropbox = true): Backend {
+/** An account connected. */
+const dropbox = dropboxReading(async () => ({
+  account: { accountId: "id", name: "Ada", email: "ada@example.com" },
+  tokenInFile: false,
+}));
+/** No account connected on this device. */
+const disconnected = dropboxReading(async () => ({ account: null, tokenInFile: false }));
+/** The connection still being read. */
+const reading = dropboxReading(() => new Promise(() => undefined));
+
+/** The desktop app, with Dropbox in this build unless left out (connected, unless another one is given). */
+function app(withDropbox: boolean | DropboxBackend = true): Backend {
   return {
     kind: "app",
     canOpenFolders: true,
@@ -38,7 +47,7 @@ function app(withDropbox = true): Backend {
     listProjects: async () => [],
     listVersions: async () => [],
     onCloseRequested: async () => () => undefined,
-    ...(withDropbox && { dropbox }),
+    ...(withDropbox && { dropbox: withDropbox === true ? dropbox : withDropbox }),
   } as unknown as Backend;
 }
 
@@ -49,6 +58,8 @@ const restoreVersion = async () => undefined;
 const saveNow = async () => undefined;
 const syncNow = vi.fn<() => Promise<void>>();
 const putInDropbox = vi.fn<() => Promise<void>>();
+/** Save to Dropbox, from the main menu. */
+const saveToDropbox = vi.fn<() => Promise<void>>();
 const listDropboxProjects = vi.fn<() => Promise<DropboxProject[]>>();
 const openFromDropbox = vi.fn<(folder: string) => Promise<void>>();
 /** What the workspace hands useProject to write into the open chapter's editor; null once it takes it back. */
@@ -90,6 +101,7 @@ function Harness({ backend, initialSync, mode }: { backend: Backend; initialSync
     sync,
     syncNow,
     putInDropbox,
+    saveToDropbox,
     listDropboxProjects,
     openFromDropbox,
     setEditorWriter,
@@ -129,6 +141,8 @@ beforeAll(() => {
 beforeEach(() => {
   syncNow.mockReset().mockResolvedValue(undefined);
   putInDropbox.mockReset().mockResolvedValue(undefined);
+  saveToDropbox.mockReset().mockResolvedValue(undefined);
+  update.mockClear();
   listDropboxProjects.mockReset().mockResolvedValue([SALT]);
   openFromDropbox.mockReset().mockResolvedValue(undefined);
   setEditorWriter.mockReset();
@@ -229,5 +243,118 @@ describe("sync in the workspace", () => {
     expect(view?.querySelector(".projects-list--cloud .project-title")?.textContent).toBe("Salt Roads");
     await act(async () => view!.querySelector<HTMLButtonElement>(".project-put")!.click());
     expect(putInDropbox).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Save to Dropbox, and saving to Dropbox automatically", () => {
+  const menuButton = () => container.querySelector<HTMLButtonElement>('.format-bar button[aria-label="Main menu"]')!;
+  const menu = () => document.querySelector<HTMLElement>('[role="menu"][aria-label="Main menu"]');
+  const item = (label: string) =>
+    [...(menu()?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])].find(
+      (i) => i.querySelector(".menu-item-label")?.textContent === label,
+    );
+  const hint = (label: string) => item(label)?.querySelector(".menu-hint")?.textContent ?? null;
+  const settingsDialog = () => document.querySelector<HTMLElement>('.settings-dialog[role="dialog"]');
+  /** A switch in the Settings dialog, by its label. */
+  const settingsSwitch = (label: string) =>
+    [...(settingsDialog()?.querySelectorAll<HTMLElement>('[role="switch"]') ?? [])].find(
+      (s) => document.getElementById(s.getAttribute("aria-labelledby") ?? "")?.textContent === label,
+    );
+  const statusBar = () => container.querySelector<HTMLElement>(".status-bar");
+  const caretInText = () => document.activeElement?.closest(".editor-pane") != null;
+  const alerted = () => container.querySelector('.workspace > p.visually-hidden[role="alert"]')?.textContent;
+
+  async function click(el: HTMLElement | undefined) {
+    if (!el) throw new Error("Nothing to click");
+    await act(async () => el.click());
+  }
+  async function openMenu() {
+    await click(menuButton());
+    expect(menu()).not.toBeNull();
+  }
+  /** Lets what a click started run to its end. */
+  const done = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+  it("connected: syncs the open project now, the caret back in the text", async () => {
+    await mount();
+    await openMenu();
+    expect(item("Save to Dropbox")?.disabled).toBe(false);
+    expect(hint("Save to Dropbox")).toBeNull();
+    await click(item("Save to Dropbox"));
+    await done();
+    expect(saveToDropbox).toHaveBeenCalledTimes(1);
+    expect(menu()).toBeNull();
+    expect(settingsDialog()).toBeNull();
+    expect(caretInText()).toBe(true);
+    expect(document.querySelector(".text-note")).toBeNull();
+  });
+
+  it("says why it couldn't save, under the menu, until the next key", async () => {
+    saveToDropbox.mockRejectedValue(new Error("Cannot reach Dropbox: no connection."));
+    await mount();
+    await openMenu();
+    await click(item("Save to Dropbox"));
+    await done();
+    const note = document.querySelector(".text-note");
+    expect(note?.textContent).toContain("Couldn’t save to Dropbox");
+    expect(note?.textContent).toContain("Cannot reach Dropbox: no connection.");
+    expect(alerted()).toBe("Couldn’t save to Dropbox. Cannot reach Dropbox: no connection.");
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
+    });
+    expect(document.querySelector(".text-note")).toBeNull();
+  });
+
+  it("waits while a sync runs, and is ready again once it ends", async () => {
+    await mount({ sync: { status: "syncing", at: Date.now() } });
+    await openMenu();
+    expect(item("Save to Dropbox")?.disabled).toBe(true);
+    await act(async () => setSync({ status: "synced", at: Date.now(), conflicts: [], problems: [] }));
+    expect(item("Save to Dropbox")?.disabled).toBe(false);
+  });
+
+  it("waits while the Dropbox connection is still being read", async () => {
+    await mount({ backend: app(reading), sync: { status: "off" } });
+    await openMenu();
+    expect(item("Save to Dropbox")?.disabled).toBe(true);
+    expect(hint("Save to Dropbox")).toBeNull();
+  });
+
+  it("not connected: says so, and opens Settings, where Dropbox is connected, instead", async () => {
+    await mount({ backend: app(disconnected), sync: { status: "off" } });
+    await openMenu();
+    expect(item("Save to Dropbox")?.disabled).toBe(false);
+    expect(hint("Save to Dropbox")).toBe("Connect in Settings");
+    await click(item("Save to Dropbox"));
+    await done();
+    expect(saveToDropbox).not.toHaveBeenCalled();
+    expect(settingsDialog()).not.toBeNull();
+    expect([...settingsDialog()!.querySelectorAll("button")].some((b) => b.textContent === "Connect Dropbox")).toBe(
+      true,
+    );
+    // Nothing to save to yet: no switch for it.
+    expect(settingsSwitch("Automatically save to Dropbox")).toBeUndefined();
+  });
+
+  it("Settings has the switch once connected, and turns automatic saving off and on", async () => {
+    await mount();
+    await openMenu();
+    await click(item("Settings…"));
+    const autoSave = settingsSwitch("Automatically save to Dropbox");
+    expect(autoSave?.getAttribute("aria-checked")).toBe("true");
+    await click(autoSave);
+    expect(update).toHaveBeenCalledWith({ dropboxAutoSave: false });
+  });
+
+  it("says in the status bar when the latest edits aren't in Dropbox yet", async () => {
+    await mount({ sync: { status: "synced", at: Date.now(), conflicts: [], problems: [], unsent: true } });
+    expect(statusBar()?.textContent).toContain("Edits not in Dropbox yet");
+    expect(statusBar()?.textContent).not.toContain("Synced with Dropbox");
+    // Saved to Dropbox: as useProject reports then.
+    await act(async () => setSync({ status: "synced", at: Date.now(), conflicts: [], problems: [] }));
+    expect(statusBar()?.textContent).toContain("Synced with Dropbox");
   });
 });
