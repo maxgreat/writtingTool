@@ -32,7 +32,7 @@ Everything is a must-have except Windows and iOS. The table records how each req
 | Look and feel | Must | Close to Scrivener and novelWriter: binder, editor, inspector |
 | Two editing modes | Must | WYSIWYG (formatted, word-processor feel) and unformatted (plain text with light Markdown markers). Same file underneath; switching is instant and lossless |
 | Left panel | Must | A binder: parts, chapters, scenes; drag to reorder; word count and status per item; a button to hide and show it |
-| Right panel | Must | An inspector with sheets for characters, places, notes, plus user-defined types; a button to hide and show it |
+| Right panel | Must | An inspector with sheets for characters, places, notes, plus user-defined types; characters sorted into groups (a family, a crew); a button to hide and show it |
 | Formatting bar | Must | As minimal as possible: style, bold, italic, text size, line spacing, left and right margins |
 | Name detection | Must | Names and aliases from the sheets are highlighted in the text; clicking one opens its sheet |
 | Correction | Must | Spelling first, grammar second; works offline; invented names are never flagged |
@@ -86,7 +86,10 @@ Dropbox/Apps/YourApp/MyNovel/
       01 The arrival.md         plain Markdown, one chapter per file
       02 The ferryman.md
   sheets/
-    characters/Elena Voss.md
+    characters/
+      The Voss family/          a group of characters
+        Elena Voss.md
+      Arno Kell.md              a character in no group
     places/Harbor Inn.md
     notes/Magic system.md
   dictionary.txt                project words
@@ -117,6 +120,7 @@ Rules every chapter file follows: UTF-8, the chapter title as the first heading,
 - **Stable IDs** without file headers: the app tracks each chapter by its Dropbox file ID, which survives renames and moves, so chapter files carry nothing but the text.
 - **Plain files, not a database:** they survive app bugs, diff cleanly in Git, and merge paragraph by paragraph during sync. A database, if ever needed, is only a rebuildable cache.
 - **Sheets keep a small YAML header:** typed fields (name, aliases, role) in the YAML header, free notes in the body.
+- **Character groups are folders:** a group (a family, a crew, a faction) is a folder inside sheets/characters/, the way parts hold chapters. A character is in one group or in none, and groups don't nest. Moving a character to another group moves its file, which keeps its Dropbox ID.
 
 ## User interface
 
@@ -151,9 +155,9 @@ Names in the text are highlighted (Elena, Harbor Inn) and clicking one opens its
 
 | Area | What it holds | Hide or show |
 | --- | --- | --- |
-| Binder (left) | Project name; parts as folders, chapters as files, scenes under each chapter; then Characters, Places, Notes; Trash at the bottom. Drag to reorder, right-click to add, rename or set a status | Button at the top left, or Ctrl/Cmd+Alt+B |
+| Binder (left) | Project name; parts as folders, chapters as files, scenes under each chapter; then Characters, with their groups as folders, Places, Notes; Trash at the bottom. Drag to reorder or to move a character into a group, right-click to add, rename or set a status | Button at the top left, or Ctrl/Cmd+Alt+B |
 | Editor (middle) | The open chapter as a centred column of text, title on top, with name highlights and spelling marks | Always shown |
-| Inspector (right) | A menu with This chapter (synopsis, status, point of view, names found in it), Characters, Places and Notes; shows the sheet of a clicked name | Button at the top right, or Ctrl/Cmd+Alt+I |
+| Inspector (right) | A menu with This chapter (synopsis, status, point of view, names found in it), Characters listed by group, Places and Notes; shows the sheet of a clicked name | Button at the top right, or Ctrl/Cmd+Alt+I |
 | Formatting bar (top) | The controls in the next section, plus Export | Hidden in focus mode |
 | Status bar (bottom) | Word counts for the chapter, the book and today; language; Dropbox sync state and "Open on MacBook" warnings | Hidden in focus mode |
 
@@ -410,7 +414,7 @@ Eight phases, about 17 to 24 weeks of full-time work for one developer; after ph
 | 0 · Prototype | Tauri app running on Mac, Linux and Android; CI building all three. Typing tests on 2 phones with 2 keyboards; English, French and Spanish dictionaries loaded | 1–2 |
 | ◆ Gate | Typing on Android is reliable (otherwise plain mode on phones) | |
 | 1 · Writing core | Projects, binder, editor and inspector, each side panel with its hide button; formatting bar. Autosave with atomic writes and snapshots; word counts; phone layout with slide-in panels | 3–4 |
-| 2 · Sheets | Characters, places, notes and custom types; field templates and sheet forms. Portraits and images; relationships between sheets | 2–3 |
+| 2 · Sheets | Characters, places, notes and custom types; field templates and sheet forms. Character groups; relationships between sheets | 2–3 |
 | 3 · Name detection | Matcher, highlights, click to open a sheet, shared names, ignore here. Possible-names list; project index for Appears in and per-chapter counts | 2–3 |
 | ◆ Gate | Usable app: you can write a whole book in it | |
 | 4 · Spelling and grammar | spellbook in Rust with personal and project dictionaries; suggestions. Harper for English; LanguageTool for French and Spanish, opt-in; typography aids per language | 2–3 |
@@ -418,7 +422,7 @@ Eight phases, about 17 to 24 weeks of full-time work for one developer; after ph
 | 6 · Cloud sync | Dropbox sign-in on desktop and Android; local copy per device; change checks and check before editing. Guarded uploads, paragraph merge, conflict view, presence badges, outside edits, offline queue | 2–3 |
 | 7 · Export and release | Export window with live page preview; PDF through Typst, plus EPUB, Word and Markdown. Export presets; installers for macOS, Linux, Android and Windows | 3–4 |
 | ◆ Gate | Version 1.0 on macOS, Linux, Android and Windows, with Dropbox sync | |
-| Later | iOS build, corkboard, timeline view, writing statistics | |
+| Later | iOS build, corkboard, timeline view, writing statistics; maybe portraits and images on sheets | |
 
 Phase 0 is the decision point: if typing on Android is unreliable in the WYSIWYG editor, phones use the plain mode while desktops keep both, and the rest of the plan is unchanged.
 
