@@ -2,6 +2,7 @@
 # that changes the app, and publishes the files as a GitHub release named
 # build-<run number>. Download/README.md, the README and the website link to
 # releases/latest/download/<file>, so the file names below must not change.
+# The Android App Bundle goes to Google Play's internal testing track.
 name: Release
 
 on:
@@ -266,6 +267,47 @@ jobs:
           path: play/Writing-Tool-play.aab
           if-no-files-found: error
           retention-days: 30
+
+  # Puts the bundle in Google Play's internal testing track. It signs in to
+  # Google as github-play-upload@writing-tool-play.iam.gserviceaccount.com
+  # through Workload Identity Federation: Google trusts GitHub's sign-in
+  # token for builds of this repository on main, so there is no key to keep.
+  # In Play Console that account may release to testing tracks only, so
+  # moving a build to production stays a step done by hand. "Re-run failed
+  # jobs" can re-run this job alone: it finds its bundle already in Play.
+  play:
+    name: Google Play internal testing
+    needs: android
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: play-bundle
+          path: play
+
+      - id: google
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/708352514952/locations/global/workloadIdentityPools/github/providers/writtingtool
+          service_account: github-play-upload@writing-tool-play.iam.gserviceaccount.com
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+
+      - name: Upload
+        env:
+          PLAY_TOKEN: ${{ steps.google.outputs.access_token }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          PACKAGE=$(jq -r .identifier src-tauri/tauri.conf.json)
+          export PACKAGE
+          bash .github/scripts/play-upload.sh play/Writing-Tool-play.aab "$RUN_NUMBER" internal "Build $RUN_NUMBER"
 
   publish:
     name: Publish the release

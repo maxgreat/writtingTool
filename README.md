@@ -129,7 +129,7 @@ npm run screenshots               # retakes the pictures in docs/screenshots (ne
 | `fastlane/metadata/android/en-US/` | The Google Play listing: title, descriptions, store icon, feature graphic and phone screenshots, in the layout fastlane and F-Droid read |
 | `Download/README.md` | The download page: the newest file for each system, with its install steps |
 | `docs/Writing App — Development Guide.md` | The design and the plan, in phases |
-| `.github/workflows/release.yml` | Builds the app for Linux, Windows, macOS and Android on each push to `main` and publishes a release. The links in `Download/`, under [Download](#download) and on the website depend on its file names |
+| `.github/workflows/release.yml` | Builds the app for Linux, Windows, macOS and Android on each push to `main` and publishes a release. The links in `Download/`, under [Download](#download) and on the website depend on its file names. It also puts the Android App Bundle in Google Play's internal testing track, with `.github/scripts/play-upload.sh` |
 
 ## What the app has, and what comes next
 
