@@ -1,6 +1,5 @@
 package io.github.maxgreat.writingtool
 
-import android.graphics.Rect
 import android.os.Bundle
 import android.view.View
 import android.webkit.WebView
@@ -31,22 +30,9 @@ class MainActivity : TauriActivity() {
       }
       insets
     }
-    // A swipe from the left or right edge opens a side panel. With gesture
-    // navigation the system takes edge swipes for Back; Android lets an app
-    // keep up to 200 dp of each side edge, so the middle of each edge (as wide
-    // as the page's swipe zone, 24 dp) goes to the page and Back works above
-    // and below it.
-    content.addOnLayoutChangeListener { view, left, top, right, bottom, _, _, _, _ ->
-      val density = view.resources.displayMetrics.density
-      val edge = (EDGE_DP * density).toInt()
-      val band = (BAND_DP * density).toInt()
-      val width = right - left
-      val bandTop = maxOf(0, (bottom - top - band) / 2)
-      ViewCompat.setSystemGestureExclusionRects(
-        view,
-        listOf(Rect(0, bandTop, edge, bandTop + band), Rect(width - edge, bandTop, width, bandTop + band)),
-      )
-    }
+    // The side edges are left to the system: with gesture navigation, a swipe
+    // from either edge is Back, all along it. The page's own edge swipes (which
+    // open the side panels) then only get the edges when Back is a button.
   }
 
   override fun onWebViewCreate(webView: WebView) {
@@ -67,10 +53,5 @@ class MainActivity : TauriActivity() {
         "window.dispatchEvent(new Event('onscreenkeyboardchange'));",
       null,
     )
-  }
-
-  private companion object {
-    const val EDGE_DP = 24
-    const val BAND_DP = 200
   }
 }

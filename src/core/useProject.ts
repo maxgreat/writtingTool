@@ -552,7 +552,9 @@ export function useProject({ autoSync = true }: ProjectOptions = {}) {
    * can't be saved, the first close is refused so the error shows; closing
    * again quits without them. A close asked for while one is being decided
    * gets the same answer, so a second press can't count as "again". The
-   * window's close button, Quit and a phone's Back all ask. `again` ends
+   * window's close button and Quit ask, unless the close dialog does (see
+   * setCloseHandler), and so does a phone's Back before a project is open
+   * (a project's workspace asks in its close dialog). `again` ends
    * the error: how to leave without the edits.
    */
   const mayClose = useCallback((again = "Close the window again to quit without them."): Promise<boolean> => {

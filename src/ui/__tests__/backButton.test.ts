@@ -10,7 +10,6 @@ import type { Change } from "../../core/binder";
 import { applyChange, type MemoryTree } from "../../core/memoryFiles";
 import type { ProjectSnapshot } from "../../core/project";
 import type { ProjectEntry } from "../../core/projects";
-import { BACK_AGAIN } from "../BackStack";
 import { HOVER_QUERY, PHONE_QUERY } from "../hooks";
 import { SEARCH_DELAY_MS } from "../SearchPanel";
 
@@ -243,7 +242,17 @@ const currentTab = () => inspector().querySelector('.inspector-tabs [aria-curren
 const sheetPage = () => inspector().querySelector(".sheet-nav");
 const sheetRow = (name: string) =>
   [...inspector().querySelectorAll(".sheet-list .list-row")].find((r) => r.querySelector(".list-row-title")?.textContent === name);
-const saveError = () => container.querySelector<HTMLElement>(".status-bar .save-error-text")?.title ?? "";
+/** The question before the app closes. */
+const closeDialog = () => document.querySelector<HTMLElement>(".close-dialog");
+const closeTitle = () => closeDialog()?.querySelector(".close-dialog-title")?.textContent;
+const closeButton = (label: string) => [...(closeDialog()?.querySelectorAll("button") ?? [])].find((b) => b.textContent === label);
+const note = () => document.querySelector<HTMLElement>(".text-note");
+
+/** Back on the main screen: the app asks before it closes, and stays open meanwhile. */
+async function expectAsked() {
+  expect(closeDialog()).not.toBeNull();
+  expect(exitApp).not.toHaveBeenCalled();
+}
 
 async function showBinder() {
   await click(barButton("Show binder"));
@@ -264,18 +273,41 @@ async function openElenaFromList() {
   expect(sheetPage()).not.toBeNull();
 }
 
-/** An edit waiting to be saved: the chapter's synopsis, typed in the inspector, which Back then closes. */
-async function leaveAnEditPending() {
+/**
+ * An edit waiting to be saved, the chapter's synopsis typed in the
+ * inspector, then Back twice: the inspector closes, and the app asks before
+ * closing. All at once, so autosave can't write the edit first, however
+ * slow the machine.
+ */
+async function askWithAnEditPending() {
   await showInspector();
-  await type(inspector().querySelector<HTMLTextAreaElement>('textarea[aria-label="Synopsis"]')!, "Elena arrives.");
-  await pressBack();
+  const synopsis = inspector().querySelector<HTMLTextAreaElement>('textarea[aria-label="Synopsis"]')!;
+  await act(async () => {
+    synopsis.focus();
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(synopsis, "Elena arrives.");
+    synopsis.dispatchEvent(new Event("input", { bubbles: true }));
+    back!();
+    back!();
+  });
+  await settle();
   expect(inspectorOpen()).toBe(false);
+  expect(closeTitle()).toBe("Save changes before closing?");
 }
+
+/**
+ * When the synopsis typed by askWithAnEditPending was written, in the order
+ * of the mocks' calls. Only this one: an app from an earlier test can still
+ * write its own edit after it is gone.
+ */
+const synopsisWrites = () =>
+  writeFile.mock.calls.flatMap(([, path, text], i) =>
+    path === "project.json" && text.includes("Elena arrives.") ? [writeFile.mock.invocationCallOrder[i]] : [],
+  );
 
 /* Tests ------------------------------------------------------------------------------ */
 
 describe("Back closes one thing per press, the one on top", () => {
-  it("a menu opened in the binder, then the binder, then the app", async () => {
+  it("a menu opened in the binder, then the binder, then it asks to close the app", async () => {
     await mount();
     await showBinder();
     await rightClick(chapterRow());
@@ -287,10 +319,10 @@ describe("Back closes one thing per press, the one on top", () => {
 
     await pressBack();
     expect(binderOpen()).toBe(false);
-    expect(exitApp).not.toHaveBeenCalled();
+    expect(closeDialog()).toBeNull();
 
     await pressBack();
-    expect(exitApp).toHaveBeenCalledTimes(1);
+    await expectAsked();
   });
 
   it("reads each press against the screen as the press before left it, however fast they come", async () => {
@@ -342,10 +374,10 @@ describe("Back closes one thing per press, the one on top", () => {
 
     await pressBack();
     expect(bottomSheet()).toBeNull();
-    expect(exitApp).not.toHaveBeenCalled();
+    expect(closeDialog()).toBeNull();
 
     await pressBack();
-    expect(exitApp).toHaveBeenCalledTimes(1);
+    await expectAsked();
   });
 
   it("a chapter's title being typed in the binder, as Escape does: the title stays as it was", async () => {
@@ -424,7 +456,7 @@ describe("Back closes one thing per press, the one on top", () => {
     expect(inspector().querySelector(".inspector")).not.toBeNull();
   });
 
-  it("nothing left open in a panel that was closed: it is off screen, so Back closes the app", async () => {
+  it("nothing left open in a panel that was closed: it is off screen, so Back asks to close the app", async () => {
     await mount();
     await showInspector();
     await click(inspector().querySelector(".version-restore"));
@@ -433,7 +465,7 @@ describe("Back closes one thing per press, the one on top", () => {
     expect(inspectorOpen()).toBe(false);
 
     await pressBack();
-    expect(exitApp).toHaveBeenCalledTimes(1);
+    await expectAsked();
   });
 
   it("focus mode", async () => {
@@ -443,10 +475,10 @@ describe("Back closes one thing per press, the one on top", () => {
 
     await pressBack();
     expect(container.querySelector(".workspace")!.classList.contains("is-focus")).toBe(false);
-    expect(exitApp).not.toHaveBeenCalled();
+    expect(closeDialog()).toBeNull();
 
     await pressBack();
-    expect(exitApp).toHaveBeenCalledTimes(1);
+    await expectAsked();
   });
 
   it("spends the press on what is on top even when it can't close yet: nothing under it closes, the app stays", async () => {
@@ -527,78 +559,96 @@ describe("Back in the inspector", () => {
 });
 
 describe("Back on the main screen", () => {
-  it("saves what is waiting, then closes the app", async () => {
+  it("asks before closing the app: Back again stays, and Close closes it", async () => {
     await mount();
-    await leaveAnEditPending();
+    // The text had focus, its keyboard put away by the Back before.
+    const text = container.querySelector<HTMLElement>(".cm-content")!;
+    await act(async () => text.focus());
     await pressBack();
-    expect(writeFile).toHaveBeenCalledWith(ROOT, "project.json", expect.stringContaining("Elena arrives."));
+    await expectAsked();
+    expect(closeTitle()).toBe("Close Writing Tool?");
+
+    await pressBack();
+    expect(closeDialog()).toBeNull();
+    expect(exitApp).not.toHaveBeenCalled();
+    // Focus isn't given back to the text, which would bring the keyboard up again.
+    await settle();
+    expect(document.activeElement).not.toBe(text);
+
+    await pressBack();
+    await click(closeButton("Close"));
+    await settle();
     expect(exitApp).toHaveBeenCalledTimes(1);
-    expect(writeFile.mock.invocationCallOrder.at(-1)).toBeLessThan(exitApp.mock.invocationCallOrder[0]);
   });
 
-  it("stays open when the edits can't be saved, says how to leave without them, and closes on the next press", async () => {
+  it("offers to save what is waiting, which waits for the answer, then saves it and closes the app", async () => {
+    await mount();
+    await askWithAnEditPending();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    });
+    expect(synopsisWrites()).toHaveLength(0);
+
+    await click(closeButton("Save and close"));
+    await settle();
+    expect(synopsisWrites()).toHaveLength(1);
+    expect(exitApp).toHaveBeenCalledTimes(1);
+    expect(synopsisWrites()[0]).toBeLessThan(exitApp.mock.invocationCallOrder[0]);
+  });
+
+  it("closes the app without what is waiting when asked to", async () => {
+    await mount();
+    await askWithAnEditPending();
+    await click(closeButton("Close without saving"));
+    await settle();
+    expect(exitApp).toHaveBeenCalledTimes(1);
+    expect(synopsisWrites()).toHaveLength(0);
+  });
+
+  it("stays open when the edits can't be saved, says why, and can close without them", async () => {
     writeFile.mockRejectedValue(new Error("Disk full."));
     await mount();
-    await leaveAnEditPending();
-
-    await pressBack();
+    await askWithAnEditPending();
+    await click(closeButton("Save and close"));
+    await settle();
     expect(exitApp).not.toHaveBeenCalled();
-    expect(saveError()).toBe(`Disk full. ${BACK_AGAIN}`);
+    expect(closeTitle()).toBe("Couldn’t save your changes");
+    expect(closeDialog()!.textContent).toContain("Disk full.");
 
-    await pressBack();
+    await click(closeButton("Close without saving"));
+    await settle();
     expect(exitApp).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores a press while the first one is saving: one save, and the app stays if it fails", async () => {
+  it("asks once for two quick presses, and the question stays", async () => {
     await mount();
-    await leaveAnEditPending();
-    const saving = deferred<string | null>();
-    writeFile.mockReturnValueOnce(saving.promise).mockRejectedValue(new Error("Disk full."));
-
-    await pressBack();
-    await pressBack();
-    expect(writeFile).toHaveBeenCalledTimes(1);
-    await act(async () => saving.reject(new Error("Disk full.")));
+    // As in the app: no act, so the question isn't shown yet when the second press comes.
+    await asInTheApp(async () => {
+      back!();
+      back!();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
     await settle();
+    expect(document.querySelectorAll(".close-dialog")).toHaveLength(1);
     expect(exitApp).not.toHaveBeenCalled();
-    expect(saveError()).toContain(BACK_AGAIN);
-
-    // The press after the failure leaves without the edit.
-    await pressBack();
-    expect(exitApp).toHaveBeenCalledTimes(1);
   });
 
-  it("closes the app once for two presses while it saves", async () => {
+  it("stays open and says why if the app can't close, and autosave goes on", async () => {
+    exitApp.mockRejectedValue(new Error("Not allowed."));
     await mount();
-    await leaveAnEditPending();
-    const saving = deferred<string | null>();
-    writeFile.mockReturnValueOnce(saving.promise);
-
-    await pressBack();
-    await pressBack();
-    await act(async () => saving.resolve(null));
+    await askWithAnEditPending();
+    await click(closeButton("Close without saving"));
     await settle();
-    expect(writeFile).toHaveBeenCalledTimes(1);
-    expect(exitApp).toHaveBeenCalledTimes(1);
-  });
+    expect(closeDialog()).toBeNull();
+    expect(note()?.textContent).toContain("Couldn’t close the app");
 
-  it("doesn't close the app if something was opened while it saved", async () => {
-    await mount();
-    await leaveAnEditPending();
-    const saving = deferred<string | null>();
-    writeFile.mockReturnValueOnce(saving.promise);
-
-    await pressBack();
-    await click(barButton("Main menu"));
-    await act(async () => saving.resolve(null));
-    await settle();
-    expect(exitApp).not.toHaveBeenCalled();
-    expect(menu()).not.toBeNull();
-
-    await pressBack();
-    expect(menu()).toBeNull();
-    await pressBack();
-    expect(exitApp).toHaveBeenCalledTimes(1);
+    // Autosave was held while asking; a new edit is saved again.
+    await showInspector();
+    await type(inspector().querySelector<HTMLTextAreaElement>('textarea[aria-label="Synopsis"]')!, "Elena leaves.");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    });
+    expect(writeFile).toHaveBeenCalledWith(ROOT, "project.json", expect.stringContaining("Elena leaves."));
   });
 
   it("closes the app while the project is still opening", async () => {
@@ -647,7 +697,7 @@ describe("on a tablet, with the binder and inspector beside the text", () => {
 
     // The binder is part of the main screen here.
     await pressBack();
-    expect(exitApp).toHaveBeenCalledTimes(1);
+    await expectAsked();
   });
 });
 

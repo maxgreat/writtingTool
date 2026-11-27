@@ -1,6 +1,7 @@
 /*
  * The close dialog (CloseDialog.tsx): asked on desktop before the window
- * closes. Centred over a scrim, above everything else, popovers included.
+ * closes, and on a phone when Back is pressed on the main screen. Centred
+ * over a scrim, above everything else, popovers included.
  */
 
 /* A grid, so the dialog's auto margins centre it, and a dialog taller than

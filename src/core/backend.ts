@@ -439,7 +439,7 @@ export async function loadBackend(): Promise<Backend> {
     // Phones have no window to close: the system closes apps.
     const closeWindow = desktop ? appBackend.closeWindow : undefined;
     const setWindowTheme = desktop ? appBackend.setWindowTheme : undefined;
-    // Phones have a Back button instead, which closes the app from its main screen.
+    // Phones have a Back button instead, which asks to close the app from its main screen.
     const onBackButton = desktop ? undefined : appBackend.onBackButton;
     const exitApp = desktop ? undefined : appBackend.exitApp;
     const dropbox = info.dropbox ? dropboxBackend : undefined;

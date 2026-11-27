@@ -16,6 +16,12 @@ export interface CloseDialogProps {
   onDiscard(): void;
   /** Write the pending edits, then close (also the retry after an error). */
   onSaveAndClose(): void;
+  /**
+   * Whether focus goes back where it was once the dialog closes (true by
+   * default). Not on a phone: given back to the text, it would bring up the
+   * keyboard Back had just put away.
+   */
+  returnFocus?: boolean;
 }
 
 /** What the dialog shows: the save state, with a write under way (autosave's, or Save and close's) as one. */
@@ -29,7 +35,8 @@ const TITLES: Record<View, string> = {
 };
 
 /**
- * Desktop: asked before the window closes (its close button, or Quit).
+ * Asked before the app closes: on desktop before the window closes (its
+ * close button, or Quit), on a phone when Back is pressed on the main screen.
  * Autosave has usually written everything already, so it says so; when
  * something isn't written yet it offers to save it first, and after a failed
  * save, to try again or to close without it.
@@ -37,8 +44,8 @@ const TITLES: Record<View, string> = {
  * A decision, so the scrim does nothing when pressed; Escape (and a phone's
  * Back) cancels. It sits in a portal above everything, popovers included.
  * Focus starts on the primary button (on Cancel while that waits), Tab stays
- * inside, and focus goes back where it was once the dialog closes. Keys
- * pressed in it don't bubble on to the app.
+ * inside, and focus goes back where it was once the dialog closes (unless
+ * `returnFocus` is false). Keys pressed in it don't bubble on to the app.
  */
 export function CloseDialog({
   open,
@@ -48,6 +55,7 @@ export function CloseDialog({
   onClose,
   onDiscard,
   onSaveAndClose,
+  returnFocus = true,
 }: CloseDialogProps): JSX.Element | null {
   const titleId = useId();
   const textId = useId();
@@ -60,6 +68,8 @@ export function CloseDialog({
   const placed = useRef<HTMLElement | null>(null);
   const cancel = useRef(onCancel);
   cancel.current = onCancel;
+  const giveFocusBack = useRef(returnFocus);
+  giveFocusBack.current = returnFocus;
 
   const view: View = closing || save.status === "saving" ? "saving" : save.status;
   const waiting = view === "saving";
@@ -78,6 +88,7 @@ export function CloseDialog({
     const active = document.activeElement;
     if (active && !node?.contains(active)) returnTo.current = active;
     return () => {
+      if (!giveFocusBack.current) return;
       const now = document.activeElement;
       const lost = !now || now === document.body || !now.isConnected || node?.contains(now);
       const back = returnTo.current;

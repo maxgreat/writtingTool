@@ -18,7 +18,7 @@ import { typographyFor } from "../core/typography";
 import { useGrammar } from "../core/useGrammar";
 import { useSpelling } from "../core/useSpelling";
 import { TextNote } from "./AddName";
-import { BACK_AGAIN, BackLayer, useBackLayer, useLeaveOnBack, type Leave } from "./BackStack";
+import { BackLayer, useBackLayer, useLeaveOnBack, type Leave } from "./BackStack";
 import { Binder } from "./Binder";
 import { SheetPreview } from "./BottomSheet";
 import { CloseDialog } from "./CloseDialog";
@@ -1036,42 +1036,10 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
    */
   const quitRunning = useRef(false);
   const [quitting, setQuitting] = useState(false);
-  const { mayClose } = api;
 
   /**
-   * Closes the app with `close`, for Quit and a phone's Back: takes the
-   * focused field's edit, then saves, and stays open once if the edits
-   * can't be saved, so the error shows (`again` ends it: how to leave
-   * anyway). A field that refused its edit stops the first try too, so its
-   * reason shows. If `close` fails, a note titled `failed` says why.
-   */
-  const leaveApp = useCallback(
-    async (close: () => Promise<void>, failed: string, again?: string) => {
-      if (quitRunning.current) return;
-      quitRunning.current = true;
-      setQuitting(true);
-      try {
-        const taken = await commitField();
-        if (!taken && !quitStopped.current) {
-          quitStopped.current = true;
-          return;
-        }
-        quitStopped.current = false;
-        if (!(await mayClose(again))) return;
-        await close();
-      } catch (error) {
-        refuse(failed, error);
-      } finally {
-        quitRunning.current = false;
-        setQuitting(false);
-      }
-    },
-    [commitField, mayClose, refuse],
-  );
-
-  /**
-   * The close dialog, in the desktop app: open while the writer chooses,
-   * with what answers the close it was opened for (true closes the window).
+   * The close dialog: open while the writer chooses, with what answers the
+   * close it was opened for (true closes the window, or the phone's app).
    */
   const [closeAsk, setCloseAsk] = useState<{ answer(close: boolean): void } | null>(null);
   /** Save and close was chosen and the save is being written. */
@@ -1079,42 +1047,60 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
   const { holdAutosave, setCloseHandler } = api;
 
   /**
-   * Whether the window may close, asked when its close button, Quit or
-   * Ctrl+Q closes it: takes the focused field's edit, then asks in the close
-   * dialog, autosave waiting meanwhile. A field that refused its edit stops
-   * the first close, so its reason shows; the next goes on without it. A
-   * close asked for while one is being decided is refused: that one goes on.
+   * Whether the app may close, asked when the desktop window's close
+   * button, Quit or Ctrl+Q closes it, and by a phone's Back on the main
+   * screen: takes the focused field's edit, then asks in the close dialog,
+   * autosave waiting meanwhile. A field that refused its edit stops the
+   * first close, so its reason shows; the next goes on without it. A close
+   * asked for while one is being decided is refused: that one goes on.
+   * `leave` (a phone's) closes the app once the writer chose to; if it
+   * fails, the app stays and a note says why. Resolves to whether it closes.
    */
-  const confirmClose = useCallback(async (): Promise<boolean> => {
-    if (quitRunning.current) return false;
-    quitRunning.current = true;
-    setQuitting(true);
-    let resume: (() => void) | null = null;
-    let close = false;
-    try {
-      const taken = await commitField();
-      if (!taken && !quitStopped.current) {
-        quitStopped.current = true;
-        return false;
+  const askToClose = useCallback(
+    async (leave?: () => Promise<void>): Promise<boolean> => {
+      if (quitRunning.current) return false;
+      quitRunning.current = true;
+      setQuitting(true);
+      let resume: (() => void) | null = null;
+      let close = false;
+      try {
+        const taken = await commitField();
+        if (!taken && !quitStopped.current) {
+          quitStopped.current = true;
+          return false;
+        }
+        quitStopped.current = false;
+        resume = holdAutosave();
+        close = await new Promise<boolean>((answer) => setCloseAsk({ answer }));
+        if (close && leave) {
+          try {
+            await leave();
+          } catch (error) {
+            close = false;
+            refuse("Couldn’t close the app", error);
+          }
+        }
+        return close;
+      } finally {
+        setCloseAsk(null);
+        setSavingToClose(false);
+        if (!close) {
+          resume?.();
+          // Quit's menu item is gone: back to the text, unless the dialog put focus back where it was.
+          // Not after a phone's Back: focusing the text would bring the keyboard up.
+          if (!leave) {
+            void nextFrame().then(() => {
+              if (focusLost()) editorRef.current?.focus();
+            });
+          }
+        }
+        quitRunning.current = false;
+        setQuitting(false);
       }
-      quitStopped.current = false;
-      resume = holdAutosave();
-      close = await new Promise<boolean>((answer) => setCloseAsk({ answer }));
-      return close;
-    } finally {
-      setCloseAsk(null);
-      setSavingToClose(false);
-      if (!close) {
-        resume?.();
-        // Quit's menu item is gone: back to the text, unless the dialog put focus back where it was.
-        void nextFrame().then(() => {
-          if (focusLost()) editorRef.current?.focus();
-        });
-      }
-      quitRunning.current = false;
-      setQuitting(false);
-    }
-  }, [commitField, holdAutosave]);
+    },
+    [commitField, holdAutosave, refuse],
+  );
+  const confirmClose = useCallback(() => askToClose(), [askToClose]);
 
   // The desktop app asks before its window closes; elsewhere useProject's own check runs.
   const closeAskRef = useRef(closeAsk);
@@ -1166,18 +1152,15 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
     [backend, refuse],
   );
 
-  /** A phone's Back with nothing open on top: Quit's checks, then the app closes, unless something opened meanwhile. */
-  const leaveOnBack = useCallback<Leave>(
-    (nothingOpen) =>
-      leaveApp(
-        async () => {
-          if (nothingOpen()) await backend.exitApp?.();
-        },
-        "Couldn’t close the app",
-        BACK_AGAIN,
-      ),
-    [backend, leaveApp],
-  );
+  /**
+   * A phone's Back with nothing open on top: asks in the close dialog, as
+   * the desktop window does, then closes the app. Not waited for, so the
+   * next Back reaches the dialog and cancels it.
+   */
+  const leaveOnBack = useCallback<Leave>(async () => {
+    const { exitApp } = backend;
+    if (exitApp) void askToClose(exitApp);
+  }, [backend, askToClose]);
   useLeaveOnBack(leaveOnBack);
 
   // Only the Quit right after a stopped one leaves without the field's edit:
@@ -1694,6 +1677,7 @@ export function Workspace({ api, project, backend, settings, update, isPhone }: 
         onClose={closeDialog.close}
         onDiscard={closeDialog.discard}
         onSaveAndClose={() => void closeDialog.saveAndClose()}
+        returnFocus={!backend.exitApp}
       />
 
       {refusal && <TextNote at={refusal.at} title={refusal.title} message={refusal.message} />}

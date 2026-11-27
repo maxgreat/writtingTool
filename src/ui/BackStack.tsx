@@ -16,7 +16,8 @@ import type { Backend } from "../core/backend";
  * Android's Back button. Each press closes one thing, the one on top, as
  * Escape does on a desktop: a menu or popover, a sheet from the bottom, a
  * confirmation, a name being typed, a phone's side panel. With nothing open
- * (the main screen), it closes the app, once pending edits are saved.
+ * (the main screen), it asks whether to close the app, in the close dialog
+ * (Workspace); before a project is open, it closes the app at once.
  *
  * What Back can close says so while it is open (useBackLayer, BackLayer).
  * Layers form a tree that follows the components, through portals: a menu
@@ -31,8 +32,10 @@ import type { Backend } from "../core/backend";
 
 /**
  * Back on the main screen: decides whether the app may close (pending edits
- * are saved first), then closes it, unless `nothingOpen()` says something
- * was opened meanwhile.
+ * are saved first, or the writer is asked), then closes it, unless
+ * `nothingOpen()` says something was opened meanwhile. While it runs, other
+ * presses are ignored: one that asks resolves once it has asked, so Back can
+ * answer the question.
  */
 export type Leave = (nothingOpen: () => boolean) => Promise<void>;
 

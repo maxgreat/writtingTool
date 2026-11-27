@@ -333,6 +333,13 @@ describe("focus", () => {
     expect(document.activeElement).toBe(field);
   });
 
+  it("isn't given back when it shouldn't be (a phone's, where it would bring up the keyboard)", () => {
+    render({ save: { status: "saved" }, returnFocus: false });
+    expect(document.activeElement).toBe(button("Close"));
+    render({ open: false });
+    expect(document.activeElement).not.toBe(field);
+  });
+
   it("goes back where it was when the dialog goes away while open", () => {
     render({ save: { status: "pending" } });
     act(() => root.render(null));

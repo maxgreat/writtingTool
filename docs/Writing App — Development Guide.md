@@ -163,7 +163,7 @@ Names in the text are highlighted (Elena, Harbor Inn) and clicking one opens its
 
 - **Panel behaviour:** drag a panel's edge to resize it. Widths and open or closed state are remembered per device. A hidden panel slides away and the text column re-centres; it reopens instantly where you left it.
 - **Focus mode (F11):** hides both panels and both bars. Moving the pointer to the top edge brings the bar back; Esc leaves.
-- **Phones (under about 700 px wide):** the editor fills the screen. The same two buttons, or a swipe from the screen edge, slide the binder in from the left and the inspector from the right. A tapped name opens a half-height sheet preview, and the formatting bar docks above the on-screen keyboard.
+- **Phones (under about 700 px wide):** the editor fills the screen. The same two buttons, or a swipe from the screen edge (on Android only with button navigation: with gesture navigation the edges are Back), slide the binder in from the left and the inspector from the right. Back closes the keyboard, then what is open on top, one thing at a time; on the main screen it asks before closing the app. A tapped name opens a half-height sheet preview, and the formatting bar docks above the on-screen keyboard.
 - **Tablets in landscape:** the desktop layout.
 - **Theme:** light and dark, following the system by default.
 
