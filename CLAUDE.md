@@ -24,7 +24,7 @@ How it is enforced: when the critic returns PASS, `.claude/hooks/critic-record.s
 Push to `origin main` after each commit. `.githooks/pre-push` checks two things, in this order:
 
 1. Every outgoing commit has a matching critic approval (see above).
-2. The app built from each pushed branch starts. `.githooks/verify-launch` builds the release app from a clean copy of the commit (uncommitted and untracked files don't count) and starts it with empty data folders. It passes once a chapter opens in the editor. It fails if the build fails, if the app quits early, or if no chapter shows within 60 seconds. The window appears for a moment.
+2. The app built from each pushed branch starts. `.githooks/verify-launch` builds the release app from a clean copy of the commit (uncommitted and untracked files don't count) and starts it with empty data folders. It passes once a chapter opens in the editor. It fails if the build fails, if the app quits early, or if no chapter shows within 60 seconds. The window appears for a moment. When the checked commit is the tip of `main`, the check copies the build to `Writing Tool` at the top of the repository (ignored by git), so the user can open the newest pushed app with a double-click.
 
 The check needs `npm` and `cargo` on PATH and a desktop session. A push takes a minute or two, so give the push command a long timeout. If the check fails, fix the cause in a new commit, approved by the critic as usual, then push again. To run the check without pushing, use `.githooks/verify-launch` (checks HEAD) or `.githooks/verify-launch <commit>`.
 

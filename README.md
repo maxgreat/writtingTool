@@ -109,7 +109,7 @@ npm run screenshots               # retakes the pictures in docs/screenshots (ne
 .githooks/verify-launch           # builds the app from HEAD and checks that it starts and opens a chapter
 ```
 
-`git push` runs the last one on what it pushes, after checking that the critic approved every commit (see [CLAUDE.md](CLAUDE.md)).
+`git push` runs the last one on what it pushes, after checking that the critic approved every commit (see [CLAUDE.md](CLAUDE.md)). When it checks the tip of `main`, it also leaves that build at the top of the repository as `Writing Tool` (ignored by git), so on Linux the newest pushed app opens with a double-click. It uses your real projects, like an installed copy.
 
 ## Layout
 

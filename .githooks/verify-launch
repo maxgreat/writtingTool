@@ -75,3 +75,13 @@ if [ "$status" -ne 0 ] || ! grep -q '^launch check: ' "$work/run.log"; then
   fail "the app quit before showing a chapter (exit status $status)"
 fi
 echo "verify-launch: the app starts and shows a chapter (${waited}s)"
+
+# A build of main's tip is kept at the top of the repository as "Writing
+# Tool" (ignored by git), to open with a double-click. It goes through a
+# temporary name and a rename, which works even while the old one is open.
+if [ "$commit" = "$(git rev-parse --verify --quiet main)" ]; then
+  cp "$target/release/writing-tool" "$root/.Writing Tool.part" \
+    && mv -f "$root/.Writing Tool.part" "$root/Writing Tool" \
+    && echo "verify-launch: double-click \"Writing Tool\" at the top of the repository to open this build" \
+    || echo "verify-launch: couldn't copy the build to \"Writing Tool\" (the check still passed)" >&2
+fi

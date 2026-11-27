@@ -3,6 +3,9 @@ node_modules
 dist
 dist-ssr
 *.local
+# The build of main that .githooks/verify-launch leaves to double-click
+/Writing Tool
+/.Writing Tool.part
 
 # Logs
 *.log
