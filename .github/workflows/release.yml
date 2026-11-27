@@ -1,6 +1,6 @@
 # Builds the app for Linux, Windows, macOS and Android on every push to main
 # that changes the app, and publishes the files as a GitHub release named
-# build-<run number>. The README and the website link to
+# build-<run number>. Download/README.md, the README and the website link to
 # releases/latest/download/<file>, so the file names below must not change.
 name: Release
 
@@ -13,6 +13,7 @@ on:
       - '*.pdf'
       - 'LICENSE'
       - 'docs/**'
+      - 'Download/**'
       - 'fastlane/**'
       - '.claude/**'
       - '.githooks/**'
@@ -352,7 +353,7 @@ jobs:
               echo "| Android, 64-bit ARM | Writing-Tool-android-arm64.apk |"
             fi
             echo
-            echo "The apps are not code-signed, so Windows and macOS warn before the first launch. The [install steps](https://github.com/$REPO#download) say how to get past the warning."
+            echo "The apps are not code-signed, so Windows and macOS warn before the first launch. The [install steps](https://github.com/$REPO/tree/main/Download) say how to get past the warning."
             if [ -n "$prev" ]; then
               echo
               echo "## Changes since $prev"

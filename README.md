@@ -1,12 +1,14 @@
 # Writing Tool
 
-A writing app for novels, in the spirit of Scrivener and novelWriter: a binder of parts and chapters, the chapter in the middle, an inspector with character and place sheets. Chapters are plain Markdown files. The design and the plan are in [Writing App — Development Guide.md](Writing%20App%20—%20Development%20Guide.md).
+**[Download for Windows, macOS, Linux and Android](Download/)**
+
+A writing app for novels, in the spirit of Scrivener and novelWriter: a binder of parts and chapters, the chapter in the middle, an inspector with character and place sheets. Chapters are plain Markdown files. The design and the plan are in [Writing App — Development Guide.md](docs/Writing%20App%20—%20Development%20Guide.md).
 
 Phase 1 of the guide, the writing core, is built, with sheet forms from phase 2, name detection from phase 3, spelling and English grammar from phase 4 and export from phase 7: the desktop app (tested on Linux) and the Android app, reading and writing project folders on the device. Sync through Dropbox, from phase 6, is built; the conflict view and presence badges come next.
 
 ## Download
 
-The website, **[maxgreat.github.io/writtingTool](https://maxgreat.github.io/writtingTool/)**, has these downloads too, with screenshots and the same install notes.
+The **[Download](Download/)** folder has a page for these files, with the install steps for each system. The website, **[maxgreat.github.io/writtingTool](https://maxgreat.github.io/writtingTool/)**, has them too, with screenshots.
 
 Every push to `main` that changes the app builds it for each platform and publishes the files as a [release](https://github.com/maxgreat/writtingTool/releases). These links always get the newest build:
 
@@ -17,12 +19,7 @@ Every push to `main` that changes the app builds it for each platform and publis
 | Linux | [AppImage](https://github.com/maxgreat/writtingTool/releases/latest/download/Writing-Tool-linux-x86_64.AppImage), [.deb](https://github.com/maxgreat/writtingTool/releases/latest/download/Writing-Tool-linux-amd64.deb) (Debian, Ubuntu) or [.rpm](https://github.com/maxgreat/writtingTool/releases/latest/download/Writing-Tool-linux-x86_64.rpm) (Fedora, openSUSE) |
 | Android, 64-bit ARM phones | [Writing-Tool-android-arm64.apk](https://github.com/maxgreat/writtingTool/releases/latest/download/Writing-Tool-android-arm64.apk) |
 
-The apps are not code-signed yet, so Windows and macOS warn before the first launch:
-
-- **Windows:** run the setup file. If SmartScreen says "Windows protected your PC", choose **More info**, then **Run anyway**. It installs for your user only, without admin rights.
-- **macOS:** open the .dmg and drag Writing Tool to Applications. The first time you open it, macOS says it can't verify the app: open **System Settings → Privacy & Security** and choose **Open Anyway**.
-- **Linux:** make the AppImage executable and run it (`chmod +x Writing-Tool-linux-x86_64.AppImage`, then `./Writing-Tool-linux-x86_64.AppImage`), or install a package with `sudo apt install ./Writing-Tool-linux-amd64.deb` or `sudo dnf install ./Writing-Tool-linux-x86_64.rpm`. The app needs WebKitGTK 4.1, which current distributions have.
-- **Android:** open the APK on the phone and allow your browser to install apps when asked. Later builds install over it and keep your projects.
+The apps are not code-signed yet, so Windows and macOS warn before the first launch. [Download](Download/) says what to choose.
 
 ## Screenshots
 
@@ -130,7 +127,9 @@ npm run screenshots               # retakes the pictures in docs/screenshots (ne
 | `docs/index.html`, `docs/site.css` | The website, served by GitHub Pages from the `docs/` folder of `main`. It shows the screenshots from `docs/screenshots/`, so it stays current with each push |
 | `docs/privacy.html` | The privacy policy, linked from the website, from the Google Play listing and from the app (the last line of the Projects view; the app may open pages of this site only). Update it before releasing anything that sends data off the device |
 | `fastlane/metadata/android/en-US/` | The Google Play listing: title, descriptions, store icon, feature graphic and phone screenshots, in the layout fastlane and F-Droid read |
-| `.github/workflows/release.yml` | Builds the app for Linux, Windows, macOS and Android on each push to `main` and publishes a release. The links under [Download](#download) depend on its file names |
+| `Download/README.md` | The download page: the newest file for each system, with its install steps |
+| `docs/Writing App — Development Guide.md` | The design and the plan, in phases |
+| `.github/workflows/release.yml` | Builds the app for Linux, Windows, macOS and Android on each push to `main` and publishes a release. The links in `Download/`, under [Download](#download) and on the website depend on its file names |
 
 ## What the app has, and what comes next
 
